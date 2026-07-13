@@ -1,0 +1,1224 @@
+/* =============================================================================
+   JOKSWED — SYSTÈME DE DESIGN
+   -----------------------------------------------------------------------------
+   Direction artistique : « la lumière dans le blanc ».
+   Le site est presque entièrement blanc — comme une page de magazine ou une
+   cimaise de galerie — pour laisser toute la place aux photographies.
+   L'identité vient de la photo de profil : noir profond, blancs lumineux,
+   et ce halo de lumière qui devient la signature graphique du site.
+   ============================================================================= */
+
+:root {
+  /* --- Palette (issue de la photo de profil, en négatif) ------------------- */
+  --blanc: #ffffff;        /* fond principal */
+  --papier: #fbfaf8;       /* blanc légèrement chaud, sections alternées */
+  --brume: #f3f1ed;        /* gris très clair, fonds d'images / cartes */
+  --ligne: #e8e5df;        /* filets et bordures */
+  --gris: #8b8781;         /* textes secondaires, légendes */
+  --encre-douce: #45423d;  /* texte courant */
+  --encre: #141312;        /* titres, noir profond de la photo */
+
+  /* --- Typographie ---------------------------------------------------------- */
+  /* Les familles sont injectées par next/font dans app/layout.jsx :
+     --font-display : Cormorant Garamond (titres, élégance intemporelle)
+     --font-sans    : Jost (textes, labels — géométrique, esprit éditorial)   */
+  --ls-label: 0.28em;      /* interlettrage des étiquettes en capitales */
+
+  /* --- Rythme ---------------------------------------------------------------- */
+  --gouttiere: clamp(1.25rem, 4vw, 3rem);
+  --section: clamp(5rem, 12vh, 9rem);
+  --max: 1200px;
+  --max-texte: 42rem;
+
+  /* --- Mouvement -------------------------------------------------------------- */
+  --duree: 0.9s;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1); /* sortie douce, très naturelle */
+}
+
+/* --- Réinitialisation minimale ---------------------------------------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--blanc);
+  color: var(--encre-douce);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 300;
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+::selection {
+  background: var(--encre);
+  color: var(--blanc);
+}
+
+/* Focus clavier visible et élégant (accessibilité) */
+:focus-visible {
+  outline: 1.5px solid var(--encre);
+  outline-offset: 4px;
+  border-radius: 1px;
+}
+
+/* =============================================================================
+   TYPOGRAPHIE
+   ============================================================================= */
+
+.display {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--encre);
+  text-wrap: balance;
+}
+
+.display em {
+  font-style: italic;
+  font-weight: 300;
+}
+
+.t-hero    { font-size: clamp(2.75rem, 7.5vw, 5.5rem); }
+.t-section { font-size: clamp(2.1rem, 4.5vw, 3.4rem); }
+.t-carte   { font-size: clamp(1.5rem, 2.5vw, 1.9rem); }
+
+/* Étiquette en capitales espacées — le fil conducteur éditorial du site */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.9rem;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.label::before {
+  content: "";
+  width: 2rem;
+  height: 1px;
+  background: var(--encre);
+  opacity: 0.35;
+}
+
+.label--nu::before { display: none; }
+
+.texte {
+  max-width: var(--max-texte);
+}
+
+.texte + .texte { margin-top: 1.25em; }
+
+/* =============================================================================
+   STRUCTURE
+   ============================================================================= */
+
+.conteneur {
+  width: min(100% - 2 * var(--gouttiere), var(--max));
+  margin-inline: auto;
+}
+
+.section {
+  padding-block: var(--section);
+}
+
+.section--papier { background: var(--papier); }
+
+.entete-section {
+  display: grid;
+  gap: 1.4rem;
+  margin-bottom: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+/* =============================================================================
+   BOUTONS & LIENS
+   ============================================================================= */
+
+/* Bouton principal : un rectangle d'encre, sobre et sûr de lui */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.05rem 2.2rem;
+  background: var(--encre);
+  color: var(--blanc);
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  transition: background-color 0.35s var(--ease), transform 0.35s var(--ease);
+}
+
+.btn:hover { background: #2c2a27; }
+.btn:active { transform: scale(0.985); }
+
+/* Variante "fantôme" sur fond sombre ou photo */
+.btn--clair {
+  background: var(--blanc);
+  color: var(--encre);
+}
+.btn--clair:hover { background: var(--papier); }
+
+/* Lien souligné à l'élégante : le trait se redessine au survol */
+.lien {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--encre);
+  padding-bottom: 0.45rem;
+}
+
+.lien::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--encre);
+  transform-origin: right;
+  transition: transform 0.5s var(--ease);
+}
+
+.lien:hover::after {
+  transform: scaleX(0.35);
+  transform-origin: left;
+}
+
+/* =============================================================================
+   ANIMATIONS D'APPARITION (composant <Reveal>)
+   Chaque bloc apparaît en douceur quand il entre dans l'écran.
+   ============================================================================= */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition:
+    opacity var(--duree) var(--ease),
+    transform var(--duree) var(--ease);
+  transition-delay: var(--retard, 0s);
+  will-change: opacity, transform;
+}
+
+.reveal.est-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Les images « se développent » : elles émergent du blanc, comme un tirage
+   argentique dans son bain de révélateur. C'est la signature du site. */
+.photo {
+  position: relative;
+  overflow: hidden;
+  background: var(--brume);
+}
+
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 1.2s var(--ease), filter 1.2s var(--ease), opacity 1.2s var(--ease);
+}
+
+.photo--revele img {
+  opacity: 0;
+  filter: brightness(1.6) contrast(0.85);
+  transform: scale(1.04);
+  transition-delay: var(--retard, 0s);
+}
+
+.photo--revele.est-visible img {
+  opacity: 1;
+  filter: none;
+  transform: scale(1);
+}
+
+/* Zoom très léger au survol, réservé aux images cliquables */
+a .photo img,
+button .photo img,
+.photo--zoom img {
+  transition: transform 1.2s var(--ease), filter 1.2s var(--ease), opacity 1.2s var(--ease);
+}
+
+a:hover .photo img,
+button:hover .photo img {
+  transform: scale(1.035);
+}
+
+/* Respect de la préférence « réduire les animations » */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .reveal,
+  .photo--revele img {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  * { animation: none !important; }
+}
+
+/* =============================================================================
+   EN-TÊTE (header)
+   ============================================================================= */
+
+.entete {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 50;
+  transition: background-color 0.45s var(--ease), box-shadow 0.45s var(--ease);
+}
+
+.entete--plein {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 1px 0 var(--ligne);
+}
+
+.entete__barre {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 4.75rem;
+}
+
+.marque {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.45rem;
+  letter-spacing: 0.04em;
+  color: var(--encre);
+}
+
+.marque span { font-style: italic; font-weight: 300; }
+
+.nav-bureau {
+  display: none;
+  align-items: center;
+  gap: 2.4rem;
+}
+
+.nav-bureau a {
+  position: relative;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--encre);
+  padding-block: 0.4rem;
+}
+
+.nav-bureau a::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--encre);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s var(--ease);
+}
+
+.nav-bureau a:hover::after,
+.nav-bureau a[aria-current="page"]::after {
+  transform: scaleX(1);
+}
+
+@media (min-width: 900px) {
+  .nav-bureau { display: flex; }
+  .burger { display: none; }
+}
+
+/* Bouton burger : deux traits qui deviennent une croix */
+.burger {
+  position: relative;
+  width: 2.6rem;
+  height: 2.6rem;
+  display: grid;
+  place-items: center;
+  z-index: 70;
+}
+
+.burger span {
+  position: absolute;
+  width: 1.5rem;
+  height: 1.5px;
+  background: var(--encre);
+  transition: transform 0.45s var(--ease), opacity 0.3s;
+}
+
+.burger span:nth-child(1) { transform: translateY(-4px); }
+.burger span:nth-child(2) { transform: translateY(4px); }
+
+.burger[aria-expanded="true"] span:nth-child(1) { transform: rotate(45deg); }
+.burger[aria-expanded="true"] span:nth-child(2) { transform: rotate(-45deg); }
+
+/* Menu mobile plein écran, blanc, très aéré */
+.menu-mobile {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--blanc);
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.5s var(--ease), visibility 0.5s;
+}
+
+.menu-mobile.est-ouvert {
+  opacity: 1;
+  visibility: visible;
+}
+
+.menu-mobile a {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2rem, 8vw, 2.8rem);
+  color: var(--encre);
+  padding: 0.35rem 1rem;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+
+.menu-mobile.est-ouvert a {
+  opacity: 1;
+  transform: none;
+}
+
+.menu-mobile__contact {
+  margin-top: 2rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+/* =============================================================================
+   ACCUEIL — HÉROS
+   ============================================================================= */
+
+.heros {
+  position: relative;
+  min-height: 100svh;
+  display: grid;
+  align-items: end;
+  color: var(--blanc);
+  overflow: hidden;
+  background: var(--encre);
+}
+
+.heros__image {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.heros__image img {
+  width: 100%;
+  height: 112%;
+  object-fit: cover;
+}
+
+/* Voile lumineux : le bas du héros fond vers le blanc de la page.
+   C'est le « halo » de la photo de profil, traduit en interface. */
+.heros__voile {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to top, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0) 45%),
+    radial-gradient(120% 60% at 50% 108%, rgba(255, 255, 255, 0.14), transparent 60%);
+}
+
+.heros__contenu {
+  position: relative;
+  padding-bottom: clamp(4rem, 10vh, 7rem);
+  display: grid;
+  gap: 1.6rem;
+  max-width: 46rem;
+}
+
+.heros__contenu .display { color: var(--blanc); }
+
+.heros__contenu .label {
+  color: rgba(255, 255, 255, 0.8);
+}
+.heros__contenu .label::before { background: rgba(255, 255, 255, 0.6); }
+
+.heros__sous-titre {
+  max-width: 34rem;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 1.05rem;
+}
+
+/* Petit indicateur de défilement, discret */
+.heros__fleche {
+  position: absolute;
+  bottom: 2rem;
+  right: var(--gouttiere);
+  width: 1px;
+  height: 4rem;
+  background: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+}
+
+.heros__fleche::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--blanc);
+  animation: goutte 2.4s var(--ease) infinite;
+}
+
+@keyframes goutte {
+  0% { transform: translateY(-100%); }
+  60%, 100% { transform: translateY(100%); }
+}
+
+/* =============================================================================
+   ACCUEIL — PRÉSENTATION (texte + image)
+   ============================================================================= */
+
+.presentation {
+  display: grid;
+  gap: clamp(2.5rem, 6vw, 5rem);
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .presentation {
+    grid-template-columns: 1.05fr 0.95fr;
+  }
+}
+
+.presentation__texte {
+  display: grid;
+  gap: 1.5rem;
+  justify-items: start;
+}
+
+.presentation__image {
+  aspect-ratio: 4 / 5;
+}
+
+/* =============================================================================
+   GALERIE MOSAÏQUE (accueil + reportages)
+   ============================================================================= */
+
+.mosaique {
+  columns: 2;
+  column-gap: clamp(0.9rem, 2vw, 1.6rem);
+}
+
+@media (min-width: 900px) {
+  .mosaique { columns: 3; }
+}
+
+.mosaique > * {
+  break-inside: avoid;
+  margin-bottom: clamp(0.9rem, 2vw, 1.6rem);
+  width: 100%;
+}
+
+/* =============================================================================
+   ACCUEIL — DERNIERS MARIAGES
+   ============================================================================= */
+
+.reportages {
+  display: grid;
+  gap: clamp(2rem, 5vw, 3rem);
+}
+
+@media (min-width: 800px) {
+  .reportages { grid-template-columns: repeat(3, 1fr); }
+}
+
+.carte-reportage {
+  display: grid;
+  gap: 1.1rem;
+}
+
+.carte-reportage .photo {
+  aspect-ratio: 4 / 5;
+}
+
+.carte-reportage__meta {
+  display: flex;
+  gap: 0.8rem;
+  align-items: baseline;
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.carte-reportage h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.55rem;
+  color: var(--encre);
+}
+
+/* =============================================================================
+   AVIS — bandeau à défilement doux (scroll-snap)
+   ============================================================================= */
+
+.avis {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(88%, 34rem);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 1rem;
+  scrollbar-width: none;
+}
+
+.avis::-webkit-scrollbar { display: none; }
+
+.avis > figure {
+  scroll-snap-align: start;
+  display: grid;
+  gap: 1.6rem;
+  padding: clamp(1.8rem, 4vw, 3rem);
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+
+.avis blockquote {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.25rem, 2.4vw, 1.55rem);
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--encre);
+}
+
+.avis figcaption {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+/* =============================================================================
+   BANDEAU D'APPEL À L'ACTION (CTA)
+   ============================================================================= */
+
+.cta-bandeau {
+  text-align: center;
+  display: grid;
+  justify-items: center;
+  gap: 2rem;
+}
+
+.cta-bandeau .display { max-width: 22ch; }
+
+/* =============================================================================
+   PORTFOLIO
+   ============================================================================= */
+
+.filtres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.6rem 2.2rem;
+  margin-bottom: clamp(2rem, 5vw, 3.5rem);
+}
+
+.filtre {
+  position: relative;
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gris);
+  padding-bottom: 0.45rem;
+  transition: color 0.3s;
+}
+
+.filtre::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--encre);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s var(--ease);
+}
+
+.filtre:hover { color: var(--encre); }
+
+.filtre.est-actif {
+  color: var(--encre);
+}
+.filtre.est-actif::after { transform: scaleX(1); }
+
+/* =============================================================================
+   PAGE REPORTAGE (mariage)
+   ============================================================================= */
+
+.reportage-entete {
+  min-height: 72svh;
+  display: grid;
+  align-items: end;
+  position: relative;
+  color: var(--blanc);
+  background: var(--encre);
+  overflow: hidden;
+}
+
+.reportage-entete .heros__contenu { padding-bottom: clamp(3rem, 8vh, 5rem); }
+
+.reportage-texte {
+  max-width: var(--max-texte);
+  margin-inline: auto;
+  text-align: center;
+  display: grid;
+  gap: 1.4rem;
+  justify-items: center;
+}
+
+/* Galerie immersive : la mosaïque est ponctuée d'images pleine largeur */
+.pleine-largeur {
+  width: 100%;
+  aspect-ratio: 21 / 9;
+}
+
+@media (max-width: 700px) {
+  .pleine-largeur { aspect-ratio: 4 / 3; }
+}
+
+.reportage-pied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid var(--ligne);
+  padding-top: 2.5rem;
+}
+
+/* =============================================================================
+   TARIFS
+   ============================================================================= */
+
+.formules {
+  display: grid;
+  gap: clamp(1.5rem, 3vw, 2rem);
+  align-items: stretch;
+}
+
+@media (min-width: 900px) {
+  .formules { grid-template-columns: repeat(3, 1fr); }
+}
+
+.formule {
+  display: grid;
+  align-content: start;
+  gap: 1.4rem;
+  padding: clamp(2rem, 4vw, 2.8rem);
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+  transition: transform 0.5s var(--ease), box-shadow 0.5s var(--ease);
+}
+
+.formule:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 60px -36px rgba(20, 19, 18, 0.28);
+}
+
+/* La formule centrale s'inverse : encre sur blanc devient blanc sur encre */
+.formule--phare {
+  background: var(--encre);
+  border-color: var(--encre);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.formule--phare .formule__nom,
+.formule--phare .formule__prix { color: var(--blanc); }
+
+.formule--phare .label { color: rgba(255, 255, 255, 0.65); }
+.formule--phare .label::before { background: rgba(255, 255, 255, 0.5); }
+
+.formule__nom {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.7rem;
+  color: var(--encre);
+}
+
+.formule__prix {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.3rem;
+  font-style: italic;
+  color: var(--encre);
+}
+
+.formule__duree {
+  font-size: 0.7rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: inherit;
+  opacity: 0.75;
+}
+
+.formule ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+  font-size: 0.95rem;
+}
+
+.formule li {
+  padding-left: 1.4rem;
+  position: relative;
+}
+
+.formule li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  opacity: 0.45;
+}
+
+/* Options */
+.options {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--ligne);
+}
+
+.option {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1.6rem 0;
+  border-bottom: 1px solid var(--ligne);
+}
+
+@media (min-width: 800px) {
+  .option {
+    grid-template-columns: 16rem 1fr;
+    gap: 2rem;
+    align-items: baseline;
+  }
+}
+
+.option h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.25rem;
+  color: var(--encre);
+}
+
+/* Déroulement : une ligne du temps verticale, fine comme un filet */
+.deroulement {
+  display: grid;
+  gap: 0;
+  border-left: 1px solid var(--ligne);
+  padding-left: clamp(1.5rem, 4vw, 2.5rem);
+  max-width: 44rem;
+}
+
+.etape {
+  position: relative;
+  padding-block: 1.4rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.etape::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * clamp(1.5rem, 4vw, 2.5rem) - 2.5px);
+  top: 2.1rem;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--encre);
+}
+
+.etape h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.35rem;
+  color: var(--encre);
+}
+
+/* FAQ : accordéons natifs <details>, sobres et accessibles */
+.faq {
+  max-width: 46rem;
+  border-top: 1px solid var(--ligne);
+}
+
+.faq details {
+  border-bottom: 1px solid var(--ligne);
+}
+
+.faq summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 1.5rem 2.5rem 1.5rem 0;
+  position: relative;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.25rem;
+  color: var(--encre);
+  transition: opacity 0.3s;
+}
+
+.faq summary::-webkit-details-marker { display: none; }
+
+.faq summary::after {
+  content: "+";
+  position: absolute;
+  right: 0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-sans), sans-serif;
+  font-weight: 300;
+  font-size: 1.3rem;
+  color: var(--gris);
+  transition: transform 0.4s var(--ease);
+}
+
+.faq details[open] summary::after {
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.faq details > p {
+  padding-bottom: 1.6rem;
+  max-width: 40rem;
+}
+
+/* =============================================================================
+   À PROPOS
+   ============================================================================= */
+
+.apropos-heros {
+  display: grid;
+  gap: clamp(2.5rem, 6vw, 5rem);
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .apropos-heros { grid-template-columns: 0.9fr 1.1fr; }
+}
+
+.apropos-heros .photo { aspect-ratio: 4 / 5; }
+
+.blocs-vision {
+  display: grid;
+  gap: clamp(3rem, 7vw, 5rem);
+}
+
+@media (min-width: 900px) {
+  .blocs-vision { grid-template-columns: 1fr 1fr; }
+}
+
+.pourquoi {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--ligne);
+}
+
+.pourquoi__point {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.8rem 0;
+  border-bottom: 1px solid var(--ligne);
+}
+
+@media (min-width: 800px) {
+  .pourquoi__point {
+    grid-template-columns: 16rem 1fr;
+    gap: 2rem;
+  }
+}
+
+.pourquoi__point h3 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-size: 1.3rem;
+  color: var(--encre);
+}
+
+/* =============================================================================
+   CONTACT
+   ============================================================================= */
+
+.contact-grille {
+  display: grid;
+  gap: clamp(3rem, 7vw, 5rem);
+}
+
+@media (min-width: 950px) {
+  .contact-grille { grid-template-columns: 1fr 1.1fr; }
+}
+
+.contact-infos {
+  display: grid;
+  gap: 2rem;
+  align-content: start;
+}
+
+.contact-infos .photo { aspect-ratio: 4 / 5; max-width: 26rem; }
+
+.contact-coordonnees {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.contact-coordonnees a:hover { color: var(--encre); }
+
+/* Formulaire : champs soulignés, esprit papeterie */
+.formulaire {
+  display: grid;
+  gap: 2rem;
+  align-content: start;
+}
+
+.champ {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.champ label {
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.champ input,
+.champ textarea,
+.champ select {
+  font: inherit;
+  color: var(--encre);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--ligne);
+  padding: 0.65rem 0;
+  border-radius: 0;
+  transition: border-color 0.35s;
+}
+
+.champ input:focus,
+.champ textarea:focus,
+.champ select:focus {
+  outline: none;
+  border-bottom-color: var(--encre);
+}
+
+.champ textarea {
+  resize: vertical;
+  min-height: 8rem;
+}
+
+.formulaire__deux {
+  display: grid;
+  gap: 2rem;
+}
+
+@media (min-width: 640px) {
+  .formulaire__deux { grid-template-columns: 1fr 1fr; }
+}
+
+.formulaire__note {
+  font-size: 0.85rem;
+  color: var(--gris);
+}
+
+/* =============================================================================
+   VISIONNEUSE (lightbox)
+   ============================================================================= */
+
+.visionneuse {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(255, 255, 255, 0.97);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  animation: apparition 0.4s var(--ease);
+}
+
+@keyframes apparition {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.visionneuse__barre {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.2rem var(--gouttiere);
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.visionneuse__scene {
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0 var(--gouttiere) var(--gouttiere);
+  min-height: 0;
+}
+
+.visionneuse__scene img {
+  max-width: 100%;
+  max-height: calc(100svh - 8rem);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  box-shadow: 0 30px 80px -40px rgba(20, 19, 18, 0.35);
+}
+
+.visionneuse__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1.4rem;
+  font-size: 1.5rem;
+  font-weight: 300;
+  color: var(--encre);
+  opacity: 0.55;
+  transition: opacity 0.3s;
+  z-index: 2;
+}
+
+.visionneuse__nav:hover { opacity: 1; }
+.visionneuse__nav--prec { left: 0.4rem; }
+.visionneuse__nav--suiv { right: 0.4rem; }
+
+.visionneuse__fermer {
+  font-size: 0.7rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--encre);
+}
+
+/* =============================================================================
+   PIED DE PAGE
+   ============================================================================= */
+
+.pied {
+  background: var(--encre);
+  color: rgba(255, 255, 255, 0.72);
+  padding-block: clamp(3.5rem, 8vw, 6rem) 2rem;
+
+  /* Le halo, une dernière fois : une lueur discrète monte du bas de page. */
+  background-image: radial-gradient(
+    90% 70% at 50% 115%,
+    rgba(255, 255, 255, 0.08),
+    transparent 65%
+  );
+}
+
+.pied__haut {
+  display: grid;
+  gap: 2.5rem;
+  padding-bottom: 3rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+@media (min-width: 900px) {
+  .pied__haut {
+    grid-template-columns: 1.4fr 1fr 1fr;
+    gap: 3rem;
+  }
+}
+
+.pied .marque { color: var(--blanc); font-size: 1.8rem; }
+
+.pied__devise {
+  margin-top: 1rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  font-size: 1.15rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.pied h3 {
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 1.2rem;
+}
+
+.pied ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.65rem;
+  font-size: 0.95rem;
+}
+
+.pied a {
+  transition: color 0.3s;
+}
+
+.pied a:hover { color: var(--blanc); }
+
+.pied__bas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  padding-top: 2rem;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* =============================================================================
+   PAGES INTÉRIEURES — en-tête simple
+   ============================================================================= */
+
+.page-entete {
+  padding-top: clamp(9rem, 18vh, 12rem);
+  padding-bottom: clamp(3rem, 7vh, 5rem);
+  display: grid;
+  gap: 1.4rem;
+}
+
+.page-entete .texte { color: var(--gris); }
