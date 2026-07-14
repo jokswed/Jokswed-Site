@@ -260,14 +260,21 @@ export default function FAQ() {
 
       {/* IMAGE ET PHILOSOPHIE */}
       <section
-        className="conteneur presentation faq-presentation"
+        className="conteneur"
         style={{
           alignItems: "center",
           paddingBottom: "var(--section)",
         }}
       >
-        <Reveal retard={0.15}>
-          <div className="presentation__texte">
+        <Reveal>
+          <div 
+             className="presentation__texte"
+             style={{
+               maxWidth: "850px",
+               margin: "0 auto",
+               textAlign: "center",
+             }}
+            >
             <p className="label">Ma manière de travailler</p>
 
             <h2 className="display t-section">
@@ -286,7 +293,16 @@ export default function FAQ() {
               qui ne vous ressemblent pas.
             </p>
 
-            <Link href="/a-propos" className="lien">
+            <Link
+              href="/a-propos"
+              className="lien"
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                width: "fit-content",
+                margin: "2rem auto 0",
+              }}
+            >
               Découvrir mon approche →
             </Link>
           </div>
