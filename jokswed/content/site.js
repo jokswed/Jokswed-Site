@@ -228,7 +228,7 @@ export const tarifs = {
     { titre: "Réservation", texte: "Un contrat clair et un acompte réservent votre date. À partir de là, elle est à vous." },
     { titre: "Préparation", texte: "Quelques semaines avant le jour J, nous affinons ensemble le déroulé, les lieux et les moments qui comptent." },
     { titre: "Le jour J", texte: "Je suis là, discret et attentif, du début à la fin. Vous vivez votre journée — je m'occupe du reste." },
-    { titre: "La livraison", texte: "Sous 6 à 8 semaines, vous recevez votre galerie complète, retouchée avec soin, en haute définition." },
+    { titre: "La livraison", texte: "Sous 13 à 15 jours, vous recevez votre galerie complète, retouchée avec soin, en haute définition." },
   ],
   faq: [
     {
