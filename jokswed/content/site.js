@@ -95,7 +95,7 @@ export const categoriesPortfolio = [
 
 // --- Mariages (reportages) ------------------------------------------------------
 // Chaque reportage a sa propre page : /mariages/<slug>
-export const mariages = [
+/*export const mariages = [
   {
     slug: "clara-et-hugo",
     titre: "Wendy & Enric",
@@ -160,7 +160,7 @@ export const mariages = [
     ],
   },
 ];
-
+*/
 // --- Tarifs -----------------------------------------------------------------
 // ✏️ Remplacez les prix "Sur demande" et complétez les listes quand vous êtes prêt.
 export const tarifs = {
