@@ -25,7 +25,7 @@ export const site = {
 // --- Page d'accueil ----------------------------------------------------------
 export const accueil = {
   hero: {
-    image: "/images/hero.jpg",
+    image: "/images/DSC01345-Modifier.jpg",
     titre: "Chaque histoire compte.",
     sousTitre:
       "Photographe de mariage à Paris et à l'international. Des images sincères, lumineuses, faites pour durer.",
