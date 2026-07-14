@@ -72,7 +72,7 @@ export default function FormulaireContact() {
       <div className="formulaire__deux">
         <div className="champ">
           <label htmlFor="noms">Vos prénoms *</label>
-          <input id="noms" name="noms" type="text" required autoComplete="name" placeholder="Camille & Alex" />
+          <input id="noms" name="noms" type="text" required autoComplete="name" placeholder="Antony & Eva" />
         </div>
         <div className="champ">
           <label htmlFor="email">Votre e-mail *</label>
@@ -83,7 +83,7 @@ export default function FormulaireContact() {
       <div className="formulaire__deux">
         <div className="champ">
           <label htmlFor="date">Date du mariage</label>
-          <input id="date" name="date" type="text" placeholder="12 septembre 2027" />
+          <input id="date" name="date" type="text" placeholder="12 septembre 2000" />
         </div>
         <div className="champ">
           <label htmlFor="lieu">Lieu</label>
