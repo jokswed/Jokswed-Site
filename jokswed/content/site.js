@@ -62,9 +62,9 @@ export const accueil = {
     },
     {
       texte:
-        "On ne t'as presque pas remarqué de la journée, et pourtant tout y est. Chaque image raconte quelque chose de magnifique.",
-      auteur: "Louise & Théo",
-      lieu: "Normandie",
+        "On tient à te remercier pour les magnifiques photos de notre mariage que tu as réalisées elles sont parfaites. Merci pour ton professionnalisme et ta gentillesse surtout, on et vraiment heureux du résultat ! ",
+      auteur: "Celine & Kevin",
+      lieu: "Paris",
     },
   ],
 };
@@ -98,14 +98,14 @@ export const categoriesPortfolio = [
 export const mariages = [
   {
     slug: "clara-et-hugo",
-    titre: "Clara & Hugo",
-    lieu: "Paris, France",
-    saison: "Été 2025",
+    titre: "Wendy & Enric",
+    lieu: "Domaine de Merlac, Rieussec",
+    saison: "Été 2026",
     extrait:
-      "Un mariage intime au cœur de Paris, entre lumière d'été et douceur des derniers instants du jour.",
+      "Un mariage intime au cœur de grillons et du soleil, entre lumière d'été et douceur des derniers instants du jour.",
     cover: "/images/mariages/clara-et-hugo/cover.jpg",
     texte:
-      "Clara et Hugo se sont dit oui un samedi de juillet, entourés d'une cinquantaine de proches. De la matinée des préparatifs à la dernière danse, la journée a été traversée par cette lumière franche et généreuse que seul l'été parisien sait offrir. J'ai voulu en garder la simplicité : des rires, des mains serrées, et ce moment suspendu sur les quais, juste avant le dîner.",
+      "Wendy et Enric se sont dit oui un jour de Juin, entourés d'une quarantaine de proches. De la matinée des préparatifs à la dernière danse, la journée a été traversée par cette lumière franche et généreuse que seul l'été montpellierain sait offrir. J'ai voulu en garder la simplicité : des rires, des mains serrées, et ce moment suspendu sur les quais, juste avant le dîner.",
     photos: [
       "/images/mariages/clara-et-hugo/01.jpg",
       "/images/mariages/clara-et-hugo/02.jpg",
