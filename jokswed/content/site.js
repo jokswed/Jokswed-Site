@@ -260,7 +260,7 @@ export const aPropos = {
   imageSecondaire: "/images/a-propos/atelier.jpg",
   intro: "Amoureux d'images, avant tout.",
   presentation:
-    "Je m'appelle Joks. Photographe basé à Paris, je consacre mon travail aux mariages, aux couples et aux séries éditoriales. Ce qui me guide n'a pas changé depuis mes débuts : la conviction que chaque histoire compte, et qu'elle mérite d'être racontée avec justesse.",
+    "Je m'appelle John. Photographe basé à Paris, je consacre mon travail aux mariages, aux couples et aux séries éditoriales. Ce qui me guide n'a pas changé depuis mes débuts : la conviction que chaque histoire compte, et qu'elle mérite d'être racontée avec justesse.",
   vision: {
     titre: "Ma vision",
     texte:
