@@ -16,8 +16,8 @@ export const site = {
   signature: "Photographe de mariage",
   baseline: "Paris & International",
   devise: "Chaque histoire compte.",
-  email: "contact@jokswed.com",           // ← votre e-mail de contact
-  telephone: "+33 6 00 00 00 00",         // ← votre téléphone (ou "" pour masquer)
+  email: "jokswed@gmail.com",           // ← votre e-mail de contact
+  telephone: "+33 7 69 90 25 99",         // ← votre téléphone (ou "" pour masquer)
   instagram: "https://instagram.com/jokswed",
   url: "https://jokswed.com",             // ← l'URL finale du site (pour le SEO)
 };
@@ -33,7 +33,7 @@ export const accueil = {
   },
   presentation: {
     surtitre: "La démarche",
-    titre: "Des photographies qui vous ressemblent",
+    titre: "Des photos qui vous ressemblent",
     texte:
       "Je photographie les mariages comme on écrit une histoire : avec attention, discrétion et sincérité. Pas de poses figées, pas de mise en scène artificielle — simplement la lumière, les regards et les gestes qui n'appartiennent qu'à vous. Mon travail en noir et blanc comme en couleur cherche la même chose : l'émotion juste, celle que l'on veut retrouver dans vingt ans.",
     image: "/images/accueil/presentation.jpg",
@@ -50,19 +50,19 @@ export const accueil = {
   avis: [
     {
       texte:
-        "Des photos d'une justesse rare. Il a su capter des instants que nous n'avions même pas vus le jour J. Nous les regardons encore avec la même émotion.",
-      auteur: "Clara & Hugo",
+        "Franchement, on est tellement content des photos elles sont magnifiques, je suis tellement contente de t’avoir pris dans mon équipe de mariage ! Hâte de te revoir pour des photos de ouff",
+      auteur: "Wendy & Enric",
+      lieu: "Domaine de Merlac, Rieussec",
+    },
+    {
+      texte:
+        "Wooooow, j’ai regardé dans les grandes lignes, j’aime trop et John aussi ! Hâte de me poser et bien admirer, c’était vraiment un plaisir de t’avoir avec nous",
+      auteur: "Miniola & John",
       lieu: "Paris",
     },
     {
       texte:
-        "Discret, bienveillant, d'une élégance folle dans sa manière de travailler. Le reportage dépasse tout ce que nous espérions.",
-      auteur: "Inès & Adam",
-      lieu: "Provence",
-    },
-    {
-      texte:
-        "On ne l'a presque pas remarqué de la journée, et pourtant tout y est. Chaque image raconte quelque chose de vrai.",
+        "On ne t'as presque pas remarqué de la journée, et pourtant tout y est. Chaque image raconte quelque chose de magnifique.",
       auteur: "Louise & Théo",
       lieu: "Normandie",
     },
@@ -169,53 +169,57 @@ export const tarifs = {
   formules: [
     {
       nom: "Formule 1",
-      surnom: "L'essentiel",
-      prix: "Sur demande",
+      surnom: "L'essentielle",
+      prix: "1000€",
       duree: "Jusqu'à 8 h de présence",
       description: "Le cœur de votre journée, des préparatifs à l'ouverture du bal.",
-      inclus: [
-        "Reportage complet de la journée",
-        "Galerie privée en ligne",
-        "Photographies retouchées en haute définition",
-        "Sélection noir & blanc signature",
+      inclus: [ 
+         "Reportage complet du mariage", 
+         "Galerie privée en ligne", 
+         "Photographies retouchées en haute définition", 
+         "Clé USB personnalisée", 
       ],
       misEnAvant: false,
     },
     {
       nom: "Formule 2",
-      surnom: "La journée entière",
-      prix: "Sur demande",
+      surnom: "Signature",
+      prix: "1300€",
       duree: "Jusqu'à 12 h de présence",
-      description: "La formule la plus choisie : votre journée entière, sans compter.",
-      inclus: [
-        "Des préparatifs à la soirée dansante",
-        "Galerie privée en ligne",
-        "Photographies retouchées en haute définition",
-        "Sélection noir & blanc signature",
-        "Séance couple le jour J",
+      description: "Votre journée entière, des préparatifs à la soirée dansante.",
+      inclus: [ 
+         "Reportage complet de la journée", 
+         "Galerie privée en ligne", 
+         "Photographies retouchées en haute définition", 
+         "Séance couple le jour J", "Clé USB personnalisée", 
+         "Album premium 25 × 25 cm", 
+         "Couverture en cuir personnalisée", 
       ],
       misEnAvant: true, // ← la carte mise en valeur au centre
     },
     {
       nom: "Formule 3",
-      surnom: "Le récit complet",
-      prix: "Sur demande",
-      duree: "Journée entière + séance",
-      description: "Pour celles et ceux qui veulent tout garder, avant et après le jour J.",
-      inclus: [
-        "Journée entière de présence",
-        "Séance engagement avant le mariage",
-        "Galerie privée en ligne",
-        "Photographies retouchées en haute définition",
-        "Coffret de tirages fine art",
+      surnom: "Prestige",
+      prix: "1600€",
+      duree: "Jusqu'à 14 h de présence + séance engagement",
+      description: "L'expérience la plus complète pour raconter votre histoire.",
+      inclus: [ 
+         "Journée complète jusqu'aux temps forts de la soirée", 
+         "Séance engagement avant le mariage", 
+         "Galerie privée en ligne", 
+         "Photographies retouchées en haute définition", 
+         "Clé USB personnalisée", 
+         "Grand album premium 30 × 30 cm", 
+         "Couverture en cuir personnalisée", 
+         "Coffret en cuir assorti", 
       ],
       misEnAvant: false,
     },
   ],
   options: [
     { nom: "Séance engagement", detail: "Une séance couple avant le mariage, pour se rencontrer et apprivoiser l'objectif." },
-    { nom: "Album fine art", detail: "Un album artisanal imprimé sur papier d'art, conçu sur mesure." },
-    { nom: "Second photographe", detail: "Un deuxième regard pour les grands mariages ou les lieux multiples." },
+    { nom: "Album premium supplémentaire", detail: "Un second album en cuir personnalisé, parfait pour offrir à vos proches." },
+    { nom: "Vidéaste professionnel", detail: "Immortalisez votre journée en vidéo grâce à un vidéaste partenaire sélectionné avec soin. Disponible sur demande." },
     { nom: "Jour d'après (day after)", detail: "Une séance libre le lendemain, en tenue de mariés, là où vous voulez." },
     { nom: "Tirages d'exposition", detail: "Tirages grand format, contrecollés et prêts à accrocher." },
   ],
@@ -240,17 +244,12 @@ export const tarifs = {
     {
       question: "Sous quel délai les photos sont-elles livrées ?",
       reponse:
-        "Une sélection d'avant-première vous parvient dans la semaine qui suit le mariage. La galerie complète est livrée sous 6 à 8 semaines.",
+        "Une sélection d'avant-première vous parvient dans la semaine qui suit le mariage. La galerie complète est livrée sous 15 à 20 jours.",
     },
     {
       question: "Comment réserver une date ?",
       reponse:
         "Un simple message via la page contact suffit. Après un premier échange, la date est bloquée à la signature du contrat et au versement de l'acompte.",
-    },
-    {
-      question: "Travaillez-vous seulement en noir et blanc ?",
-      reponse:
-        "Non — vous recevez votre reportage en couleur et en noir et blanc. Le noir et blanc est ma signature, mais la couleur fait pleinement partie du récit.",
     },
   ],
 };
@@ -275,7 +274,7 @@ export const aPropos = {
   pourquoi: {
     titre: "Pourquoi me choisir",
     points: [
-      { titre: "Un regard d'auteur", texte: "Une écriture visuelle reconnaissable, nourrie par le noir et blanc et le travail éditorial." },
+      { titre: "Un regard d'auteur", texte: "Une écriture visuelle reconnaissable, nourrie par la couleur mais aussi par le noir et blanc et le travail éditorial." },
       { titre: "Une présence discrète", texte: "Vous vivez votre journée pleinement ; les images se font sans que vous y pensiez." },
       { titre: "Une exigence artisanale", texte: "Chaque photographie livrée est choisie et retouchée individuellement, à la main." },
       { titre: "Un engagement clair", texte: "Contrat précis, délais tenus, galerie sécurisée : tout est simple et transparent." },
