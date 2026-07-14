@@ -95,72 +95,8 @@ export const categoriesPortfolio = [
 
 // --- Mariages (reportages) ------------------------------------------------------
 // Chaque reportage a sa propre page : /mariages/<slug>
-/*export const mariages = [
-  {
-    slug: "clara-et-hugo",
-    titre: "Wendy & Enric",
-    lieu: "Domaine de Merlac, Rieussec",
-    saison: "Été 2026",
-    extrait:
-      "Un mariage intime au cœur de grillons et du soleil, entre lumière d'été et douceur des derniers instants du jour.",
-    cover: "/images/mariages/clara-et-hugo/cover.jpg",
-    texte:
-      "Wendy et Enric se sont dit oui un jour de Juin, entourés d'une quarantaine de proches. De la matinée des préparatifs à la dernière danse, la journée a été traversée par cette lumière franche et généreuse que seul l'été montpellierain sait offrir. J'ai voulu en garder la simplicité : des rires, des mains serrées, et ce moment suspendu sur les quais, juste avant le dîner.",
-    photos: [
-      "/images/mariages/clara-et-hugo/01.jpg",
-      "/images/mariages/clara-et-hugo/02.jpg",
-      "/images/mariages/clara-et-hugo/03.jpg",
-      "/images/mariages/clara-et-hugo/04.jpg",
-      "/images/mariages/clara-et-hugo/05.jpg",
-      "/images/mariages/clara-et-hugo/06.jpg",
-      "/images/mariages/clara-et-hugo/07.jpg",
-      "/images/mariages/clara-et-hugo/08.jpg",
-    ],
-  },
-  {
-    slug: "ines-et-adam",
-    titre: "Inès & Adam",
-    lieu: "Provence, France",
-    saison: "Printemps 2025",
-    extrait:
-      "Deux jours en Provence, un domaine entre les oliviers, et une fête qui n'a pas voulu finir.",
-    cover: "/images/mariages/ines-et-adam/cover.jpg",
-    texte:
-      "Inès et Adam avaient choisi un domaine perdu entre les oliviers, à une heure d'Aix. Deux jours de fête, une cérémonie laïque écrite à quatre mains, et cette lumière de printemps qui rase les pierres blondes en fin de journée. Le reportage alterne noir et blanc et couleur, comme la journée elle-même alternait solennité et joie pure.",
-    photos: [
-      "/images/mariages/ines-et-adam/01.jpg",
-      "/images/mariages/ines-et-adam/02.jpg",
-      "/images/mariages/ines-et-adam/03.jpg",
-      "/images/mariages/ines-et-adam/04.jpg",
-      "/images/mariages/ines-et-adam/05.jpg",
-      "/images/mariages/ines-et-adam/06.jpg",
-      "/images/mariages/ines-et-adam/07.jpg",
-      "/images/mariages/ines-et-adam/08.jpg",
-    ],
-  },
-  {
-    slug: "louise-et-theo",
-    titre: "Louise & Théo",
-    lieu: "Normandie, France",
-    saison: "Automne 2025",
-    extrait:
-      "Un mariage d'automne face à la mer, entre vent, lumière grise et immense tendresse.",
-    cover: "/images/mariages/louise-et-theo/cover.jpg",
-    texte:
-      "Louise et Théo voulaient la mer, quitte à affronter le vent d'octobre. Ils ont eu les deux, et c'est ce qui fait la beauté de ce reportage : des voiles qui s'envolent, des éclats de rire sous la pluie fine, et une lumière grise, douce, profondément normande, qui donne aux images un grain de film ancien.",
-    photos: [
-      "/images/mariages/louise-et-theo/01.jpg",
-      "/images/mariages/louise-et-theo/02.jpg",
-      "/images/mariages/louise-et-theo/03.jpg",
-      "/images/mariages/louise-et-theo/04.jpg",
-      "/images/mariages/louise-et-theo/05.jpg",
-      "/images/mariages/louise-et-theo/06.jpg",
-      "/images/mariages/louise-et-theo/07.jpg",
-      "/images/mariages/louise-et-theo/08.jpg",
-    ],
-  },
-];
-*/
+export const mariages = [];
+
 // --- Tarifs -----------------------------------------------------------------
 // ✏️ Remplacez les prix "Sur demande" et complétez les listes quand vous êtes prêt.
 export const tarifs = {
