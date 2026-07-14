@@ -266,26 +266,6 @@ export default function FAQ() {
           paddingBottom: "var(--section)",
         }}
       >
-        <Reveal>
-          <div
-            className="photo"
-            style={{
-              position: "relative",
-              width: "100%",
-              aspectRatio: "4 / 5",
-              overflow: "hidden",
-            }}
-          >
-            <Image
-              src="/images/faq/faq-accompagnement.jpg"
-              alt="Photographe accompagnant un couple pendant leur mariage"
-              fill
-              sizes="(max-width: 900px) 100vw, 50vw"
-              style={{ objectFit: "cover" }}
-            />
-          </div>
-        </Reveal>
-
         <Reveal retard={0.15}>
           <div className="presentation__texte">
             <p className="label">Ma manière de travailler</p>
