@@ -14,7 +14,7 @@ import { site } from "@/content/site";
 const LIENS = [
   { href: "/", label: "Accueil" },
   { href: "/portfolio", label: "Portfolio" },
-  { href: "/mariages", label: "Mariages" },
+  { href: "/faq", label: "FAQ" },
   { href: "/tarifs", label: "Tarifs" },
   { href: "/a-propos", label: "À propos" },
   { href: "/contact", label: "Contact" },
