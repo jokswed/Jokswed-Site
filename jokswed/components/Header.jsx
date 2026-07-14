@@ -27,7 +27,7 @@ export default function Header() {
 
   /* La page d'accueil et les reportages ont un héros sombre :
      le header y reste transparent tant qu'on n'a pas défilé. */
-  const surHeros = pathname === "/" || pathname.startsWith("/mariages/");
+  const surHeros = pathname === "/" || pathname.startsWith("/faq");
 
   useEffect(() => {
     const onScroll = () => setDefile(window.scrollY > 24);
