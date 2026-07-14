@@ -105,7 +105,7 @@ export const tarifs = {
   formules: [
     {
       nom: "Formule 1",
-      surnom: "L'essentielle",
+      surnom: "L'essentielle✨",
       prix: "1000€",
       duree: "Jusqu'à 8 h de présence",
       description: "Le cœur de votre journée, des préparatifs à l'ouverture du bal.",
@@ -119,7 +119,7 @@ export const tarifs = {
     },
     {
       nom: "Formule 2",
-      surnom: "Signature",
+      surnom: "Signature🤍",
       prix: "1300€",
       duree: "Jusqu'à 12 h de présence",
       description: "Votre journée entière, des préparatifs à la soirée dansante.",
@@ -135,7 +135,7 @@ export const tarifs = {
     },
     {
       nom: "Formule 3",
-      surnom: "Prestige",
+      surnom: "Prestige👑",
       prix: "1600€",
       duree: "Jusqu'à 14 h de présence + séance engagement",
       description: "L'expérience la plus complète pour raconter votre histoire.",
