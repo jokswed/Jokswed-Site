@@ -256,7 +256,7 @@ export const tarifs = {
 
 // --- À propos -----------------------------------------------------------------
 export const aPropos = {
-  portrait: "/images/a-propos/pp-jokswed.jpg",
+  portrait: "/images/a-propos/portrait.jpg",
   imageSecondaire: "/images/a-propos/atelier.jpg",
   intro: "Amoureux d'images, avant tout.",
   presentation:
