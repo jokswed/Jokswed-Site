@@ -3,7 +3,7 @@
 /* =============================================================================
    EN-TÊTE
    - Transparent au-dessus du héros, il devient blanc translucide au défilement.
-   - Sur mobile : menu plein écran, liens qui apparaissent en cascade.
+   - Sur mobile : menu plein écran avec bouton ✕ indépendant.
    ============================================================================= */
 
 import Link from "next/link";
@@ -25,8 +25,6 @@ export default function Header() {
   const [defile, setDefile] = useState(false);
   const [ouvert, setOuvert] = useState(false);
 
-  /* La page d'accueil et les reportages ont un héros sombre :
-     le header y reste transparent tant qu'on n'a pas défilé. */
   const surHeros = pathname === "/" || pathname.startsWith("/faq");
 
   useEffect(() => {
@@ -36,11 +34,15 @@ export default function Header() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* Fermer le menu à chaque navigation + bloquer le défilement quand ouvert */
-  useEffect(() => setOuvert(false), [pathname]);
+  useEffect(() => {
+    setOuvert(false);
+  }, [pathname]);
+
   useEffect(() => {
     document.documentElement.style.overflow = ouvert ? "hidden" : "";
-    return () => (document.documentElement.style.overflow = "");
+    return () => {
+      document.documentElement.style.overflow = "";
+    };
   }, [ouvert]);
 
   const plein = defile || !surHeros;
@@ -49,25 +51,15 @@ export default function Header() {
     <header className={`entete ${plein ? "entete--plein" : ""}`}>
       <div className="conteneur entete__barre">
         <Link
-           href="/"
-           className="marque"
-           style={
-             ouvert
-               ? { opacity: 0, pointerEvents: "none" }
-               : !plein
-               ? { color: "#fff" }
-               : undefined
-           }
-         >
-            Joks<span>Wed</span>
-         </Link>
+          href="/"
+          className="marque"
+          style={!plein ? { color: "#fff" } : undefined}
+        >
+          Joks<span>Wed</span>
+        </Link>
 
         {/* Navigation bureau */}
-        <nav
-           className="nav-bureau"
-           aria-label="Navigation principale"
-           style={ouvert ? { opacity: 0, pointerEvents: "none" } : undefined}
-        >
+        <nav className="nav-bureau" aria-label="Navigation principale">
           {LIENS.filter((l) => l.href !== "/").map((l) => (
             <Link
               key={l.href}
@@ -80,37 +72,56 @@ export default function Header() {
           ))}
         </nav>
 
-        {/* Bouton menu mobile */}
-        <button
-          className="burger"
-          aria-expanded={ouvert}
-          aria-controls="menu-mobile"
-          aria-label={ouvert ? "Fermer le menu" : "Ouvrir le menu"}
-          onClick={() => setOuvert(!ouvert)}
-        >
-          <span style={!plein && !ouvert ? { background: "#fff" } : undefined} />
-          <span style={!plein && !ouvert ? { background: "#fff" } : undefined} />
-        </button>
+        {/* Burger uniquement lorsque le menu est fermé */}
+        {!ouvert && (
+          <button
+            className="burger"
+            aria-expanded="false"
+            aria-controls="menu-mobile"
+            aria-label="Ouvrir le menu"
+            onClick={() => setOuvert(true)}
+          >
+            <span
+              style={!plein ? { background: "#fff" } : undefined}
+            />
+            <span
+              style={!plein ? { background: "#fff" } : undefined}
+            />
+          </button>
+        )}
       </div>
 
-      {/* Menu mobile plein écran */}
+      {/* Menu mobile */}
       <nav
         id="menu-mobile"
         className={`menu-mobile ${ouvert ? "est-ouvert" : ""}`}
         aria-label="Menu mobile"
       >
+        {/* Croix indépendante */}
+        <button
+          className="menu-mobile__close"
+          aria-label="Fermer le menu"
+          onClick={() => setOuvert(false)}
+        >
+          ✕
+        </button>
+
         <div className="menu-mobile__liens">
-           {LIENS.map((l, i) => (
-             <Link
-               key={l.href}
-               href={l.href}
-               style={{ transitionDelay: ouvert ? `${0.08 + i * 0.06}s` : "0s" }}
-             >
-               {l.label}
-             </Link>
-           ))}
+          {LIENS.map((l, i) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              style={{
+                transitionDelay: ouvert
+                  ? `${0.08 + i * 0.06}s`
+                  : "0s",
+              }}
+            >
+              {l.label}
+            </Link>
+          ))}
         </div>
-         
+
         <p className="menu-mobile__contact">
           {site.email} · {site.baseline}
         </p>
