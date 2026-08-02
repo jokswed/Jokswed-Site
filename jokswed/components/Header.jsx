@@ -43,22 +43,31 @@ export default function Header() {
     return () => (document.documentElement.style.overflow = "");
   }, [ouvert]);
 
-  const plein = defile || ouvert || !surHeros;
+  const plein = defile || !surHeros;
 
   return (
     <header className={`entete ${plein ? "entete--plein" : ""}`}>
       <div className="conteneur entete__barre">
         <Link
-          href="/"
-          className="marque"
-          aria-label={`${site.nom} — retour à l'accueil`}
-          style={!plein ? { color: "#fff" } : undefined}
-        >
-          Joks<span>Wed</span>
-        </Link>
+           href="/"
+           className="marque"
+           style={
+             ouvert
+               ? { opacity: 0, pointerEvents: "none" }
+               : !plein
+               ? { color: "#fff" }
+               : undefined
+           }
+         >
+            Joks<span>Wed</span>
+         </Link>
 
         {/* Navigation bureau */}
-        <nav className="nav-bureau" aria-label="Navigation principale">
+        <nav
+           className="nav-bureau"
+           aria-label="Navigation principale"
+           style={ouvert ? { opacity: 0, pointerEvents: "none" } : undefined}
+        >
           {LIENS.filter((l) => l.href !== "/").map((l) => (
             <Link
               key={l.href}
