@@ -396,11 +396,17 @@ button:hover .photo img {
 
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
 
+  padding-top: 120px;
+  padding-bottom: 40px;
+
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+
   text-align: center;
-  gap: 0.4rem;
+  gap: 18px;
 
   opacity: 0;
   visibility: hidden;
