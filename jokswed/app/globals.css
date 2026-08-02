@@ -393,10 +393,15 @@ button:hover .photo img {
   inset: 0;
   z-index: 60;
   background: var(--blanc);
-  display: grid;
-  place-content: center;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
   text-align: center;
   gap: 0.4rem;
+
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.5s var(--ease), visibility 0.5s;
@@ -415,6 +420,8 @@ button:hover .photo img {
   opacity: 0;
   transform: translateY(16px);
   transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+   display: block;
+   margin: 18px 0;
 }
 
 .menu-mobile.est-ouvert a {
