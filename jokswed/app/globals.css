@@ -396,14 +396,14 @@ button:hover .photo img {
 
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  align-items: center;
 
   text-align: center;
-  gap: 18px;
+
+  gap: 24px;
+
+  overflow: hidden;
 
   opacity: 0;
   visibility: hidden;
@@ -416,15 +416,14 @@ button:hover .photo img {
 }
 
 .menu-mobile a {
+  display: block;
   font-family: var(--font-display), Georgia, serif;
-  font-size: clamp(2rem, 8vw, 2.8rem);
+  font-size: clamp(1.8rem, 7vw, 2.6rem);
   color: var(--encre);
-  padding: 0.35rem 1rem;
+  text-decoration: none;
   opacity: 0;
   transform: translateY(16px);
-  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
-   display: block;
-   margin: 18px 0;
+  transition: opacity .6s var(--ease), transform .6s var(--ease);
 }
 
 .menu-mobile.est-ouvert a {
@@ -433,9 +432,9 @@ button:hover .photo img {
 }
 
 .menu-mobile__contact {
-  margin-top: 2rem;
-  font-size: 0.7rem;
-  letter-spacing: 0.24em;
+  margin-top: 32px;
+  font-size: .75rem;
+  letter-spacing: .22rem;
   text-transform: uppercase;
   color: var(--gris);
 }
