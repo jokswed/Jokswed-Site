@@ -396,11 +396,8 @@ button:hover .photo img {
 
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
   align-items: center;
-
-  padding-top: 120px;
-  padding-bottom: 40px;
+  justify-content: center;
 
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -410,7 +407,7 @@ button:hover .photo img {
 
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.5s var(--ease), visibility 0.5s;
+  transition: opacity .5s var(--ease), visibility .5s;
 }
 
 .menu-mobile.est-ouvert {
