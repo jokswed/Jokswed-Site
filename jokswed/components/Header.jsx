@@ -90,15 +90,18 @@ export default function Header() {
         className={`menu-mobile ${ouvert ? "est-ouvert" : ""}`}
         aria-label="Menu mobile"
       >
-        {LIENS.map((l, i) => (
-          <Link
-            key={l.href}
-            href={l.href}
-            style={{ transitionDelay: ouvert ? `${0.08 + i * 0.06}s` : "0s" }}
-          >
-            {l.label}
-          </Link>
-        ))}
+        <div className="menu-mobile__liens">
+           {LIENS.map((l, i) => (
+             <Link
+               key={l.href}
+               href={l.href}
+               style={{ transitionDelay: ouvert ? `${0.08 + i * 0.06}s` : "0s" }}
+             >
+               {l.label}
+             </Link>
+           ))}
+        </div>
+         
         <p className="menu-mobile__contact">
           {site.email} · {site.baseline}
         </p>
