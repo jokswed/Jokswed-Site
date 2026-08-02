@@ -1463,3 +1463,24 @@ button:hover .photo img {
   }
 
 }
+
+.menu-mobile__close{
+  position:absolute;
+  top:28px;
+  right:28px;
+  width:48px;
+  height:48px;
+  border:none;
+  background:none;
+  cursor:pointer;
+
+  font-size:2rem;
+  line-height:1;
+  color:var(--encre);
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  z-index:10001;
+}
