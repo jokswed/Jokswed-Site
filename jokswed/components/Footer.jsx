@@ -25,6 +25,7 @@ export default function Footer() {
               <li><Link href="/tarifs">Tarifs</Link></li>
               <li><Link href="/a-propos">À propos</Link></li>
               <li><Link href="/contact">Contact</Link></li>
+              <li><Link href="/confidentialite">Vos données personnelles</Link></li>
             </ul>
           </nav>
 

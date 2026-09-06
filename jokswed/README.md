@@ -60,11 +60,15 @@ automatiquement en AVIF/WebP et adapte la taille à chaque écran.
 
 ## 📬 Formulaire de contact
 
-Par défaut, le formulaire ouvre le client mail du visiteur avec un message
-prérempli (aucun serveur requis). Pour recevoir les messages directement :
-créez un formulaire gratuit sur [formspree.io](https://formspree.io) et collez
-votre identifiant dans `components/FormulaireContact.jsx` (constante
-`FORMSPREE_ID`, tout est expliqué dans le fichier).
+Le formulaire envoie les demandes via `/api/contact` et Resend vers `CONTACT_TO_EMAIL` (par défaut : jokswed@gmail.com). Il ne lit pas la boîte Gmail.
+
+- `/contact` : premier contact, formule envisagée et téléphone facultatif.
+- `/preparer-devis` : formulaire à partager après le premier échange pour compléter le dossier. Aucune donnée client dans son URL ni dans le stockage du navigateur.
+- `/confidentialite` : information sur les traitements actuels à compléter après vérification des comptes fournisseurs avant publication.
+
+Configurer les variables de `.env.example` via Vercel. Aucun secret ni dossier client réel ne doit être ajouté au dépôt.
+
+Cette version collecte les demandes par e-mail. Elle ne génère et n’envoie aucun devis signé, ne crée aucun événement et ne suit pas les paiements. Voir `AUTOMATISATION.md` pour les étapes restantes.
 
 ## 🎨 Ajuster les couleurs et polices
 

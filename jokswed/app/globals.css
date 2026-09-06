@@ -1484,3 +1484,11 @@ button:hover .photo img {
 
   z-index:10001;
 }
+
+/* Préparation du dossier : même papeterie que le formulaire de contact. */
+.dossier-page { max-width: 900px; padding-top: 9rem; padding-bottom: var(--section); }
+.dossier-page header { margin-bottom: 3rem; }
+.dossier-champs { border: 1px solid #ccc; padding: clamp(1rem, 3vw, 2rem); display: grid; gap: 1.5rem; min-width: 0; }
+.dossier-champs legend { padding: 0 .5rem; font-size: 1.2rem; }
+.dossier-champs p { font-size: 1rem; line-height: 1.6; }
+.formulaire__note a { text-decoration: underline; }
