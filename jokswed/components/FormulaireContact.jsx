@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { FORMULES } from "@/lib/demande.mjs";
 
 export default function FormulaireContact({ detail = false }) {
+  const requestId = useRef(null);
   const [envoye, setEnvoye] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState("");
@@ -16,6 +17,8 @@ export default function FormulaireContact({ detail = false }) {
 
     const formulaire = e.currentTarget;
     const donnees = Object.fromEntries(new FormData(formulaire).entries());
+    requestId.current ||= crypto.randomUUID();
+    donnees.requestId = requestId.current;
 
     try {
       const reponse = await fetch("/api/contact", {
@@ -33,6 +36,7 @@ export default function FormulaireContact({ detail = false }) {
       }
 
       formulaire.reset();
+      requestId.current = null;
       setEnvoye(true);
     } catch (err) {
       setErreur(

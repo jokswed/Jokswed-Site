@@ -1,41 +1,36 @@
-# Parcours JoksWed : état et raccordement
+# Parcours JoksWed — état au 8 septembre 2026
 
-## Prêt dans cette branche
+## Implémenté, à raccorder avant utilisation réelle
 
-Collecte courte et complémentaire, validation serveur, transmission structurée par Resend au photographe, page d’information sur les données. Calcul des montants en centimes avec choix de TVA obligatoire et échéancier exact ; module testé mais pas encore relié à une interface d’émission.
+- Formulaire court et formulaire complémentaire. Resend continue à notifier le photographe.
+- Avec WORKFLOW_ENABLED=true, les demandes sont enregistrées dans PostgreSQL avant la notification. La répétition d’une soumission portant le même identifiant ne crée pas un second dossier. Une notification manquante n’efface pas le dossier enregistré.
+- Espace privé /gestion : authentification par mot de passe fort et cookie signé de huit heures, création manuelle pour les demandes issues des réseaux, liste et modification des dossiers.
+- Trois formules, options à prix explicite, préparation en franchise de TVA par défaut, prix client inchangé. La confirmation du régime est exigée avant signature.
+- Devis et contrat PDF à partir du dossier enregistré. Un brouillon reste non signé. Les conditions initiales sont une base adaptée du contrat fourni, à relire ; les mentions [À COMPLÉTER] empêchent la validation du contrat.
+- Validation séparée des deux documents après consultation et confirmation de lecture. Le serveur vérifie la version consultée. L’image de signature du professionnel reste côté serveur. Cette apposition n’est pas une signature électronique certifiée par un prestataire.
+- PDF validés conservés avec empreinte et date. Toute édition crée une nouvelle version et invalide les approbations courantes, tout en conservant les versions précédentes en historique.
+- Envoi explicite du PDF validé aux signataires via Resend. L’envoi est réservé en base avant l’appel externe ; en cas d’incertitude, le dossier affiche « envoi à vérifier » sans renvoi automatique ni édition possible. La résolution de ce cas nécessite pour l’instant une vérification administrative du fournisseur et de la base.
+- Choix Google visible dans Apple Calendrier confirmé par l’utilisateur. Oui/non obligatoire avant validation du devis. Si oui : horaires obligatoires, création d’une option après signature, sans invitation du client. Identifiant d’événement stable pour éviter les doublons ; reprise indépendante après échec.
 
-## À construire et connecter
+## Pas encore implémenté
 
-Stockage persistant des dossiers, espace privé du photographe, génération PDF, signature du professionnel après validation, envoi des documents, signature électronique client, calendrier, suivi de paiement et relances. Aucun de ces services n’est activé par cette branche.
+Signature électronique des clients par un prestataire, rapprochement des paiements, confirmation automatique de réservation, passage de l’événement « option » à « confirmé », relances et gestion des annulations. Ne pas annoncer ces fonctions comme actives.
 
-## Informations nécessaires
+## Mise en service Vercel
 
-- TVA : l’utilisateur doit vérifier. Ne pas reprendre automatiquement les 20 % des exemples.
-- Identité commerciale : références EyesofJoks, site JoksWed. Ne pas transformer silencieusement les documents.
-- Contrat : coordonnées du médiateur, délai des supports physiques et date du deuxième versement à préciser avant de figer le modèle.
-- Options : ne pas généraliser le tarif engagement de 100 € d’un exemple sans validation.
-- Choisir et connecter stockage, authentification et service de signature.
-- Calendrier : confirmer Google affiché dans Apple Calendrier ou iCloud, sans déplacer les événements existants.
-- Compléter les durées réelles de conservation et garanties de transferts hors EEE après vérification des comptes Vercel, Resend et Google avant publication de la notice. Cette branche ne constitue pas une validation juridique.
+1. Créer une base PostgreSQL Neon, de préférence dans une région UE adaptée. Ajouter sa connexion DATABASE_URL dans Vercel, jamais dans Git. Exécuter scripts/database.sql via la console SQL du fournisseur ou scripts/init-database.mjs depuis un environnement autorisé.
+2. Définir ADMIN_PASSWORD (secret aléatoire d’au moins 20 caractères), SESSION_SECRET (secret aléatoire distinct d’au moins 32 caractères), APP_URL (origine exacte, sans slash final). Les secrets ne sont jamais préfixés NEXT_PUBLIC_. Restreindre les accès aux paramètres Vercel et à la base.
+3. Conserver RESEND_API_KEY et les adresses d’expédition/réception existantes. Utiliser un expéditeur vérifié. Les demandes sont reçues à jokswed@gmail.com ; aucun accès à la boîte Gmail n’est requis.
+4. Fournir votre image de signature PNG via SIGNATURE_PNG_BASE64, côté serveur uniquement. Ne jamais la copier dans public/ ou dans Git.
+5. Vérifier les coordonnées DOCUMENT_* : référence EyesofJoks conservée faute de décision sur le nom commercial. Ajouter le régime TVA confirmé dans chaque dossier avant émission.
+6. Compléter les conditions : médiateur, délais des supports physiques et calendrier de paiement. Faire relire les modèles et l’information sur les données avant émission réelle.
+7. Créer un calendrier Google « JoksWed » et afficher ce compte dans Apple Calendrier. Configurer un client OAuth Google, activer Calendar API, obtenir l’autorisation du propriétaire (scope calendar.events), puis placer GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN et GOOGLE_CALENDAR_ID dans Vercel. Ne jamais coller ces secrets dans la conversation ou dans le dépôt. Le parcours OAuth guidé n’est pas encore fourni par cette interface. Vérifier les restrictions du mode test Google et le renouvellement de l’autorisation avant un usage durable.
+8. CALENDAR_TIMEZONE=Europe/Paris par défaut. Adapter le fuseau si les événements doivent être saisis dans un autre fuseau.
+9. Sur une Preview Vercel, tester uniquement avec des données fictives et des comptes destinataires de test choisis. Tester accès privé, dépôt d’une demande, modification, refus, PDF, validation, envoi et calendrier réel dans ces comptes.
+10. Compléter la notice de confidentialité avec Neon, les usages calendrier/documents, les durées de conservation et garanties de transferts réelles. Vérifier sauvegardes et suppression des dossiers. Activer WORKFLOW_ENABLED=true uniquement après ces raccordements.
 
-## Règles à implémenter pour la validation
+## Limites de validation actuelles
 
-1. Créer un brouillon sans signature ; ne jamais inventer des informations ou des prix manquants.
-2. Afficher la prestation, les montants, la TVA et les échéances au photographe.
-3. Avant validation du devis, demander « Ajouter au calendrier ? » oui/non. Si oui, vérifier calendrier et horaires. Aucune séance engagement dans le calendrier sans date convenue.
-4. Enregistrer la validation du photographe sur une version immuable du document avec auteur et horodatage. La consultation d’un lien ne signe rien.
-5. Toute modification invalide la validation. La signature reste en stockage privé côté serveur.
-6. Validation distincte du devis et du contrat.
-7. Créer « Option mariage — Prénoms » uniquement après validation et si choisi. Envois et événements doivent être idempotents pour éviter les doublons lors de reprises.
-8. Recueillir chaque signature client et, séparément, l’autorisation facultative de publication des photographies.
-9. Confirmer la réservation après signature des deux documents et encaissement vérifié de l’acompte. Mettre à jour le même événement. Sans connexion de paiement, le photographe confirme l’encaissement.
-10. Déclencher la relance du solde seulement après confirmation de l’aperçu photo ; suspendre les relances après réponse, paiement, annulation ou contestation.
-11. Une erreur calendrier ne doit pas recommencer la signature ni renvoyer le devis. Reprendre l’étape échouée indépendamment.
+Tests unitaires des règles métier, sessions, refus, versionnement et calculs ; compilation du site et inspection visuelle de PDF fictifs. Les intégrations Neon, Resend et Google ne sont pas validées avec des comptes réels ici : leurs identifiants ne sont pas fournis. Aucun vrai document client n’est envoyé ou signé pendant les tests. L’image utilisée dans le test de signature est un pixel fictif.
 
-## Vérifications avant activation
-
-Tester avec des données fictives et des destinataires de test explicitement désignés. Vérifier les autorisations de chaque dossier côté serveur, la signature des événements fournisseurs, les refus et modifications du photographe, les doublons réseau et les erreurs de messagerie. Ne jamais tester avec les coordonnées des PDF clients.
-
-## Hébergement
-
-Conserver Vercel, le répertoire racine `jokswed` et les variables Resend existantes. Tester d’abord une Preview Vercel. Aucune fusion en production tant que les informations de confidentialité ne sont pas complétées.
+Conserver Vercel et le répertoire racine jokswed. Ne pas fusionner en production avant vérification des comptes et de la notice de confidentialité.

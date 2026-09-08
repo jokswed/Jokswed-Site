@@ -1492,3 +1492,37 @@ button:hover .photo img {
 .dossier-champs legend { padding: 0 .5rem; font-size: 1.2rem; }
 .dossier-champs p { font-size: 1rem; line-height: 1.6; }
 .formulaire__note a { text-decoration: underline; }
+
+/* Espace privé : dossiers et documents dans la continuité de la papeterie du site. */
+.gestion {padding-top:8rem;padding-bottom:5rem;max-width:1350px;font-size:16px;}
+.gestion-head {display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:2rem;}
+.gestion h1 {font-size:clamp(2.4rem,5vw,4rem);line-height:1.1;}
+.gestion h2 {font-size:1.6rem;margin-bottom:1rem;}
+.gestion p {line-height:1.6;margin:.8rem 0;}
+.gestion-grid {display:grid;grid-template-columns:240px minmax(0,1fr);gap:2rem;margin-top:2rem;}
+.gestion label {display:flex;flex-direction:column;gap:.4rem;font-size:1rem;}
+.gestion input,.gestion textarea,.gestion select {width:100%;min-width:0;border:1px solid #aaa;padding:.7rem;background:white;color:#171717;font:inherit;border-radius:3px;}
+.gestion textarea {min-height:90px;resize:vertical;}
+.gestion button {cursor:pointer;border:1px solid #777;border-radius:3px;padding:.65rem .9rem;font:inherit;background:white;color:#171717;}
+.gestion .btn {background:#171717;color:white;margin:.5rem 0;}
+.gestion button:disabled {opacity:.45;cursor:not-allowed;}
+.gestion :focus-visible {outline:3px solid #3f6b91;outline-offset:3px;}
+.gestion fieldset {border:1px solid #ccc;padding:1.3rem;margin:1.5rem 0;min-width:0;}
+.gestion legend {padding:0 .5rem;font-weight:500;font-size:1.15rem;}
+.gestion-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;}
+.gestion-wide {grid-column:1/-1;}
+.gestion-ligne {display:grid;grid-template-columns:minmax(0,1fr) 130px auto;gap:.6rem;align-items:end;margin:1rem 0;}
+.gestion .gestion-check {flex-direction:row;align-items:flex-start;margin:1rem 0;gap:.75rem;}
+.gestion-check input {width:20px;min-width:20px;height:20px;margin-top:3px;}
+.gestion-muted {color:#555;font-size:.95rem;}
+.gestion-actions,.gestion-envoi {display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:1rem 0;}
+.gestion-message {padding:1rem;border-left:4px solid #3f6b91;background:#edf3f7;overflow-wrap:anywhere;}
+.gestion-login {max-width:400px;margin:3rem auto;}
+.gestion-dossier {width:100%;text-align:left;display:grid;gap:.4rem;margin-top:.7rem;}
+.gestion-dossier.selected {border:2px solid #171717;}
+.gestion-dossier small {font-size:.9rem;color:#555;}
+.gestion-preview iframe {width:100%;height:600px;border:1px solid #aaa;margin:1rem 0;}
+.gestion-preview a {text-decoration:underline;}
+.gestion .gestion-conditions {min-height:400px;}
+.gestion details {margin:1rem 0;}.gestion summary {cursor:pointer;font-weight:500;}.gestion-pre {white-space:pre-wrap;}
+@media(max-width:850px){.gestion-grid {grid-template-columns:1fr;}.gestion-fields {grid-template-columns:1fr;}.gestion-ligne {grid-template-columns:minmax(0,1fr) 110px;}.gestion-ligne button {grid-column:1/-1;}.gestion-head {align-items:flex-start;flex-direction:column;}.gestion-preview iframe {height:450px;}}

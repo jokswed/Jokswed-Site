@@ -68,7 +68,7 @@ Le formulaire envoie les demandes via `/api/contact` et Resend vers `CONTACT_TO_
 
 Configurer les variables de `.env.example` via Vercel. Aucun secret ni dossier client réel ne doit être ajouté au dépôt.
 
-Cette version collecte les demandes par e-mail. Elle ne génère et n’envoie aucun devis signé, ne crée aucun événement et ne suit pas les paiements. Voir `AUTOMATISATION.md` pour les étapes restantes.
+Par défaut, les demandes sont transmises par e-mail. Après configuration des services, l’espace privé permet de préparer les PDF, de valider la signature du photographe, de les envoyer et de créer une option dans Google Agenda. La signature des clients et le suivi des paiements restent à raccorder. Voir `AUTOMATISATION.md` pour la configuration et les étapes restantes.
 
 ## 🎨 Ajuster les couleurs et polices
 
@@ -97,3 +97,7 @@ app/globals.css       → le système de design (couleurs, typographie, animatio
 - Animations fluides à 60 fps, désactivées si le visiteur préfère réduire les animations
 - Accessibilité : navigation clavier, focus visibles, alternatives textuelles
 - Page 404 personnalisée
+
+## Espace privé de préparation
+
+La route `/gestion` permet de préparer les dossiers et PDF, puis de valider et envoyer chaque document séparément. Elle nécessite les connexions décrites dans `AUTOMATISATION.md` et `.env.example`. Le formulaire public peut continuer à fonctionner avec Resend seul tant que `WORKFLOW_ENABLED` n’est pas activé. La signature client, les paiements et les relances restent à raccorder.

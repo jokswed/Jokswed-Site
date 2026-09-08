@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { lireDemande, lignesDemande, echapperHtml, DemandeInvalide } from '@/lib/demande.mjs';
+import { draft } from '@/lib/workflow/model.mjs';
+import { createRecord } from '@/lib/workflow/store.mjs';
 export const runtime = 'nodejs';
 
 export async function POST(request) {
@@ -11,7 +13,14 @@ export async function POST(request) {
     try { body = JSON.parse(raw); } catch { return NextResponse.json({ok:false, message:'Formulaire invalide.'}, {status:400}); }
     const d = lireDemande(body);
     if (d.spam) return NextResponse.json({ok:true});
+    let dossier = null;
+    if (process.env.WORKFLOW_ENABLED === 'true') {
+      if (body.requestId && !/^[a-f0-9-]{36}$/i.test(body.requestId)) throw new DemandeInvalide('Identifiant de demande invalide.');
+      const initial = draft(d);
+      dossier = await createRecord(initial, body.requestId || initial.id);
+    }
     const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey && dossier) return NextResponse.json({ok:true});
     if (!apiKey) return NextResponse.json({ok:false, message:'Le service d’envoi n’est pas encore configuré.'}, {status:503});
     const title = d.type === 'devis' ? 'Dossier à préparer — aucune signature' : 'Nouvelle demande mariage';
     const lignes = lignesDemande(d);
@@ -19,12 +28,13 @@ export async function POST(request) {
     const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#171717"><h2>${title}</h2>${lignes.map(([label,value]) => `<p style="white-space:pre-wrap"><strong>${label} :</strong> ${echapperHtml(value)}</p>`).join('')}<p>Cette demande ne réserve pas la date et ne vaut pas accord sur un devis.</p></div>`;
     const response = await fetch('https://api.resend.com/emails', {
       method:'POST',
-      headers:{Authorization:`Bearer ${apiKey}`, 'Content-Type':'application/json'},
+      headers:{Authorization:`Bearer ${apiKey}`, 'Content-Type':'application/json', ...(dossier ? {'Idempotency-Key': `demande-${dossier.id}`} : {})},
       signal: AbortSignal.timeout(15000),
       body:JSON.stringify({from:process.env.CONTACT_FROM_EMAIL || 'JoksWed <onboarding@resend.dev>', to:[process.env.CONTACT_TO_EMAIL || 'jokswed@gmail.com'], reply_to:d.email, subject:`${title} — ${d.noms}`, text, html}),
     });
     if (!response.ok) {
       console.error('Échec du service de messagerie', response.status);
+      if (dossier) return NextResponse.json({ok:true});
       return NextResponse.json({ok:false, message:'L’envoi a échoué. Merci de réessayer.'}, {status:502});
     }
     return NextResponse.json({ok:true});
