@@ -5,7 +5,7 @@
 - Formulaire court et formulaire complémentaire. Resend continue à notifier le photographe.
 - Avec WORKFLOW_ENABLED=true, les demandes sont enregistrées dans PostgreSQL avant la notification. La répétition d’une soumission portant le même identifiant ne crée pas un second dossier. Une notification manquante n’efface pas le dossier enregistré.
 - Espace privé /gestion : authentification par mot de passe fort et cookie signé de huit heures, création manuelle pour les demandes issues des réseaux, liste et modification des dossiers.
-- Trois formules, options à prix explicite, préparation en franchise de TVA par défaut, prix client inchangé. La confirmation du régime est exigée avant signature.
+- Trois formules, options à prix explicite, TVA à 20 % comprise par défaut, confirmée par le professionnel le 11 septembre 2026, prix client inchangé. Les anciens dossiers conservent leur régime et doivent être vérifiés avant signature.
 - Devis et contrat PDF à partir du dossier enregistré. Un brouillon reste non signé. Les conditions initiales sont une base adaptée du contrat fourni, à relire ; les mentions [À COMPLÉTER] empêchent la validation du contrat.
 - Validation séparée des deux documents après consultation et confirmation de lecture. Le serveur vérifie la version consultée. L’image de signature du professionnel reste côté serveur. Cette apposition n’est pas une signature électronique certifiée par un prestataire.
 - PDF validés conservés avec empreinte et date. Toute édition crée une nouvelle version et invalide les approbations courantes, tout en conservant les versions précédentes en historique.
@@ -34,3 +34,7 @@ Signature électronique des clients par un prestataire, rapprochement des paieme
 Tests unitaires des règles métier, sessions, refus, versionnement et calculs ; compilation du site et inspection visuelle de PDF fictifs. Les intégrations Neon, Resend et Google ne sont pas validées avec des comptes réels ici : leurs identifiants ne sont pas fournis. Aucun vrai document client n’est envoyé ou signé pendant les tests. L’image utilisée dans le test de signature est un pixel fictif.
 
 Conserver Vercel et le répertoire racine jokswed. Ne pas fusionner en production avant vérification des comptes et de la notice de confidentialité.
+
+## Mise à jour du 11 septembre 2026
+
+Le formulaire détaillé transmet désormais des horaires structurés au brouillon. La formule et son prix sont choisis côté serveur ; les options libres restent à chiffrer par le professionnel. Aucun formulaire ne déclenche la signature ou un ajout au calendrier. Activer WORKFLOW_ENABLED=true dans Preview puis tester une soumission avant publication.

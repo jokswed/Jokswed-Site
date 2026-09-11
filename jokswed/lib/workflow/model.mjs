@@ -8,9 +8,9 @@ export function draft(d={}) {
  const p=PACKAGES[d.formule];
  return { id:randomUUID(), revision:1, contentVersion:1, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),
   demande:d, client:{noms:d.noms||'',email:d.email||'',nom:d.nomSignataire||'',adresse:d.adresse||'',secondNom:d.secondSignataire||'',secondEmail:d.secondEmail||''},
-  prestation:{formule:d.formule||'indecis',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date||'')?d.date:'',lieu:d.lieu||'',heures:p?.hours||0,debut:'',fin:'',engagement:'',inclus:p?.inclus.join('\n')||''},
+  prestation:{formule:d.formule||'indecis',date:/^\d{4}-\d{2}-\d{2}$/.test(d.date||'')?d.date:'',lieu:d.lieu||'',heures:p?.hours||0,debut:d.debut||'',fin:d.fin||'',engagement:'',inclus:p?.inclus.join('\n')||''},
   lignes:p?[{libelle:`Formule ${p.label}`,montantCentimes:p.cents}]:[],
-  tva:'franchise',tvaConfirmee:false,echeances:[30,30,40],deuxiemeVersement:'',validiteJours:30,
+  tva:'20',tvaConfirmee:true,echeances:[30,30,40],deuxiemeVersement:'',validiteJours:30,
   conditions:conditionsInitiales(), approbations:{}, historique:[], paiements:[], calendrier:null, refuse:false,
  };
 }

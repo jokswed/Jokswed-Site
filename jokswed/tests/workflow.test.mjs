@@ -5,7 +5,7 @@ import { eventBody } from '../lib/workflow/google.mjs';
 import { approve } from '../lib/workflow/actions.mjs';
 import { session,validSession,checkPassword,sameOrigin } from '../lib/workflow/auth.mjs';
 function complete(){const d=draft({noms:'Couple fictif',formule:'signature',nomSignataire:'Client test',email:'test@example.com',adresse:'Adresse fictive',date:'2027-06-04',lieu:'Lieu de test'});d.tvaConfirmee=true;d.deuxiemeVersement='2027-05-01';d.conditions='Conditions de test uniquement.';return d;}
-test('franchise par défaut sans confirmation et prix client inchangé',()=>{const d=draft({formule:'signature'});assert.equal(d.tva,'franchise');assert.equal(d.tvaConfirmee,false);assert.equal(total(d).totalCentimes,130000);assert.equal(total(d).tvaCentimes,0);});
+test('TVA comprise par défaut et prix client inchangé',()=>{const d=draft({formule:'signature'});assert.equal(d.tva,'20');assert.equal(d.tvaConfirmee,true);assert.equal(total(d).totalCentimes,130000);assert.equal(total(d).htCentimes,108333);assert.equal(total(d).tvaCentimes,21667);});
 test('les clauses incomplètes empêchent la signature du contrat',()=>{const d=complete();d.conditions='Médiateur : [À COMPLÉTER]';assert.ok(approvalProblems(d,'contrat').length);});
 test('une modification retire les deux validations et conserve l’historique',()=>{const d=complete();d.approbations={devis:{hash:'old',pdf:'pdf'},contrat:{hash:'old2'}};const e=edit(d,{...d,client:{...d.client,nom:'Nom modifié'}});assert.deepEqual(e.approbations,{});assert.equal(e.historique.length,1);assert.equal(e.contentVersion,2);assert.equal(d.approbations.devis.hash,'old');});
 test('l’état de livraison ne change pas la version du document',()=>{const d=complete();const h=digest(documentSnapshot(d,'devis'));d.revision++;assert.equal(h,digest(documentSnapshot(d,'devis')));});
@@ -24,3 +24,5 @@ test('validation du devis uniquement : signature stockée et contrat toujours no
  assert.ok(Buffer.from(a.approbations.devis.pdf,'base64').subarray(0,4).equals(Buffer.from('%PDF')));
  assert.equal(a.approbations.contrat,undefined);assert.equal(d.approbations.devis,undefined);assert.equal(a.calendrier.etat,'non-demande');
 });
+
+test('les champs des mariés construisent un brouillon non signé',()=>{const d=draft({formule:'signature',nomSignataire:'Camille Test',email:'test@example.com',adresse:'Adresse test',date:'2027-06-12',lieu:'Paris',debut:'10:00',fin:'22:00'});assert.equal(d.client.nom,'Camille Test');assert.equal(d.prestation.debut,'10:00');assert.equal(d.prestation.fin,'22:00');assert.equal(d.lignes[0].montantCentimes,130000);assert.deepEqual(d.approbations,{});assert.equal(d.calendrier,null);});

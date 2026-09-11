@@ -165,7 +165,11 @@ export default function FormulaireContact({ detail = false }) {
           </div>
         </div>
         <div className="champ">
-          <label htmlFor="horaires">Horaires souhaités (si connus)</label>
+          <label htmlFor="debut">Début de présence (si connu)</label>
+          <input id="debut" name="debut" type="time" />
+          <label htmlFor="fin">Fin de présence (si connue)</label>
+          <input id="fin" name="fin" type="time" />
+          <label htmlFor="horaires">Précisions sur les horaires (facultatif)</label>
           <input id="horaires" name="horaires" maxLength={300} placeholder="Début et fin de présence, horaires des cérémonies…" />
         </div>
         <div className="champ">

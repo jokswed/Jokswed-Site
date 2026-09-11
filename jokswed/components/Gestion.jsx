@@ -27,7 +27,7 @@ export default function Gestion(){
     {!rows.length&&<p>Aucun dossier pour le moment.</p>}
    </aside><div>{!d?<p>Sélectionnez une demande ou créez un dossier pour préparer vos documents.</p>:<>
     <h2>{d.client.noms||'Dossier mariage'}</h2>
-    {(d.demande.message||d.demande.options)&&<details><summary>Demande initiale</summary><p className="gestion-pre">{d.demande.message}</p>{d.demande.options&&<p>Options souhaitées : {d.demande.options}</p>}</details>}
+    {(d.demande.message||d.demande.options||d.demande.horaires)&&<details><summary>Demande initiale</summary><p className="gestion-pre">{d.demande.message}</p>{d.demande.horaires&&<p>Horaires souhaités : {d.demande.horaires}</p>}{d.demande.options&&<p>Options souhaitées : {d.demande.options}</p>}</details>}
     <form onSubmit={e=>{e.preventDefault();run(async()=>{await action('modifier',{dossier:d});setMessage('Dossier enregistré. Les documents sont prêts à être relus.');});}}>
      <fieldset disabled={busy}><legend>Clients</legend><div className="gestion-fields">
       {field('Prénoms affichés','client','noms')}{field('Nom complet du signataire','client','nom')}{field('E-mail du signataire','client','email','email')}{field('Adresse complète de facturation','client','adresse','text',true)}{field('Second signataire (facultatif)','client','secondNom')}{field('Son e-mail','client','secondEmail','email')}
@@ -41,7 +41,7 @@ export default function Gestion(){
      <p><strong>Total client : {euros(d.lignes.reduce((s,l)=>s+l.montantCentimes,0))}</strong></p>
      <label>Régime de TVA<select value={d.tva} onChange={e=>{top('tva',e.target.value);top('tvaConfirmee',false);}}><option value="franchise">Franchise en base — aucune TVA facturée</option><option value="20">TVA à 20 % comprise dans le prix client</option></select></label>
      <label className="gestion-check"><input type="checkbox" checked={d.tvaConfirmee} onChange={e=>top('tvaConfirmee',e.target.checked)}/>J’ai vérifié que ce régime de TVA correspond à ma situation.</label>
-     <p className="gestion-muted">Le brouillon utilise votre hypothèse de franchise. Le prix client reste inchangé dans les deux cas.</p>
+     <p className="gestion-muted">Les nouveaux devis incluent la TVA à 20 % dans le prix client. Les anciens brouillons conservent leur régime : vérifiez-le avant validation.</p>
      </fieldset>
      <fieldset disabled={busy}><legend>Paiement et contrat</legend><p>Échéancier : {d.echeances.join(' % / ')} %. Le solde intervient après l’aperçu photo.</p><label>Date du deuxième versement<input type="date" value={d.deuxiemeVersement} onChange={e=>top('deuxiemeVersement',e.target.value)}/></label>
       <details><summary>Relire et compléter les conditions du contrat</summary><p>Les mentions [À COMPLÉTER] doivent être renseignées avant de signer le contrat.</p><label>Conditions<textarea className="gestion-conditions" value={d.conditions} onChange={e=>top('conditions',e.target.value)}/></label></details>

@@ -36,6 +36,9 @@ export function lireDemande(body) {
     d.secondSignataire = champ(body, 'secondSignataire', 160);
     d.secondEmail = champ(body, 'secondEmail', 254).toLowerCase();
     d.horaires = champ(body, 'horaires', 300);
+    d.debut = champ(body, 'debut', 5);
+    d.fin = champ(body, 'fin', 5);
+    if ([d.debut,d.fin].some(v => v && !/^([01]\d|2[0-3]):[0-5]\d$/.test(v))) throw new DemandeInvalide('Merci de vérifier les horaires.');
     d.options = champ(body, 'options', 1000);
     if (Boolean(d.secondSignataire) !== Boolean(d.secondEmail) || (d.secondEmail && !emailValide(d.secondEmail))) throw new DemandeInvalide('Pour le second signataire, renseignez son nom complet et son e-mail, ou laissez les deux champs vides.');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.date) || Number.isNaN(Date.parse(d.date)) || new Date(d.date).toISOString().slice(0,10) !== d.date) throw new DemandeInvalide('Merci de vérifier la date du mariage.');
