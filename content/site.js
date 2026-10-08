@@ -25,7 +25,7 @@ export const site = {
 // --- Page d'accueil ----------------------------------------------------------
 export const accueil = {
   hero: {
-    image: "/images/DSC01345-Modifier.jpg",
+    image: "/images/accueil/hero.jpg",
     titre: "Chaque histoire compte.",
     sousTitre:
       "Photographe de mariage à Paris et à l'international. Des images sincères, lumineuses, faites pour durer.",
@@ -77,11 +77,11 @@ export const portfolio = [
   { src: "/images/portfolio/03.jpg", alt: "Portrait éditorial", categorie: "editorial" },
   { src: "/images/portfolio/04.jpg", alt: "Échange des vœux", categorie: "mariage" },
   { src: "/images/portfolio/05.jpg", alt: "Séance couple à Paris", categorie: "couples" },
-  { src: "/images/portfolio/06.jpg", alt: "Série éditoriale en studio", categorie: "editorial" },
+  { src: "/images/accueil/presentation.jpg", alt: "Série éditoriale en studio", categorie: "editorial" },
   { src: "/images/portfolio/07.jpg", alt: "Cortège et confettis", categorie: "mariage" },
   { src: "/images/portfolio/08.jpg", alt: "Couple en bord de mer", categorie: "couples" },
-  { src: "/images/portfolio/09.jpg", alt: "Lumière de fin de journée", categorie: "editorial" },
-  { src: "/images/portfolio/10.jpg", alt: "Première danse", categorie: "mariage" },
+  { src: "/images/accueil/hero.jpg", alt: "Lumière de fin de journée", categorie: "editorial" },
+  { src: "/images/accueil/mosaique-04.jpg", alt: "Première danse", categorie: "mariage" },
   { src: "/images/portfolio/11.jpg", alt: "Regards complices", categorie: "couples" },
   { src: "/images/portfolio/12.jpg", alt: "Composition graphique", categorie: "editorial" },
 ];
@@ -93,100 +93,40 @@ export const categoriesPortfolio = [
   { id: "editorial", label: "Éditorial" },
 ];
 
-// --- Mariages (reportages) ------------------------------------------------------
-// Chaque reportage a sa propre page : /mariages/<slug>
-export const mariages = [];
+/* --- Mariages (reportages) --------------------------------------------------
+   ⚠️ EXPORT RETIRÉ, ET CE N'EST PAS UN OUBLI.
 
-// --- Tarifs -----------------------------------------------------------------
-// ✏️ Remplacez les prix "Sur demande" et complétez les listes quand vous êtes prêt.
+   Il valait `[]`, et aucune route `app/mariages/` n'a jamais existé. Pourtant
+   `app/sitemap.js` annonçait `/mariages` à Google et `app/page.jsx` fabriquait
+   des liens `/mariages/<slug>` : des 404 présentés comme des pages. Le README
+   affirmait même que ces pages étaient « créées automatiquement ».
+
+   Les 27 images de `public/images/mariages/` (3 reportages de démonstration à
+   17-21 Ko) n'étaient référencées nulle part : supprimées.
+
+   À reconstruire quand il y aura de vrais reportages à publier — route,
+   contenu et entrées de sitemap ensemble, pas l'un sans les autres.
+   ------------------------------------------------------------------------- */
+
+/* --- Tarifs ------------------------------------------------------------------
+   ⚠️ LES FORMULES, LES SUPPLÉMENTS ET LA FAQ NE SONT PLUS ICI.
+
+     · formules et suppléments → content/offres.ts  (montants en CENTIMES)
+     · FAQ                     → content/faq.ts     (source unique)
+
+   Ils vivaient en double : les prix étaient des chaînes (« 1300€ »),
+   inexploitables pour un calcul, et la FAQ de ce fichier contredisait celle de
+   app/faq/page.jsx sur le délai de livraison et le nombre de photos.
+   ------------------------------------------------------------------------- */
 export const tarifs = {
   intro:
     "Chaque mariage est unique : les formules ci-dessous sont des points de départ, que nous affinons ensemble selon votre journée. Un devis précis vous est remis après notre premier échange.",
-  formules: [
-    {
-      nom: "Formule 1",
-      surnom: "L'essentielle✨",
-      prix: "1000€",
-      duree: "Jusqu'à 8 h de présence",
-      description: "Le cœur de votre journée, des préparatifs à l'ouverture du bal.",
-      inclus: [ 
-         "Reportage complet du mariage", 
-         "Galerie privée en ligne", 
-         "Photographies retouchées en haute définition", 
-         "Clé USB personnalisée", 
-      ],
-      misEnAvant: false,
-    },
-    {
-      nom: "Formule 2",
-      surnom: "Signature🤍",
-      prix: "1300€",
-      duree: "Jusqu'à 12 h de présence",
-      description: "Votre journée entière, des préparatifs à la soirée dansante.",
-      inclus: [ 
-         "Reportage complet de la journée", 
-         "Galerie privée en ligne", 
-         "Photographies retouchées en haute définition", 
-         "Séance couple le jour J", "Clé USB personnalisée", 
-         "Album premium 25 × 25 cm", 
-         "Couverture en cuir personnalisée", 
-      ],
-      misEnAvant: true, // ← la carte mise en valeur au centre
-    },
-    {
-      nom: "Formule 3",
-      surnom: "Prestige👑",
-      prix: "1600€",
-      duree: "Jusqu'à 14 h de présence + séance engagement",
-      description: "L'expérience la plus complète pour raconter votre histoire.",
-      inclus: [ 
-         "Journée complète jusqu'aux temps forts de la soirée", 
-         "Séance engagement avant le mariage", 
-         "Galerie privée en ligne", 
-         "Photographies retouchées en haute définition", 
-         "Clé USB personnalisée", 
-         "Grand album premium 30 × 30 cm", 
-         "Couverture en cuir personnalisée", 
-         "Coffret en cuir assorti", 
-      ],
-      misEnAvant: false,
-    },
-  ],
-  options: [
-    { nom: "Séance engagement", detail: "Une séance couple avant le mariage, pour se rencontrer et apprivoiser l'objectif." },
-    { nom: "Album premium supplémentaire", detail: "Un second album en cuir personnalisé, parfait pour offrir à vos proches." },
-    { nom: "Vidéaste professionnel", detail: "Immortalisez votre journée en vidéo grâce à un vidéaste partenaire sélectionné avec soin. Disponible sur demande. Voici ces mots : Je m’appelle Yvann , réalisateur, monteur et vidéaste. Je crée des films de mariage de 3 à 5 minutes, pour immortaliser votre journée avec une approche élégante, authentique et riche en émotions. En complément, je propose une vidéo Focus Mariés : un court film entièrement dédié à votre couple, mettant en lumière votre complicité, vos regards, votre amour et les émotions qui vous unissent, dans une approche cinématographique. Chaque création est pensée comme un souvenir intemporel que vous aurez plaisir à revivre et à partager." },
-    { nom: "Jour d'après (day after)", detail: "Une séance libre le lendemain, en tenue de mariés, là où vous voulez." },
-    { nom: "Tirages d'exposition", detail: "Tirages grand format, contrecollés et prêts à accrocher." },
-  ],
   deroulement: [
     { titre: "Premier échange", texte: "Un appel ou un café pour faire connaissance, comprendre votre journée et vérifier ma disponibilité." },
     { titre: "Réservation", texte: "Un contrat clair et un acompte réservent votre date. À partir de là, elle est à vous." },
     { titre: "Préparation", texte: "Quelques semaines avant le jour J, nous affinons ensemble le déroulé, les lieux et les moments qui comptent." },
     { titre: "Le jour J", texte: "Je suis là, discret et attentif, du début à la fin. Vous vivez votre journée — je m'occupe du reste." },
     { titre: "La livraison", texte: "Sous 13 à 15 jours, vous recevez votre galerie complète, retouchée avec soin, en haute définition." },
-  ],
-  faq: [
-    {
-      question: "Vous déplacez-vous partout en France et à l'étranger ?",
-      reponse:
-        "Oui. Je suis basé à Paris et je photographie des mariages partout en France comme à l'international. Les frais de déplacement sont intégrés au devis, sans surprise.",
-    },
-    {
-      question: "Combien de photos recevons-nous ?",
-      reponse:
-        "Cela dépend de la durée de présence, mais comptez plusieurs centaines de photographies soigneusement sélectionnées et retouchées — jamais de rafales brutes livrées en vrac.",
-    },
-    {
-      question: "Sous quel délai les photos sont-elles livrées ?",
-      reponse:
-        "Une sélection d'avant-première vous parvient dans la semaine qui suit le mariage. La galerie complète est livrée sous 15 à 20 jours.",
-    },
-    {
-      question: "Comment réserver une date ?",
-      reponse:
-        "Un simple message via la page contact suffit. Après un premier échange, la date est bloquée à la signature du contrat et au versement de l'acompte.",
-    },
   ],
 };
 
@@ -220,7 +160,7 @@ export const aPropos = {
 
 // --- Contact --------------------------------------------------------------------
 export const contact = {
-  image: "/images/contact/contact.jpg",
+  image: "/images/a-propos/portrait.jpg",
   titre: "Racontez-moi votre histoire",
   texte:
     "Une date, un lieu, une envie — dites-m'en un peu plus sur vous. Je réponds personnellement à chaque message, en général sous 48 heures.",

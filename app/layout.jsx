@@ -50,7 +50,20 @@ export const metadata = {
     siteName: site.nom,
     title: `${site.nom} — ${site.signature}`,
     description: "Photographe de mariage, Paris & International. Chaque histoire compte.",
-    images: [{ url: "/images/hero.jpg", width: 2400, height: 1500 }],
+    /* ⚠️ PAS DE `images` ICI, ET C'EST VOLONTAIRE.
+
+       La version livrée déclarait `/images/hero.jpg`, un fichier qui n'existait
+       pas : tout partage WhatsApp, iMessage ou Facebook sortait sans visuel.
+
+       Next résout désormais l'image par convention de fichier, depuis
+       `app/opengraph-image.jpg` (1200 × 630) et `app/twitter-image.jpg`. Elles
+       sont réellement présentes, et Next en calcule seul l'URL absolue, la
+       taille et le type. Plus de chemin à maintenir à la main. */
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${site.nom} — ${site.signature}`,
+    description: "Photographe de mariage, Paris & International. Chaque histoire compte.",
   },
   robots: { index: true, follow: true },
 };

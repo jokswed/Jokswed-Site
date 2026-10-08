@@ -7,7 +7,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "verifier:sitemap": "node scripts/verifier-sitemap.mjs",
+    "verifier:coherence": "node scripts/verifier-coherence.mjs",
+    "banc": "node scripts/banc-v1.mjs",
+    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc"
   },
   "dependencies": {
     "next": "^16.4.0",

@@ -6,7 +6,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { accueil, mariages } from "@/content/site";
+import { accueil } from "@/content/site";
 import Parallaxe from "@/components/Parallaxe";
 import Reveal from "@/components/Reveal";
 import Galerie from "@/components/Galerie";
@@ -97,39 +97,12 @@ export default function Accueil() {
       </section>
 
       {/* ===================== DERNIERS MARIAGES ===================== */}
-      <section className="section">
-        <div className="conteneur">
-          <div className="entete-section">
-            <Reveal as="p" className="label">Reportages</Reveal>
-            <Reveal as="h2" className="display t-section" retard={0.1}>
-              Derniers mariages
-            </Reveal>
-          </div>
+      {/* ⚠️ SECTION RETIRÉE EN V1.
 
-          <div className="reportages">
-            {mariages.map((m, i) => (
-              <Reveal key={m.slug} retard={i * 0.12}>
-                <Link href={`/mariages/${m.slug}`} className="carte-reportage">
-                  <span className="photo">
-                    <Image
-                      src={m.cover}
-                      alt={`Reportage de mariage — ${m.titre}, ${m.lieu}`}
-                      width={1200}
-                      height={1500}
-                      sizes="(max-width: 800px) 100vw, 33vw"
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    />
-                  </span>
-                  <span className="carte-reportage__meta">
-                    <span>{m.lieu}</span>·<span>{m.saison}</span>
-                  </span>
-                  <h3>{m.titre}</h3>
-                </Link>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
+          Elle bouclait sur `mariages`, qui valait `[]` : elle ne rendait donc
+          rien, tout en fabriquant des liens `/mariages/<slug>` vers une route
+          qui n'existe pas. À reconstruire avec de vrais reportages, en même
+          temps que la route et les entrées de sitemap. */}
 
       {/* ===================== AVIS ===================== */}
       <section className="section" style={{ overflow: "hidden", borderTop: "1px solid var(--ligne)" }}>

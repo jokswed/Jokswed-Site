@@ -76,7 +76,11 @@ export default function Header() {
         {!ouvert && (
           <button
             className="burger"
-            aria-expanded="false"
+            /* ⚠️ `aria-expanded` était écrit en dur à "false".
+               Il décrit l'état du menu, pas celui du bouton : il doit suivre
+               `ouvert`, sinon un lecteur d'écran annonce « replié » alors que
+               le menu est déployé. */
+            aria-expanded={ouvert}
             aria-controls="menu-mobile"
             aria-label="Ouvrir le menu"
             onClick={() => setOuvert(true)}
@@ -92,15 +96,27 @@ export default function Header() {
       </div>
 
       {/* Menu mobile */}
+      {/* ⚠️ `inert` ET `aria-hidden` QUAND LE MENU EST FERMÉ.
+
+          Ce <nav> reste TOUJOURS dans le document — il est simplement déplacé
+          hors écran par la CSS. Sans `inert`, ses six liens et sa croix
+          restaient donc atteignables à la tabulation alors qu'ils sont
+          invisibles : un utilisateur au clavier traversait un menu fantôme
+          avant d'atteindre le contenu. `inert` les retire du parcours de focus
+          et des lecteurs d'écran. */}
       <nav
         id="menu-mobile"
         className={`menu-mobile ${ouvert ? "est-ouvert" : ""}`}
         aria-label="Menu mobile"
+        aria-hidden={!ouvert}
+        inert={!ouvert}
       >
         {/* Croix indépendante */}
         <button
           className="menu-mobile__close"
           aria-label="Fermer le menu"
+          aria-expanded={ouvert}
+          aria-controls="menu-mobile"
           onClick={() => setOuvert(false)}
         >
           ✕
