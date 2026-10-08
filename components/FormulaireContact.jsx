@@ -43,7 +43,13 @@ const styleConsentement = {
   fontWeight: 400,
 };
 
-export default function FormulaireContact({ formule = "" }) {
+/**
+ * @param {object} props
+ * @param {string}   [props.formule]      Clé de la formule retenue (« formule-2 »).
+ * @param {string[]} [props.supplements]  Clés des suppléments retenus.
+ * @param {React.ReactNode} [props.children] Récapitulatif affiché en tête.
+ */
+export default function FormulaireContact({ formule = "", supplements = [], children }) {
   const [envoye, setEnvoye] = useState(false);
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState("");
@@ -78,6 +84,9 @@ export default function FormulaireContact({ formule = "" }) {
       lieu: champs.get("lieu") ?? "",
       message: champs.get("message") ?? "",
       formule: champs.get("formule") ?? "",
+      /* Des CLÉS, jamais des montants : le serveur rechiffrera lui-même
+         depuis le catalogue. */
+      supplements,
       website: champs.get("website") ?? "",
       // FormData rend "on" pour une case cochée, et rien du tout sinon :
       // la route attend des booléens stricts.
@@ -144,7 +153,13 @@ export default function FormulaireContact({ formule = "" }) {
 
   return (
     <form className="formulaire" onSubmit={envoyer} noValidate={false}>
-      <input type="hidden" name="formule" defaultValue={formule} />
+      {/* `value` et non `defaultValue` : la formule change après le montage,
+         quand le visiteur clique « Choisir cette formule » plus haut dans la
+         page. Un champ non contrôlé garderait la valeur initiale — donc une
+         chaîne vide — et le choix du client serait silencieusement perdu. */}
+      <input type="hidden" name="formule" value={formule} readOnly />
+
+      {children ? <div style={{ marginBottom: "2rem" }}>{children}</div> : null}
 
       <div className="formulaire__deux">
         <div className="champ">

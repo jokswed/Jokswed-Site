@@ -35,6 +35,11 @@ const serveur = spawn("npx", ["next", "start", "--port", String(PORT)], {
     RESEND_API_KEY: "re_banc_cle_invalide_aucun_envoi",
     CONTACT_TO_EMAIL: "banc@exemple.invalid",
     CONTACT_FROM_EMAIL: "JoksWed <banc@exemple.invalid>",
+    /* Le banc enchaîne une quinzaine d'envois depuis une seule adresse : avec
+       la limite de production (5), tout ce qui suit le premier test de
+       validation recevrait un 429 sans rapport avec ce qu'il vérifie.
+       La limitation elle-même reste éprouvée, à cette valeur-ci. */
+    CONTACT_LIMITE: "12",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -246,9 +251,62 @@ try {
       !JSON.stringify(corpsBout).includes("api_key"),
   );
 
+  /* ⚠️ CES TROIS ENVOIS PASSENT AVANT LE TEST DE LIMITATION DE DÉBIT.
+
+     Le limiteur compte par IP tronquée, et tout le banc sort de 127.0.0.1 :
+     une fois le quota saturé par le test du 429, tout envoi suivant reçoit un
+     429 — ce qui faisait échouer ces trois-là pour une raison qui n'avait
+     rien à voir avec ce qu'ils vérifient. L'ordre fait partie du banc. */
+  /* ── Suppléments : la règle anti-double-facturation, côté SERVEUR ──
+     On envoie la Formule 3 AVEC la séance engagement, qu'elle comprend déjà.
+     La route doit l'accepter sans la compter comme une ligne vendue. */
+  const avecIncluse = await fetch(`${BASE}/api/contact`, {
+    method: "POST",
+    headers: { ...ORIGINE, "Idempotency-Key": "banc-v2-incluse" },
+    body: JSON.stringify({
+      ...demandeValide,
+      formule: "formule-3",
+      supplements: ["seance-engagement", "videaste"],
+    }),
+  });
+  verifier(
+    "Formule 3 + séance engagement : la validation passe (502 fournisseur)",
+    avecIncluse.status === 502,
+    `HTTP ${avecIncluse.status}`,
+  );
+
+  /* Une clé inventée ne doit ni passer, ni faire tomber la route. */
+  const cleInventee = await fetch(`${BASE}/api/contact`, {
+    method: "POST",
+    headers: { ...ORIGINE, "Idempotency-Key": "banc-v2-inventee" },
+    body: JSON.stringify({
+      ...demandeValide,
+      formule: "formule-1",
+      supplements: ["supplement-qui-nexiste-pas", "../../etc/passwd"],
+    }),
+  });
+  verifier(
+    "Une clé de supplément inventée est ignorée sans erreur serveur",
+    cleInventee.status === 502,
+    `HTTP ${cleInventee.status}`,
+  );
+
+  /* Une formule inventée ne doit pas se retrouver dans l'e-mail. */
+  const formuleInventee = await fetch(`${BASE}/api/contact`, {
+    method: "POST",
+    headers: { ...ORIGINE, "Idempotency-Key": "banc-v2-formule" },
+    body: JSON.stringify({ ...demandeValide, formule: "<script>alert(1)</script>" }),
+  });
+  verifier(
+    "Une formule inventée est ignorée sans erreur serveur",
+    formuleInventee.status === 502,
+    `HTTP ${formuleInventee.status}`,
+  );
+
+
   /* ───────────── 9. Limitation de débit ───────────── */
   let vu429 = false;
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < 20; i += 1) {
     const r = await fetch(`${BASE}/api/contact`, {
       method: "POST",
       headers: ORIGINE,
@@ -260,7 +318,7 @@ try {
       break;
     }
   }
-  verifier("Soumissions répétées → 429", vu429);
+  verifier("Soumissions répétées → 429 (limite configurée : 12)", vu429);
 
   /* ───────────── 10. Les journaux ne contiennent aucune donnée personnelle ───────────── */
   verifier(
@@ -310,6 +368,63 @@ try {
     vulns.critical === 0 && vulns.high === 0,
     JSON.stringify(vulns),
   );
+
+  /* ═════════════════════════ V2 — PAGE D'ACCUEIL ═════════════════════════ */
+  const home = await (await fetch(BASE)).text();
+  const normal = (s) => s.replace(/[   ]/g, " ");
+
+  /* La bande : la série doit être présente DEUX FOIS, pas trois.
+     C'est la condition arithmétique du raccord invisible (translation
+     de -50 % = une série entière). */
+  const occurrences = (motif) => (home.match(motif) ?? []).length;
+  verifier(
+    "La bande duplique la série exactement une fois",
+    occurrences(/class="bande__photo"/g) === 24,
+    `${occurrences(/class="bande__photo"/g)} photos rendues (12 × 2 attendues)`,
+  );
+  verifier("La bande est rendue côté serveur", home.includes("bande__piste"));
+
+  /* Les trois formules, sur l'accueil, avec leur prix TTC. */
+  verifier(
+    "Les trois formules sont sur l'accueil",
+    ["1 000", "1 300", "1 600"].every((p) => normal(home).includes(p)),
+  );
+  verifier(
+    "Chaque formule porte un bouton de sélection",
+    occurrences(/Choisir cette formule/g) === 3,
+    `${occurrences(/Choisir cette formule/g)} boutons`,
+  );
+  verifier("Le bouton d'appel à l'action demandé est présent",
+    home.includes("Vérifier ma date et faire une demande"));
+  verifier("Le formulaire est sur l'accueil", home.includes('id="demande"'));
+  verifier("La FAQ est sur l'accueil", home.includes('id="faq"'));
+
+  /* Le vidéaste : son texte, et surtout PAS ses coordonnées. */
+  verifier(
+    "Le nouveau texte du vidéaste est publié",
+    home.includes("films de mariage de 3 à 5 minutes"),
+  );
+  verifier("La carte vidéaste est rendue", home.includes("Ajouter un vidéaste à mon mariage"));
+  verifier(
+    "Les coordonnées du vidéaste ne sont PAS publiées",
+    !home.includes("cretinoiry") && !normal(home).includes("07 60 10 26 29"),
+  );
+  verifier(
+    "L'aperçu vidéo absent est signalé, pas simulé",
+    home.includes("videaste__attente") && !home.includes("<video"),
+  );
+
+  /* Données structurées des offres. */
+  verifier(
+    "Les trois formules sont balisées en Offer",
+    (home.match(/"@type":"Offer"/g) ?? []).length === 3,
+  );
+
+  /* Les anciennes pages continuent de fonctionner : non-régression. */
+  for (const chemin of ["/tarifs", "/faq", "/portfolio", "/a-propos", "/contact"]) {
+    const r = await fetch(`${BASE}${chemin}`);
+    verifier(`Non-régression : ${chemin} répond 200`, r.status === 200, `HTTP ${r.status}`);
+  }
 } finally {
   serveur.kill("SIGTERM");
   await new Promise((r) => setTimeout(r, 500));

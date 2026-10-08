@@ -25,7 +25,17 @@ export default function Header() {
   const [defile, setDefile] = useState(false);
   const [ouvert, setOuvert] = useState(false);
 
-  const surHeros = pathname === "/" || pathname.startsWith("/faq");
+  /* ⚠️ L'ACCUEIL N'EST PLUS DANS CETTE LISTE, ET C'EST LA V2 QUI L'IMPOSE.
+
+     L'en-tête se rend en blanc translucide par-dessus un « héros » sombre
+     tant qu'on n'a pas défilé. L'accueil n'a plus de héros sombre : il
+     commence par la bande photographique, dont la luminosité change à chaque
+     image. Vérifié à l'écran en 1024 px — « JoksWed » et tout le menu
+     devenaient illisibles sur les photos claires.
+
+     Sur l'accueil, l'en-tête est donc opaque dès le départ. Les pages qui
+     ouvrent encore sur une image sombre gardent l'effet. */
+  const surHeros = pathname.startsWith("/faq");
 
   useEffect(() => {
     const onScroll = () => setDefile(window.scrollY > 24);

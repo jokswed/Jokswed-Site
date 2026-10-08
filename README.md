@@ -85,11 +85,25 @@ d'environ 80 : `npm run banc` échoue si `public/images` dépasse 15 Mo.
 - **Accessibilité** — `aria-expanded` suit l'état réel du menu ; le menu mobile fermé est `inert`, ses six liens n'étant plus atteignables à la tabulation.
 - **Pages légales** — mentions légales et politique de confidentialité, absentes du site livré.
 
+## Ce que la V2 a apporté
+
+- **Bande photographique** pleine largeur, carrés collés, défilement continu. Animation **100 % CSS** : aucun JavaScript, donc rien à recalculer par image — c'est ce qui tient sur Safari iOS. La série est dupliquée exactement une fois et translatée de -50 %, condition arithmétique du raccord invisible (vérifiée au banc : demi-piste = largeur d'une série).
+- **Les trois formules sur l'accueil**, avec « Choisir cette formule ». La sélection est reprise automatiquement dans le formulaire, et reste modifiable depuis celui-ci.
+- **Suppléments** sélectionnables, et la règle anti-double-facturation appliquée **des deux côtés** : un supplément compris dans la formule s'affiche « Incluse dans votre formule », n'est pas cliquable, et le serveur le reclasse aussi à la réception.
+- **Carte vidéaste** avec le nouveau texte d'Yvann, le lien vers ses réalisations, et l'emplacement de l'aperçu vidéo. Ses coordonnées ne sont pas publiées — vérifié au banc.
+- **Aucun total n'est affiché tant qu'une ligne reste « sur devis »** : seulement le prix de la formule et la liste des prestations à chiffrer.
+- **Formulaire sur l'accueil**, avec récapitulatif en direct. Les prix ne transitent jamais par le navigateur : seules des clés sont envoyées, revalidées contre le catalogue côté serveur.
+- **Aucune notification au vidéaste** : son compte et ses permissions n'existent pas. Une demande vidéo est signalée dans l'e-mail comme à relayer manuellement.
+- **En-tête opaque sur l'accueil** : il se rendait en blanc translucide par-dessus un héros sombre qui n'existe plus, et devenait illisible sur les photos claires de la bande.
+- **Cibles tactiles du pied de page** portées de 22 à 24 px (minimum WCAG 2.2 AA).
+- **Tailles d'images affinées** (320 et 640 ajoutés) : un carré de 250 px sur écran 2× recevait un fichier de 768 px.
+
 ## Ce qui reste ouvert
 
 - **La demande n'est pas persistée.** L'e-mail reste le seul support : si l'envoi échoue, la demande est perdue. Objet de la V4 (table `demandes`).
 - **La limitation de débit et l'idempotence sont en mémoire de processus**, donc partielles sur une architecture sans état. Elles passent en base en V3.
-- **Deux mentions légales manquent** et bloquent l'émission de tout document définitif : le **médiateur de la consommation** (« À COMPLÉTER AVANT SIGNATURE » à l'article 14 du contrat) et le **numéro de TVA intracommunautaire** (le devis applique 20 % sans le mentionner). Les pages publiques le disent sans rien inventer.
+- **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif.
+- **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
 - **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».
 - **La vidéo d'aperçu du vidéaste est absente** du ZIP et des pièces jointes. L'emplacement est prêt (`videastePartenaire.apercuVideo`), à `null`.
 

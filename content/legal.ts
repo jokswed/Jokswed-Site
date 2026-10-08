@@ -7,15 +7,27 @@
 
    ⚠️ DEUX CHAMPS VALENT `null`, ET JE NE LES REMPLIS PAS.
 
-   `mediateur` et `tvaIntracommunautaire`. Le contrat fourni porte « À COMPLÉTER
-   AVANT SIGNATURE » à l'article 14 pour le médiateur, et le devis applique une
-   TVA de 20 % sans mentionner de numéro de TVA intracommunautaire.
+   `mediateur` et `tvaIntracommunautaire`.
 
-   Inventer l'un ou l'autre serait pire que de les laisser vides : les pages
-   affichent donc une formulation exacte tant qu'ils manquent, et la garde
-   d'émission documentaire (V5) refusera de produire un contrat ou une facture
-   définitifs. La qualification fiscale revient au comptable, la désignation du
-   médiateur à une démarche d'adhésion.
+   SUR LA TVA — correction apportée après vérification.
+   J'avais présenté le numéro de TVA intracommunautaire comme une mention
+   obligatoire générale. C'est inexact : l'obligation dépend du régime.
+
+     · Franchise en base (art. 293 B du CGI) : aucune TVA facturée, et la
+       mention « TVA non applicable, article 293 B du CGI » est obligatoire sur
+       chaque facture. Le numéro intracommunautaire n'est PAS requis pour des
+       opérations purement internes.
+     · Assujetti qui facture la TVA : le numéro individuel d'identification du
+       vendeur figure parmi les mentions de l'article 242 nonies A, annexe II
+       du CGI.
+
+   Le devis fourni applique 20 % de TVA sur 1 083,33 € HT. Sous ce régime, le
+   numéro manque. Si le régime réel est la franchise, alors c'est le taux de
+   20 % qui est l'anomalie. Les deux cas se corrigent, mais pas de la même
+   façon, et c'est au comptable de trancher — pas à moi.
+
+   `regimeTva` ci-dessous pilote ce que les pages affichent. Tant qu'il vaut
+   `indetermine`, rien n'est affirmé.
    ============================================================================= */
 
 export const entreprise = {
@@ -32,7 +44,12 @@ export const entreprise = {
   email: "jokswed@gmail.com",
   telephone: "07 69 90 25 99",
 
-  /** @see le commentaire d'en-tête. À renseigner avant mise en ligne. */
+  /**
+   * Régime réel, à confirmer par le comptable.
+   * 'franchise_base' | 'assujetti' | 'indetermine'
+   */
+  regimeTva: "indetermine" as "franchise_base" | "assujetti" | "indetermine",
+  /** Requis seulement si `regimeTva` vaut 'assujetti'. */
   tvaIntracommunautaire: null as string | null,
   /** @see le commentaire d'en-tête. À renseigner avant mise en ligne. */
   mediateur: null as { nom: string; adresse: string; site: string } | null,
@@ -101,7 +118,14 @@ export const mentionMediateur = entreprise.mediateur
   ? `Médiateur de la consommation : ${entreprise.mediateur.nom}, ${entreprise.mediateur.adresse} — ${entreprise.mediateur.site}`
   : "Médiateur de la consommation : en cours de désignation. Ses coordonnées seront publiées ici et figureront dans votre contrat avant toute signature.";
 
-/** Idem pour la TVA : on n'affiche pas un numéro qu'on n'a pas. */
-export const mentionTva = entreprise.tvaIntracommunautaire
-  ? `Numéro de TVA intracommunautaire : ${entreprise.tvaIntracommunautaire}`
-  : null;
+/**
+ * Mention fiscale affichée, selon le régime — et rien du tout tant qu'il n'est
+ * pas qualifié. On n'affiche pas un numéro qu'on n'a pas, et on n'affirme pas
+ * un régime qu'on n'a pas vérifié.
+ */
+export const mentionTva =
+  entreprise.regimeTva === "assujetti" && entreprise.tvaIntracommunautaire
+    ? `Numéro de TVA intracommunautaire : ${entreprise.tvaIntracommunautaire}`
+    : entreprise.regimeTva === "franchise_base"
+      ? "TVA non applicable, article 293 B du Code général des impôts"
+      : null;

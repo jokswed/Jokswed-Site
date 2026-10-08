@@ -39,12 +39,25 @@
 
 import { NextResponse } from "next/server";
 import { limiterDebit, cleDepuisRequete } from "@/lib/limite-debit";
+import { formules, supplements, statutSupplement } from "@/content/offres";
 
 export const runtime = "nodejs";
 
 /* 5 demandes par demi-heure et par /24 : large pour un couple qui hésite,
-   étroit pour un script. */
-const LIMITE = 5;
+   étroit pour un script.
+
+   ⚠️ RÉGLABLE, MAIS BORNÉ.
+
+   Les bancs ont besoin de plus de marge que la production, parce qu'ils
+   enchaînent une quinzaine d'envois depuis une seule adresse. La variable
+   existe pour cela — et elle est encadrée : jamais moins de 3, jamais plus
+   de 50. Une variable mal saisie ne peut donc pas désactiver la protection,
+   ce qui serait le pire des deux mondes : une limite affichée, inopérante. */
+function limiteConfiguree() {
+  const brut = Number.parseInt(process.env.CONTACT_LIMITE ?? "", 10);
+  if (!Number.isFinite(brut)) return 5;
+  return Math.min(50, Math.max(3, brut));
+}
 const FENETRE_MS = 30 * 60 * 1000;
 
 /** Corps au-delà duquel on refuse sans même analyser. */
@@ -147,7 +160,7 @@ export async function POST(request) {
     }
 
     const cle = cleDepuisRequete(request);
-    const quota = limiterDebit(cle, LIMITE, FENETRE_MS);
+    const quota = limiterDebit(cle, limiteConfiguree(), FENETRE_MS);
     if (!quota.autorise) {
       return NextResponse.json(
         {
@@ -190,7 +203,34 @@ export async function POST(request) {
     const dateBrute = nettoyer(body.date, 20);
     const lieu = nettoyer(body.lieu, 200);
     const message = nettoyer(body.message, 5000);
-    const formule = nettoyer(body.formule, 60);
+    /* ═══════════════════════════════════════════════════════════════════
+       LA SÉLECTION EST REVALIDÉE CONTRE LE CATALOGUE, CÔTÉ SERVEUR.
+       ═══════════════════════════════════════════════════════════════════
+       Le navigateur n'envoie que des clés, mais rien ne l'empêche d'en
+       inventer. On ne retient donc que celles qui existent, et on applique
+       ICI la règle de compatibilité : un supplément déjà compris dans la
+       formule est signalé comme tel, jamais ajouté comme une ligne vendue.
+       C'est la même règle que l'affichage, mais c'est celle-ci qui fait foi. */
+    const formuleCle = nettoyer(body.formule, 60);
+    const formuleRetenue = formules.find((f) => f.cle === formuleCle) ?? null;
+    const formule = formuleRetenue ? `${formuleRetenue.nom} — ${formuleRetenue.surnom}` : "";
+
+    const clesRecues = Array.isArray(body.supplements)
+      ? body.supplements.slice(0, 20).map((c) => nettoyer(c, 60))
+      : [];
+
+    const supplementsRetenus = [];
+    const supplementsDejaInclus = [];
+    for (const cle of clesRecues) {
+      const s = supplements.find((x) => x.cle === cle);
+      if (!s) continue; // clé inconnue : ignorée en silence
+      const statut = statutSupplement(s, formuleRetenue ? formuleRetenue.cle : null);
+      if (statut === "incompatible") continue;
+      if (statut === "inclus") supplementsDejaInclus.push(s.nom);
+      else supplementsRetenus.push(s.nom);
+    }
+
+    const videoDemandee = clesRecues.includes("videaste");
 
     /* ⚠️ DEUX CONSENTEMENTS DISTINCTS, POUR DEUX FINALITÉS DISTINCTES. */
     const consentementDemande = body.consentement === true;
@@ -250,9 +290,26 @@ export async function POST(request) {
       telephone ? `Téléphone : ${telephone}` : null,
       `Date du mariage : ${dateLisible}`,
       `Lieu : ${lieu || "À définir"}`,
-      formule ? `Formule envisagée : ${formule}` : null,
+      formule ? `Formule envisagée : ${formule}` : "Formule : non précisée",
+      supplementsRetenus.length ? `Suppléments souhaités : ${supplementsRetenus.join(", ")}` : null,
+      supplementsDejaInclus.length
+        ? `Déjà compris dans la formule (non facturé) : ${supplementsDejaInclus.join(", ")}`
+        : null,
       "",
+      `Prestation vidéo demandée : ${videoDemandee ? "OUI" : "non"}`,
       `Transmission au vidéaste partenaire : ${consentementPartenaire ? "acceptée" : "non acceptée"}`,
+      /* ⚠️ AUCUNE NOTIFICATION N'EST ENVOYÉE AU VIDÉASTE À CE STADE.
+
+         Son compte, son entreprise et ses permissions n'existent pas encore
+         (paliers 002, 003 et 010 du schéma). Transmettre maintenant
+         supposerait un espace authentifié où il n'y a rien à authentifier, et
+         ferait sortir des coordonnées clients hors de tout cadre.
+         La transmission automatique est l'objet de la V6 ; en attendant, la
+         demande arrive ici avec la mention ci-dessus, et le relais est
+         manuel. */
+      videoDemandee
+        ? "→ À transmettre manuellement au vidéaste (transmission automatique : V6)."
+        : null,
       "",
       "Message :",
       message,
@@ -267,9 +324,25 @@ export async function POST(request) {
         <p><strong>Date du mariage :</strong> ${echapperHtml(dateLisible)}</p>
         <p><strong>Lieu :</strong> ${echapperHtml(lieu || "À définir")}</p>
         ${formule ? `<p><strong>Formule envisagée :</strong> ${echapperHtml(formule)}</p>` : ""}
+        ${
+          supplementsRetenus.length
+            ? `<p><strong>Suppléments souhaités :</strong> ${echapperHtml(supplementsRetenus.join(", "))}</p>`
+            : ""
+        }
+        ${
+          supplementsDejaInclus.length
+            ? `<p style="color:#6b6b6b"><strong>Déjà compris dans la formule</strong> (non facturé) : ${echapperHtml(supplementsDejaInclus.join(", "))}</p>`
+            : ""
+        }
+        <p><strong>Prestation vidéo :</strong> ${videoDemandee ? "demandée" : "non"}</p>
         <p><strong>Transmission au vidéaste partenaire :</strong> ${
           consentementPartenaire ? "acceptée" : "non acceptée"
         }</p>
+        ${
+          videoDemandee
+            ? `<p style="background:#fbf7e8;padding:10px;border-left:3px solid #c9a227">À transmettre <strong>manuellement</strong> au vidéaste : son espace collaborateur n'est pas encore en service.</p>`
+            : ""
+        }
         <hr style="border:0;border-top:1px solid #ddd;margin:24px 0" />
         <p><strong>Message :</strong></p>
         <p style="white-space:pre-wrap">${echapperHtml(message)}</p>

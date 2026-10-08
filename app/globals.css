@@ -1484,3 +1484,290 @@ button:hover .photo img {
 
   z-index:10001;
 }
+
+/* =============================================================================
+   V2 — ACCUEIL : BANDE PHOTOGRAPHIQUE, CONFIGURATEUR, FAQ
+   ============================================================================= */
+
+/* --- 1. BANDE PHOTOGRAPHIQUE -------------------------------------------------
+   ⚠️ POURQUOI UNE ANIMATION CSS ET PAS DU JAVASCRIPT.
+
+   Un défilement piloté en JS recalcule une position à chaque image : sur
+   Safari iOS, cela sort l'animation du compositeur et provoque exactement les
+   saccades qu'on veut éviter. Ici, une seule `transform` animée par mot-clé :
+   le compositeur s'en charge, le fil principal reste libre, et la bande
+   continue de défiler même pendant l'hydratation de React.
+
+   ⚠️ LA BOUCLE EST SANS RACCORD, ET VOICI LA CONDITION EXACTE.
+
+   La piste contient la liste des photos EXACTEMENT DEUX FOIS. L'animation la
+   translate de 0 à -50 % de SA PROPRE largeur, donc d'un nombre entier de
+   photos. À la fin du cycle, la seconde copie occupe précisément la place
+   qu'occupait la première : le retour à 0 est invisible. Dupliquer trois fois,
+   ou traduire d'une valeur en pixels, casserait le raccord.
+   --------------------------------------------------------------------------- */
+.bande {
+  /* Pleine largeur réelle. PAS `100vw` : sur desktop, 100vw inclut la largeur
+     de la barre de défilement et provoque un débordement horizontal du
+     document — exactement le défaut qu'on s'interdit. */
+  width: 100%;
+  overflow: hidden;
+  background: var(--brume);
+  /* Le défilement vertical de la page ne doit jamais être capturé ici. */
+  touch-action: pan-y;
+}
+
+.bande__piste {
+  display: flex;
+  width: max-content;
+  /* Aucun espace entre les photos : ni gap, ni marge, ni espace entre
+     éléments en ligne (les items sont `flex`, donc le problème des espaces
+     d'inline-block ne se pose pas). */
+  gap: 0;
+  animation: bande-defile var(--bande-duree, 70s) linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+@keyframes bande-defile {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* Pause au survol — uniquement là où un vrai survol existe. Sur un écran
+   tactile, `:hover` reste collé après un appui et figerait la bande. */
+@media (hover: hover) and (pointer: fine) {
+  .bande:hover .bande__piste { animation-play-state: paused; }
+}
+
+.bande__photo {
+  position: relative;
+  flex: 0 0 auto;
+  /* Carrés strictement identiques, du 320 px au grand écran. */
+  inline-size: var(--carre);
+  block-size: var(--carre);
+  overflow: hidden;
+}
+
+.bande {
+  --carre: clamp(150px, 30vw, 250px);
+}
+
+.bande__photo img {
+  display: block;        /* supprime l'espace sous l'image en ligne */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Recadrage ajustable par photo, pour ne pas couper les visages. */
+  object-position: var(--cadrage, 50% 50%);
+}
+
+/* Accessibilité : on ne force personne à subir un mouvement perpétuel.
+   La bande devient alors une galerie que l'on fait défiler soi-même. */
+@media (prefers-reduced-motion: reduce) {
+  .bande__piste { animation: none; }
+  .bande {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --- 2. CONFIGURATEUR : CARTES DE FORMULE ------------------------------------ */
+.formule__choix { margin-top: auto; padding-top: 1.2rem; }
+
+.formule--choisie {
+  border-color: var(--encre);
+  box-shadow: 0 0 0 1px var(--encre);
+}
+
+.formule__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--encre);
+}
+
+.btn--bloc { width: 100%; justify-content: center; }
+
+.btn--fantome {
+  background: transparent;
+  color: var(--encre);
+  border: 1px solid var(--ligne);
+}
+.btn--fantome:hover { background: var(--papier); border-color: var(--encre); }
+
+/* --- 3. SUPPLÉMENTS ---------------------------------------------------------- */
+.supplements {
+  display: grid;
+  gap: clamp(0.9rem, 2vw, 1.2rem);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) { .supplements { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1000px) { .supplements { grid-template-columns: repeat(3, 1fr); } }
+
+.supplement {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  /* ⚠️ Zone tactile confortable : ces cartes SONT les boutons de sélection.
+     Un supplément qu'on rate du pouce est un supplément qu'on ne vend pas. */
+  min-height: 7.5rem;
+  padding: 1.3rem 1.4rem;
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.3s var(--ease), background 0.3s var(--ease),
+              transform 0.3s var(--ease);
+}
+.supplement:hover { border-color: var(--encre-douce); }
+.supplement:active { transform: scale(0.995); }
+.supplement:focus-visible { outline: 2px solid var(--encre); outline-offset: 3px; }
+
+.supplement[aria-pressed="true"] {
+  border-color: var(--encre);
+  background: var(--papier);
+  box-shadow: inset 0 0 0 1px var(--encre);
+}
+
+.supplement__titre {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.12rem;
+}
+
+.supplement__prix {
+  flex-shrink: 0;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.supplement__texte { font-size: 0.9rem; color: var(--encre-douce); line-height: 1.55; }
+
+/* Un supplément déjà compris dans la formule : montré, jamais facturé. */
+.supplement--inclus {
+  cursor: default;
+  background: var(--brume);
+  border-style: dashed;
+}
+.supplement--inclus:hover { border-color: var(--ligne); }
+
+.etiquette-incluse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--encre);
+}
+
+/* --- 4. CARTE VIDÉASTE -------------------------------------------------------- */
+.videaste {
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  padding: clamp(1.6rem, 4vw, 2.6rem);
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+}
+@media (min-width: 900px) { .videaste { grid-template-columns: 1fr 1fr; align-items: center; } }
+
+.videaste__texte { display: grid; gap: 1rem; align-content: start; }
+.videaste__texte p { font-size: 0.95rem; line-height: 1.7; color: var(--encre-douce); }
+
+.videaste__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--brume);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 1.5rem;
+}
+.videaste__media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.videaste__attente {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gris);
+  line-height: 1.8;
+}
+
+/* --- 5. RÉCAPITULATIF --------------------------------------------------------- */
+.recap {
+  display: grid;
+  gap: 0.75rem;
+  padding: clamp(1.3rem, 3vw, 1.8rem);
+  background: var(--papier);
+  border: 1px solid var(--ligne);
+}
+.recap__ligne {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.92rem;
+  color: var(--encre-douce);
+}
+.recap__ligne--total {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ligne);
+  color: var(--encre);
+  font-size: 1.05rem;
+}
+.recap__note { font-size: 0.82rem; color: var(--gris); line-height: 1.6; }
+
+/* --- 6. FORMULAIRE : CONFORT iPHONE -------------------------------------------
+   ⚠️ 16 px MINIMUM SUR LES CHAMPS.
+
+   En dessous, Safari iOS ZOOME automatiquement à la mise au point : la page
+   saute, l'utilisateur perd le fil et doit repincer pour revenir. Les champs
+   héritaient de `font: inherit`, donc d'une taille inférieure selon le
+   contexte. On fixe un plancher sans toucher au reste de la typographie.
+   --------------------------------------------------------------------------- */
+.formulaire input,
+.formulaire textarea,
+.formulaire select {
+  font-size: max(16px, 1rem);
+}
+
+.formulaire input[type="date"] {
+  /* Safari iOS rend les champs date en hauteur minuscule sans ceci. */
+  min-height: 2.9rem;
+  appearance: none;
+}
+
+/* --- 7. ANCRE DE SECTION ------------------------------------------------------
+   L'en-tête est fixe : sans décalage, un `scrollIntoView` place le titre de la
+   section SOUS la barre. `scroll-margin-top` réserve la hauteur de l'en-tête. */
+[id] { scroll-margin-top: clamp(5rem, 12vw, 7rem); }
+
+/* --- 8. CIBLES TACTILES DU PIED DE PAGE ---------------------------------------
+   ⚠️ 22 px DE HAUT, MESURÉS À L'ÉCRAN.
+
+   Les liens du pied de page tombaient juste sous le minimum de 24 × 24 px du
+   critère WCAG 2.2 « Target Size (Minimum) », niveau AA. L'écart est minime
+   mais il est réel, et sur un pouce il se traduit par des liens qu'on rate.
+   Un peu de remplissage vertical suffit : la mise en page ne bouge pas, la
+   cible passe au-dessus du seuil.
+   --------------------------------------------------------------------------- */
+.pied a {
+  display: inline-block;
+  padding-block: 0.15rem;
+  min-height: 24px;
+}
