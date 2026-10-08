@@ -98,6 +98,48 @@ d'environ 80 : `npm run banc` échoue si `public/images` dépasse 15 Mo.
 - **Cibles tactiles du pied de page** portées de 22 à 24 px (minimum WCAG 2.2 AA).
 - **Tailles d'images affinées** (320 et 640 ajoutés) : un carré de 250 px sur écran 2× recevait un fichier de 768 px.
 
+## Ce que la V3 a apporté
+
+**Base de données JoksWed indépendante** — PostgreSQL, 7 migrations, 20 tables.
+Entièrement distincte de celle d'EyesofJoks, qui n'a reçu aucune migration.
+
+**Identité** : utilisateurs, empreintes scrypt (paramètres OWASP, ~180 ms par
+vérification), second facteur TOTP chiffré au repos en AES-256-GCM, sessions
+dont seule l'empreinte du jeton est stockée, limitation des tentatives en base.
+
+**Entreprises et permissions** : entreprises juridiquement distinctes, régimes
+de TVA historisés, 28 permissions en table, 6 rôles modèles, plusieurs rôles par
+membre, refus individuels qui l'emportent, invitations à jeton haché.
+
+**Row Level Security** sur 19 tables, `FORCE` partout sauf 5 exceptions
+justifiées et vérifiées par banc. Rôle `jokswed_app` ni propriétaire, ni
+superutilisateur, ni `BYPASSRLS`. Identité portée par `set_config(..., true)`,
+locale à la transaction.
+
+**Administration** : connexion, tableau de bord, collaborateurs. Même système de
+design que le site public, mobile d'abord.
+
+### Lancer l'environnement de développement
+
+```bash
+npm run dev:complet
+```
+
+Démarre un PostgreSQL isolé (port 54329, dossier `.pgdev/`), applique les
+migrations, pose des fixtures en `.invalid`, puis lance Next.
+
+⚠️ Utilisez bien `dev:complet` et non `next start` : en production le cookie
+porte le préfixe `__Host-`, qui impose HTTPS. Servi en HTTP simple, il est
+rejeté par le navigateur et la connexion échoue silencieusement.
+
+### Tests
+
+```bash
+npm run test:securite   # 41 épreuves RLS, avec le rôle réel de l'application
+npm run test:admin      # 27 épreuves HTTP sur les routes d'administration
+npm run test:secrets    # 24 épreuves des primitives, dont le vecteur RFC 6238
+```
+
 ## Ce qui reste ouvert
 
 - **La demande n'est pas persistée.** L'e-mail reste le seul support : si l'envoi échoue, la demande est perdue. Objet de la V4 (table `demandes`).

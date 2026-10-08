@@ -1,7 +1,5 @@
 import "./globals.css";
 import localFont from "next/font/local";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
 import { site } from "@/content/site";
 
 /* --- Polices auto-hébergées dans /app/fonts (aucune requête externe,
@@ -74,30 +72,20 @@ export const viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }) {
-  /* Données structurées (schema.org) : aide Google à comprendre l'activité */
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: site.nom,
-    description: "Photographe de mariage à Paris et à l'international.",
-    url: site.url,
-    email: site.email,
-    areaServed: ["Paris", "France", "International"],
-    sameAs: [site.instagram],
-  };
+/* ⚠️ CETTE DISPOSITION NE REND NI EN-TÊTE NI PIED DE PAGE.
 
+   Ils appartiennent au SITE PUBLIC, et vivent donc dans `app/(site)/layout.jsx`.
+   Tant qu'ils étaient ici, l'administration héritait de la navigation
+   publique — « Portfolio », « Tarifs », « Contact » s'affichaient au-dessus
+   de l'écran de connexion. Vu à l'écran en 375 px.
+
+   Les parenthèses de `(site)` en font un GROUPE DE ROUTES : il organise les
+   fichiers sans apparaître dans les URL. `/tarifs` reste `/tarifs`. */
+
+export default function RootLayout({ children }) {
   return (
     <html lang="fr" className={`${display.variable} ${sans.variable}`}>
-      <body>
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-        <Header />
-        <main id="contenu">{children}</main>
-        <Footer />
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

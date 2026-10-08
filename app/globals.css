@@ -1771,3 +1771,113 @@ button:hover .photo img {
   padding-block: 0.15rem;
   min-height: 24px;
 }
+
+/* =============================================================================
+   V3 — ADMINISTRATION
+   -----------------------------------------------------------------------------
+   Même système de design que le site public — mêmes variables, mêmes polices,
+   mêmes boutons — mais une densité plus forte : on y travaille, on ne s'y
+   promène pas. Mobile d'abord : l'essentiel des consultations se fera depuis
+   un iPhone, entre deux prestations.
+   ============================================================================= */
+
+.admin { min-height: 100dvh; background: var(--papier); }
+
+.admin-page {
+  width: min(100% - 2 * var(--gouttiere), 72rem);
+  margin-inline: auto;
+  padding-block: clamp(1.5rem, 5vw, 3rem);
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  align-content: start;
+}
+
+.admin-entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--ligne);
+}
+
+/* --- Connexion ---------------------------------------------------------------
+   `100dvh` et non `100vh` : sur Safari iOS, `vh` ignore la barre d'adresse
+   rétractable et la carte se retrouve coupée en bas. */
+.admin-connexion {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gouttiere);
+  background: var(--papier);
+}
+.admin-connexion__carte {
+  width: min(100%, 26rem);
+  padding: clamp(1.8rem, 6vw, 2.8rem);
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+
+.admin-alerte {
+  margin-top: 1.2rem;
+  padding: 0.85rem 1rem;
+  background: #fdf3f3;
+  border-left: 3px solid #9b2c2c;
+  color: #7a2222;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* --- Indicateurs -------------------------------------------------------------
+   `auto-fit` plutôt qu'un nombre de colonnes figé : de 1 colonne à 320 px
+   jusqu'à 4 sur grand écran, sans point de rupture à maintenir. */
+.admin-chiffres {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+.admin-chiffre {
+  padding: 1.3rem 1.4rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+.admin-chiffre__valeur {
+  font-family: var(--font-display), serif;
+  font-size: clamp(2rem, 6vw, 2.6rem);
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+/* --- Listes ------------------------------------------------------------------
+   En pile sur mobile, en ligne dès qu'il y a la place. Chaque entrée fait au
+   moins 3 rem de haut : on la touche du pouce sans viser. */
+.admin-liste { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.6rem; }
+.admin-liste li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.1rem;
+  min-height: 3rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+  font-size: 0.92rem;
+}
+.admin-liste li strong { font-family: var(--font-display), serif; font-size: 1.05rem; }
+.admin-liste li span { color: var(--gris); }
+.admin-liste li form { margin-left: auto; }
+
+.btn--petit { padding: 0.55rem 1rem; font-size: 0.74rem; }
+
+.admin-nav { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+
+.admin select {
+  font: inherit;
+  font-size: max(16px, 1rem);
+  padding: 0.65rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--ligne);
+  background: transparent;
+  border-radius: 0;
+}

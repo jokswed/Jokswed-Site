@@ -11,11 +11,27 @@
     "verifier:sitemap": "node scripts/verifier-sitemap.mjs",
     "verifier:coherence": "node scripts/verifier-coherence.mjs",
     "banc": "node scripts/banc-v1.mjs",
-    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc"
+    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc && npm run test:secrets && npm run test:securite && npm run test:admin",
+    "db:migrer": "tsx scripts/migrer.mjs",
+    "db:semer": "tsx scripts/semer.mjs",
+    "test:secrets": "tsx scripts/test-secrets.mts",
+    "test:securite": "tsx scripts/banc-securite.mjs",
+    "test:admin": "tsx scripts/banc-admin.mjs",
+    "dev:complet": "tsx scripts/dev-complet.mjs"
   },
   "dependencies": {
     "next": "^16.4.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "embedded-postgres": "^18.4.0-beta.17",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
