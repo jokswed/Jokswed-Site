@@ -5,7 +5,19 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 
-const scrypt = promisify(scryptCb);
+/* ⚠️ `promisify` PERD LA SURCHARGE À QUATRE ARGUMENTS.
+   `scrypt(mot, sel, longueur, options, rappel)` existe bien, mais le type
+   déduit par `promisify` ne retient que la forme à trois arguments — et le
+   compilateur refuse alors de passer `{ N, r, p, maxmem }`, sans lesquels
+   Node applique ses valeurs par défaut, bien plus faibles que celles de
+   l'OWASP. On redéclare donc la signature utilisée, au lieu de la contourner
+   par un `any` qui masquerait une vraie erreur d'appel. */
+const scrypt = promisify(scryptCb) as (
+  motDePasse: string,
+  sel: Buffer,
+  longueur: number,
+  options: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
 
 /* =============================================================================
    PRIMITIVES DE SECRET
@@ -46,9 +58,9 @@ export async function hacherMotDePasse(motDePasse: string): Promise<string> {
     throw new Error("Le mot de passe doit faire au moins 12 caractères.");
   }
   const sel = randomBytes(16);
-  const derive = (await scrypt(motDePasse.normalize("NFKC"), sel, LONGUEUR_CLE, {
+  const derive = await scrypt(motDePasse.normalize("NFKC"), sel, LONGUEUR_CLE, {
     N: SCRYPT_N, r: SCRYPT_r, p: SCRYPT_p, maxmem: SCRYPT_MAXMEM,
-  })) as Buffer;
+  });
   /* Les paramètres voyagent AVEC l'empreinte : le jour où on les renforce,
      les anciennes empreintes restent vérifiables et peuvent être migrées
      à la volée à la prochaine connexion réussie. */
@@ -63,9 +75,9 @@ export async function verifierMotDePasse(motDePasse: string, empreinte: string):
   const sel = Buffer.from(selB64, "base64");
   const attendu = Buffer.from(attenduB64, "base64");
 
-  const derive = (await scrypt(motDePasse.normalize("NFKC"), sel, attendu.length, {
+  const derive = await scrypt(motDePasse.normalize("NFKC"), sel, attendu.length, {
     N: Number(n), r: Number(r), p: Number(p), maxmem: SCRYPT_MAXMEM,
-  })) as Buffer;
+  });
 
   /* Comparaison à durée constante : une comparaison ordinaire s'arrête au
      premier octet différent et laisse mesurer la longueur du préfixe correct. */

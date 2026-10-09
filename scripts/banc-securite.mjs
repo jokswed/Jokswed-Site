@@ -165,6 +165,8 @@ try {
     /* V4.1 — limitation de débit, journal d'envoi, verrou du drain, et la
        relecture minimale d'une demande par le drain (qui n'a pas d'acteur). */
     "limiter","journaliser_envoi","relancer_envoi","verrou_drain","demande_pour_envoi",
+    /* V5 — garde d'émission, numérotation atomique, passage au définitif. */
+    "verdict_emission","numero_suivant","emettre_document",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",

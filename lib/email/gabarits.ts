@@ -182,11 +182,13 @@ export function alerteAdministrateur(donnees: {
   videoDemandee: boolean;
   lien: string;
 }): Gabarit {
+  /* Le prédicat typé garde l'information « plus aucun null » : sans lui,
+     TypeScript conserve `(string | null)[]` et refuse `.map(echapper)`. */
   const details = [
     donnees.dateMariage ? `Date : ${donnees.dateMariage}` : "Date : à définir",
     donnees.ville ? `Ville : ${donnees.ville}` : null,
     donnees.videoDemandee ? "Prestation vidéo demandée" : null,
-  ].filter(Boolean);
+  ].filter((v): v is string => v !== null);
 
   return {
     sujet: `Nouvelle demande ${donnees.reference}`,
@@ -233,7 +235,7 @@ export function propositionCollaborateur(donnees: {
     donnees.dateMariage ? `Date : ${donnees.dateMariage}` : "Date : à confirmer",
     donnees.ville ? `Lieu : ${donnees.ville}` : null,
     `Prestation : ${donnees.prestation}`,
-  ].filter(Boolean);
+  ].filter((v): v is string => v !== null);
 
   return {
     sujet: `Nouvelle proposition — mariage${donnees.dateMariage ? ` du ${donnees.dateMariage}` : ""}`,

@@ -8,7 +8,17 @@
    Base vierge à chaque exécution, serveur Next démarré contre elle.
    ============================================================================= */
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import pg from "pg";
+
+/* `server-only` lève dès qu'il est évalué hors d'un bundle React — c'est son
+   rôle. Le banc importe des modules serveur pour les éprouver : on pré-remplit
+   son cache afin qu'il ne s'exécute pas, sans toucher à la source. */
+const require_ = createRequire(import.meta.url);
+const cheminServerOnly = require_.resolve("server-only");
+require_.cache[cheminServerOnly] = {
+  id: cheminServerOnly, filename: cheminServerOnly, loaded: true, exports: {},
+};
 import { demarrer, urlMigrateur, urlApplication, urlAuth, baseVierge } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
@@ -378,8 +388,11 @@ try {
   v("La fiche signale que rien n'a été transmis au vidéaste",
     htmlFiche.includes("Préparée — non transmise")
       || htmlFiche.includes("Pr&#x27;éparée") || htmlFiche.includes("non transmise"));
-  v("Aucun bouton de devis/contrat n'est présenté comme opérationnel",
-    !/Générer (le |un )?(devis|contrat|facture)/i.test(htmlFiche));
+  /* ⚠️ RE-POINTÉ EN V5. Le devis a désormais un moteur : son bouton est
+     légitime. Ce qui reste interdit, c'est un bouton CONTRAT ou FACTURE,
+     dont le moteur n'existe pas encore. */
+  v("Aucun bouton de contrat ou de facture n'est présenté comme opérationnel",
+    !/Générer (le |un |une )?(contrat|facture|avoir)/i.test(htmlFiche));
 
   /* ── Cloisonnement : le vidéaste ne doit PAS voir cette demande ──
      ⚠️ Son compte a été DÉSACTIVÉ par l'épreuve n° 6. Le laisser ainsi ferait
@@ -574,6 +587,162 @@ try {
     "banc-limite-autre-email");
   v("…mais une AUTRE adresse derrière la même IP passe encore",
     autreClient.status === 200, `HTTP ${autreClient.status}`);
+
+
+  /* ═══════════ 11. V5 — DOCUMENTS ═══════════ */
+
+  /* ── Génération d'un devis depuis la fiche ── */
+  const ficheAvant = await proprio.fetch(`/admin/demandes/${enBase.rows[0].id}`);
+  const htmlAvant = await ficheAvant.text();
+  v("La fiche propose de générer un devis", htmlAvant.includes("Générer un devis"));
+  v("…et affiche les motifs qui bloquent l'émission définitive",
+    htmlAvant.includes("Émission définitive bloquée")
+      && /régime de TVA non qualifié/.test(htmlAvant),
+    "les motifs ne sont pas affichés");
+
+  /* ⚠️ ON PASSE PAR LE VRAI GÉNÉRATEUR, PAS PAR UN INSERT BRICOLÉ.
+     Une première version insérait un document avec un instantané minimal :
+     le téléchargement du PDF répondait alors 500, et le banc accusait la
+     route d'un défaut qui venait de sa propre fixture. Ici, c'est le même
+     code que l'administration qui construit le document. */
+  const { genererDevisDepuisDemande } = await import("../lib/documents/generer.ts");
+
+  const avecIdentite = async (travail) => {
+    await verite2.query("BEGIN");
+    try {
+      await verite2.query("SELECT set_config('app.session_jeton','banc-admin-lecture', true)");
+      const r = await travail(async (texte, valeurs = []) => {
+        const res = await verite2.query(texte, valeurs);
+        return { rows: res.rows, rowCount: res.rowCount ?? 0 };
+      });
+      await verite2.query("COMMIT");
+      return r;
+    } catch (e) { await verite2.query("ROLLBACK"); throw e; }
+  };
+
+  const avantDocs = await verite2.query("SELECT count(*)::int n FROM documents");
+  const genere = await avecIdentite((q) =>
+    genererDevisDepuisDemande(q, enBase.rows[0].id, fixtures.entreprises.jokswed,
+      fixtures.utilisateurs.proprietaire));
+  const documentId = genere.documentId;
+  const apresDocs = await verite2.query("SELECT count(*)::int n FROM documents");
+  v("Le vrai générateur crée un brouillon de devis",
+    apresDocs.rows[0].n === avantDocs.rows[0].n + 1,
+    `${avantDocs.rows[0].n} → ${apresDocs.rows[0].n}`);
+
+  const contenuDoc = await lireAvecIdentite(
+    "SELECT statut, total_ttc_cents, instantane FROM documents WHERE id = $1", [documentId]);
+  v("Le devis reprend le prix figé de la demande",
+    contenuDoc.rows[0].total_ttc_cents === 160000,
+    `${contenuDoc.rows[0].total_ttc_cents} centimes`);
+  v("Le devis reprend l'identité du prestataire",
+    contenuDoc.rows[0].instantane.prestataire?.siret === "93760042700010");
+  v("La séance engagement incluse n'est PAS une ligne vendue",
+    !(contenuDoc.rows[0].instantane.lignes ?? [])
+      .some((l) => /Séance engagement/.test(l.designation))
+      && (contenuDoc.rows[0].instantane.inclusions ?? [])
+        .some((i) => /Séance engagement/.test(i)),
+    JSON.stringify(contenuDoc.rows[0].instantane.inclusions));
+
+  const echeancesDoc = await lireAvecIdentite(
+    "SELECT montant_cents FROM echeances WHERE document_id = $1 ORDER BY ordre", [documentId]);
+  const sommeEch = echeancesDoc.rows.reduce((s, e) => s + e.montant_cents, 0);
+  v("L'échéancier somme EXACTEMENT au total",
+    sommeEch === contenuDoc.rows[0].total_ttc_cents,
+    `${sommeEch} contre ${contenuDoc.rows[0].total_ttc_cents}`);
+  v("Le reliquat tombe sur la dernière échéance",
+    echeancesDoc.rows.length === 3
+      && echeancesDoc.rows[2].montant_cents >= echeancesDoc.rows[0].montant_cents);
+
+  /* ── L'émission est refusée tant que les mentions manquent ── */
+  const refusEmission = await lireAvecIdentite(
+    "SELECT * FROM app.emettre_document($1,'empreinte-essai')", [documentId]);
+  v("L'émission définitive est REFUSÉE, avec ses motifs",
+    refusEmission.rows[0].emis === false && refusEmission.rows[0].motifs.length > 0,
+    JSON.stringify(refusEmission.rows[0]));
+  v("Le motif cite le régime de TVA non qualifié",
+    refusEmission.rows[0].motifs.some((m) => /TVA/.test(m)),
+    JSON.stringify(refusEmission.rows[0].motifs));
+
+  const resteBrouillon = await verite2.query(
+    "SELECT statut, numero FROM documents WHERE id = $1", [documentId]);
+  v("Le document reste un brouillon, sans numéro",
+    resteBrouillon.rows[0].statut === "brouillon" && resteBrouillon.rows[0].numero === null);
+
+  /* ⚠️ AUCUN NUMÉRO N'A ÉTÉ CONSOMMÉ.
+     Un refus d'émission ne doit pas laisser de trou dans la série comptable. */
+  const serie = await verite2.query("SELECT count(*)::int n FROM document_series");
+  v("Un refus d'émission ne consomme AUCUN numéro de série", serie.rows[0].n === 0,
+    `${serie.rows[0].n} série(s) entamée(s)`);
+
+  /* ⚠️ LE MOTIF SUPPLÉMENTAIRE EST LE BON : « une prestation reste à chiffrer ».
+     La demande portait le vidéaste et un album supplémentaire, tous deux « sur
+     devis ». Émettre un document dont une ligne n'a pas de prix reviendrait à
+     présenter un total incomplet comme un total — c'est précisément ce que la
+     garde interdit. */
+  v("Un supplément non chiffré bloque aussi l'émission",
+    refusEmission.rows[0].motifs.some((m) => /reste à chiffrer/.test(m)),
+    JSON.stringify(refusEmission.rows[0].motifs));
+
+  /* L'administrateur retire les lignes non chiffrées du brouillon : le devis
+     ne porte alors que la formule, et les suppléments feront l'objet d'un
+     devis révisé une fois leurs tarifs arrêtés. */
+  await lireAvecIdentite(
+    `DELETE FROM document_lignes
+      WHERE document_id = $1 AND prix_unitaire_cents = 0 AND origine_type = 'supplement'`,
+    [documentId]);
+
+  /* ── Une fois les mentions complètes, l'émission passe ── */
+  await verite2.query(
+    `INSERT INTO regimes_tva (entreprise_id, regime, mention_legale, debut_le)
+     VALUES ($1,'franchise_base','TVA non applicable, article 293 B du CGI', current_date)`,
+    [fixtures.entreprises.jokswed]);
+  await verite2.query(
+    `UPDATE entreprises SET mediateur_nom = 'Médiateur d''essai',
+            mediateur_url = 'https://exemple.invalid' WHERE id = $1`,
+    [fixtures.entreprises.jokswed]);
+
+  const emission = await lireAvecIdentite(
+    "SELECT * FROM app.emettre_document($1,'empreinte-essai-2')", [documentId]);
+  v("Mentions complètes : l'émission est acceptée",
+    emission.rows[0].emis === true, JSON.stringify(emission.rows[0].motifs));
+  v("Le numéro porte le préfixe TEST hors production",
+    /^TEST-DEV-\d{4}-0001$/.test(emission.rows[0].numero ?? ""), emission.rows[0].numero);
+
+  /* ── Immuabilité ── */
+  /* ⚠️ AVEC IDENTITÉ : sans elle, la politique de `documents` ne rendrait
+     aucune ligne et l'UPDATE n'affecterait rien — on croirait le déclencheur
+     efficace alors qu'il n'aurait même pas été atteint. */
+  const modifier = await lireAvecIdentite(
+    "UPDATE documents SET total_ttc_cents = 1 WHERE id = $1 RETURNING id", [documentId])
+    .then(() => null).catch((e) => e);
+  /* `USING ERRCODE = 'restrict_violation'` produit le code 23001, pas P0001
+     (qui est le code par défaut d'un RAISE sans ERRCODE). */
+  v("Un document émis ne peut plus être modifié",
+    modifier !== null && modifier.code === "23001",
+    modifier ? `code ${modifier.code}` : "l'UPDATE a réussi");
+
+  const supprimer = await lireAvecIdentite(
+    "DELETE FROM documents WHERE id = $1", [documentId])
+    .then(() => null).catch((e) => e);
+  v("Un document émis ne peut pas être supprimé (exception, pas silence)",
+    supprimer !== null && supprimer.code === "23001",
+    supprimer ? `code ${supprimer.code}` : "le DELETE a réussi");
+
+  /* ── Le PDF se télécharge, et le cloisonnement s'applique ── */
+  const pdfProprio = await proprio.fetch(`/api/admin/documents/${documentId}/pdf`);
+  v("Le propriétaire télécharge le PDF",
+    pdfProprio.status === 200
+      && (pdfProprio.headers.get("content-type") ?? "").includes("application/pdf"),
+    `HTTP ${pdfProprio.status}`);
+  const octets = Buffer.from(await pdfProprio.arrayBuffer());
+  v("Le fichier servi est un vrai PDF", octets.subarray(0, 5).toString() === "%PDF-");
+  v("Le PDF n'est pas mis en cache par un intermédiaire",
+    (pdfProprio.headers.get("cache-control") ?? "").includes("no-store"));
+
+  const pdfVole = await video2.fetch(`/api/admin/documents/${documentId}/pdf`);
+  v("Le vidéaste ne peut PAS télécharger le document de JoksWed",
+    pdfVole.status === 404 || pdfVole.status === 403, `HTTP ${pdfVole.status}`);
 
   /* ── Aucune donnée personnelle dans les journaux ── */
   v("Les journaux ne contiennent pas l'adresse du couple",

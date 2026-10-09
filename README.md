@@ -207,11 +207,40 @@ e-mail, large par réseau /24 — pour ne pas bloquer un opérateur mobile entie
 3. **Vercel** : vérifier que ton offre autorise une tâche planifiée toutes les 15 minutes (`vercel.json`). L'offre Hobby la limite à une fois par jour — et son usage commercial est de toute façon exclu.
 4. **`CRON_SECRET`** : sans lui, l'endpoint répond 503 au lieu de s'ouvrir.
 
+## Ce que la V5 a apporté
+
+**Moteur documentaire sans aucune dépendance.** Le devis fourni sort de Canva et
+n'utilise que `/Helvetica` et `/Helvetica-Bold` — deux des quatorze polices
+garanties dans tout lecteur PDF. La fidélité visuelle de ton modèle est donc
+atteignable sans embarquer un octet de police, sans Puppeteer, sans coût.
+Vérifié : le PDF produit s'ouvre dans un vrai lecteur, en A4, et son texte
+extrait suit ton modèle ligne pour ligne.
+
+**Génération depuis une fiche** : un bouton, et le devis reprend l'identité du
+prestataire, celle des clients, la date, les lieux, la formule, ses inclusions
+et l'échéancier. Rien n'est ressaisi. L'échéancier applique la règle du modèle :
+433,33 + 433,33 + **433,34** — le reliquat tombe sur la dernière échéance, et la
+somme fait exactement le total.
+
+**La garde d'émission fait ce que tu as demandé** : tant que le régime de TVA
+n'est pas qualifié et que le médiateur n'est pas désigné, le brouillon se
+prépare, se relit, se télécharge — mais ne devient jamais définitif. Les motifs
+s'affichent **avant** le clic. Un brouillon porte un bandeau « DOCUMENT NON
+ÉMIS, SANS VALEUR ».
+
+**Un refus d'émission ne consomme aucun numéro** : la série comptable ne garde
+aucun trou. Les bancs puisent dans une série `TEST-` distincte.
+
+**Immuabilité** : un document émis ne peut être ni modifié ni supprimé —
+exception levée, jamais un silence.
+
 ## Ce qui reste ouvert
 
 - **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
 - **Aucun webhook Brevo n'est branché** : un envoi reste au statut `envoye`, jamais `remis` ni `ouvert`.
 - **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
+- **Le contrat et la facture n'ont pas encore de moteur.** Le devis en a un ; la structure (clauses conditionnées, versions de CGV, signatures) est en base et attend son gabarit. Aucun bouton ne les propose — un bouton qui ne produit rien est pire que son absence.
+- **Aucune signature électronique.** La table `signatures` distingue déjà `case_acceptation` d'une signature qualifiée, et l'interface ne présentera jamais la première comme la seconde.
 - **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
 - **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».

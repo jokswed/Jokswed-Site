@@ -5,6 +5,8 @@ import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
 import { formaterDateSql } from "@/lib/dates";
 import { formaterPrix } from "@/content/offres";
+import { genererDevisDepuisDemande, rendrePdf } from "@/lib/documents/generer";
+import { createHash } from "node:crypto";
 import { LIBELLES_STATUT } from "../page";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,13 @@ export default async function FicheDemande({ params }) {
        pas des colonnes. */
     const proposition = await q(
       "SELECT * FROM propositions WHERE demande_id = $1", [id]);
+    const documents = await q(
+      `SELECT id, type, numero, statut, total_ttc_cents, cree_le, emis_le
+         FROM documents WHERE demande_id = $1 ORDER BY cree_le DESC`, [id]);
+    /* Les motifs qui empêcheraient une émission définitive : on les affiche
+       AVANT que l'utilisateur clique, pas après. */
+    const verdict = await q(
+      "SELECT * FROM app.verdict_emission($1,'devis')", [entreprise.id]);
 
     /* Première ouverture : on marque la demande lue et on la sort de « non
        lue ». C'est une lecture qui change l'état, donc on la trace. */
@@ -67,11 +76,13 @@ export default async function FicheDemande({ params }) {
       consentements: consentements.rows,
       notes: notes.rows,
       proposition: proposition.rows[0] ?? null,
+      documents: documents.rows,
+      motifsBlocage: verdict.rows[0]?.motifs ?? [],
     };
   });
 
   if (!vue) notFound();
-  const { demande, lignes, consentements, notes, proposition } = vue;
+  const { demande, lignes, consentements, notes, proposition, documents, motifsBlocage } = vue;
   const peutEcrire = acces.permissions.has("dossier.ecrire");
 
   async function changerStatut(formulaire) {
@@ -131,6 +142,32 @@ export default async function FicheDemande({ params }) {
 
   const consentement = (finalite) =>
     consentements.find((c) => c.finalite === finalite)?.accorde === true;
+
+  async function genererDevis() {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.rediger"]);
+    await a.executer((q) => genererDevisDepuisDemande(q, id, e.id, s.utilisateurId));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function emettreDocument(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.emettre"]);
+    const documentId = String(formulaire.get("document") ?? "");
+    await a.executer(async (q) => {
+      const { rows } = await q(
+        "SELECT instantane FROM documents WHERE id = $1", [documentId]);
+      if (!rows[0]) return;
+      /* L'empreinte scelle le PDF EXACT qui est émis : c'est elle qui
+         prouvera plus tard ce qui a été accepté. */
+      const { pdf } = rendrePdf(rows[0].instantane, false);
+      const empreinte = createHash("sha256").update(pdf).digest("hex");
+      await q("SELECT * FROM app.emettre_document($1,$2)", [documentId, empreinte]);
+    });
+    revalidatePath(`/admin/demandes/${id}`);
+  }
 
   return (
     <main className="admin-page">
@@ -354,14 +391,58 @@ export default async function FicheDemande({ params }) {
           </section>
 
           <section className="admin-bloc">
-            <h2 className="display t-carte">Suite du parcours</h2>
-            {/* ⚠️ AUCUN BOUTON ICI. Devis, contrat et facture n'ont pas encore
-                de moteur : un bouton qui ne produit rien est pire qu'une
-                absence de bouton. */}
-            <p className="recap__note">
-              Devis, contrat et facture s&apos;ajouteront en V5. Les informations de
-              cette fiche les prérempliront : rien ne sera à ressaisir.
-            </p>
+            <h2 className="display t-carte">Documents</h2>
+
+            {documents.length === 0 ? (
+              <p className="recap__note">Aucun document pour cette demande.</p>
+            ) : (
+              <ul className="admin-liste">
+                {documents.map((doc) => (
+                  <li key={doc.id}>
+                    <strong>{doc.numero ?? "Brouillon"}</strong>
+                    <span>{doc.type}</span>
+                    <span>{formaterPrix(doc.total_ttc_cents)} TTC</span>
+                    <span className={`admin-pastille admin-pastille--${doc.statut}`}>
+                      {doc.statut === "brouillon" ? "Brouillon" : "Émis"}
+                    </span>
+                    <a className="btn btn--fantome btn--petit"
+                       href={`/api/admin/documents/${doc.id}/pdf`}
+                       target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>
+                    {doc.statut === "brouillon"
+                      && acces.permissions.has("document.emettre")
+                      && motifsBlocage.length === 0 ? (
+                      <form action={emettreDocument}>
+                        <input type="hidden" name="document" value={doc.id} />
+                        <button type="submit" className="btn btn--petit">Émettre</button>
+                      </form>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {acces.permissions.has("document.rediger") ? (
+              <form action={genererDevis} style={{ marginTop: "1.2rem" }}>
+                <button type="submit" className="btn btn--bloc">Générer un devis</button>
+              </form>
+            ) : null}
+
+            {/* ⚠️ LES MOTIFS DE BLOCAGE SONT AFFICHÉS AVANT LE CLIC.
+                Un bouton « Émettre » qui échoue après coup fait perdre du
+                temps et de la confiance. Tant qu'il reste un motif, le
+                brouillon se prépare mais ne devient jamais définitif. */}
+            {motifsBlocage.length > 0 ? (
+              <div className="admin-alerte" style={{ marginTop: "1.2rem" }}>
+                <strong>Émission définitive bloquée :</strong>
+                <ul style={{ margin: "0.5rem 0 0 1rem", padding: 0 }}>
+                  {motifsBlocage.map((m) => <li key={m}>{m}</li>)}
+                </ul>
+                <p style={{ marginTop: "0.6rem", fontSize: "0.85rem" }}>
+                  Les brouillons restent possibles : vous pouvez préparer, relire
+                  et corriger. Seul le passage au définitif attend.
+                </p>
+              </div>
+            ) : null}
           </section>
         </div>
       </div>
