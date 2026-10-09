@@ -45,7 +45,7 @@ export async function exigerSession(): Promise<SessionActive> {
 
 /** Les entreprises dont l'acteur est membre actif, avec son rôle lisible. */
 export async function mesEntreprises(session: SessionActive) {
-  return avecActeur({ utilisateurId: session.utilisateurId }, async (q) => {
+  return avecActeur({ utilisateurId: session.utilisateurId, jetonHache: session.jetonHache }, async (q) => {
     const { rows } = await q(
       `SELECT e.id, e.slug, e.nom_commercial,
               coalesce(string_agg(r.libelle, ', ' ORDER BY r.libelle), '—') AS roles
@@ -74,7 +74,7 @@ export async function exigerAcces(
 ): Promise<Omit<Contexte, "q"> & { executer: <T>(t: (q: Requete) => Promise<T>) => Promise<T> }> {
   const session = await exigerSession();
 
-  const permissions = await avecActeur({ utilisateurId: session.utilisateurId }, async (q) => {
+  const permissions = await avecActeur({ utilisateurId: session.utilisateurId, jetonHache: session.jetonHache }, async (q) => {
     const { rows: membre } = await q(
       `SELECT 1 FROM membres
         WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL`,
@@ -95,7 +95,11 @@ export async function exigerAcces(
     session,
     entrepriseId,
     permissions,
-    executer: (travail) => avecActeur({ utilisateurId: session.utilisateurId }, travail),
+    executer: (travail) =>
+      avecActeur(
+        { utilisateurId: session.utilisateurId, jetonHache: session.jetonHache },
+        travail,
+      ),
   };
 }
 

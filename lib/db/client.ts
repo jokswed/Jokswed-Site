@@ -93,6 +93,15 @@ function obtenirPoolAuth(): Pool {
 
 export interface Acteur {
   utilisateurId: string;
+  /**
+   * ⚠️ C'EST CE CHAMP QUI PORTE L'IDENTITÉ, PAS `utilisateurId`.
+   *
+   * L'empreinte du jeton de session — la même que celle du cookie. La base la
+   * résout elle-même en utilisateur : elle ne croit pas sur parole un
+   * identifiant qu'on lui tend. `utilisateurId` ne sert plus qu'au code
+   * applicatif, pour éviter une relecture.
+   */
+  jetonHache: string;
   sessionId?: string;
 }
 
@@ -110,13 +119,23 @@ function enveloppe(client: PoolClient): Requete {
 /**
  * Exécute un travail dans une transaction portant l'identité de l'acteur.
  *
- * ⚠️ `set_config(..., true)` — LE TROISIÈME ARGUMENT EST LE POINT CRITIQUE.
+ * ⚠️ ON POSE UNE EMPREINTE DE SESSION, PLUS UN IDENTIFIANT D'UTILISATEUR.
  *
- * `true` signifie LOCAL À LA TRANSACTION : au COMMIT ou au ROLLBACK, le
- * réglage disparaît. Avec `false` (ou un `SET` ordinaire), il survivrait sur
- * la connexion rendue au pool, et la requête d'un autre visiteur hériterait
- * de l'identité du précédent. C'est la fuite la plus silencieuse possible,
- * et un banc la vérifie explicitement.
+ * Les paramètres personnalisés PostgreSQL (`app.*`) sont réglables par TOUT
+ * rôle : `GRANT SET ON PARAMETER` ne couvre que les paramètres système. Tant
+ * qu'on y posait un `utilisateur_id`, n'importe quelle exécution SQL sous le
+ * rôle applicatif pouvait se déclarer propriétaire — vérifié, puis corrigé au
+ * palier 013.
+ *
+ * Désormais le réglage porte l'empreinte du jeton de session, et `app.acteur()`
+ * la RÉSOUT en base. Déclarer une valeur arbitraire ne donne rien : il
+ * faudrait posséder le cookie d'une personne réellement connectée.
+ *
+ * ⚠️ `set_config(..., true)` — LE TROISIÈME ARGUMENT RESTE CRITIQUE.
+ *
+ * `true` = local à la TRANSACTION : au COMMIT ou au ROLLBACK, le réglage
+ * disparaît. Avec `false`, il survivrait sur la connexion rendue au pool, et
+ * la requête d'un autre visiteur hériterait de l'identité du précédent.
  */
 export async function avecActeur<T>(
   acteur: Acteur,
@@ -125,7 +144,7 @@ export async function avecActeur<T>(
   const client = await obtenirPool().connect();
   try {
     await client.query("BEGIN");
-    await client.query("SELECT set_config('app.acteur_id', $1, true)", [acteur.utilisateurId]);
+    await client.query("SELECT set_config('app.session_jeton', $1, true)", [acteur.jetonHache]);
     const resultat = await travail(enveloppe(client));
     await client.query("COMMIT");
     return resultat;
@@ -172,6 +191,32 @@ export async function avecAuth<T>(travail: (q: Requete) => Promise<T>): Promise<
     } catch {
       /* ignoré */
     }
+    throw erreur;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Transaction SANS identité, pour les traitements internes.
+ *
+ * ⚠️ CE N'EST PAS UNE PORTE DÉROBÉE.
+ *
+ * Aucune politique n'est levée : `app.acteur()` rend NULL, donc toute
+ * comparaison est fausse et le défaut reste le REFUS TOTAL. Les seules
+ * écritures possibles passent par des fonctions `SECURITY DEFINER` au
+ * périmètre fixe — dépôt d'une demande, drain de la file — qui n'ont pas
+ * besoin de savoir qui parle parce qu'elles ne font qu'une chose.
+ */
+export async function sansIdentite<T>(travail: (q: Requete) => Promise<T>): Promise<T> {
+  const client = await obtenirPool().connect();
+  try {
+    await client.query("BEGIN");
+    const resultat = await travail(enveloppe(client));
+    await client.query("COMMIT");
+    return resultat;
+  } catch (erreur) {
+    try { await client.query("ROLLBACK"); } catch { /* connexion perdue */ }
     throw erreur;
   } finally {
     client.release();

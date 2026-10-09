@@ -22,11 +22,23 @@ function verifier(nom, condition, detail = "") {
   console.log(`${condition ? "✓" : "✗"} ${nom}${condition ? "" : ` — ${detail}`}`);
 }
 
+/* ⚠️ L'IDENTITÉ N'EST PLUS UN IDENTIFIANT POSÉ, MAIS UNE SESSION PROUVÉE.
+
+   Depuis le palier 013, `app.acteur()` résout l'empreinte d'un jeton de
+   session au lieu de croire un `utilisateur_id` sur parole. Le banc crée donc
+   de vraies sessions pour ses personnages, et pose leur empreinte — comme le
+   fait `avecActeur()` en production.
+
+   Ce tableau fait le lien entre les identifiants utilisés dans les épreuves
+   et l'empreinte correspondante. */
+const jetons = new Map();
+
 /** Exécute une requête AVEC une identité, comme `avecActeur()` en production. */
 async function en(client, acteurId, texte, valeurs = []) {
   await client.query("BEGIN");
   try {
-    await client.query("SELECT set_config('app.acteur_id', $1, true)", [acteurId]);
+    await client.query("SELECT set_config('app.session_jeton', $1, true)",
+      [jetons.get(acteurId) ?? acteurId]);
     const r = await client.query(texte, valeurs);
     await client.query("COMMIT");
     return r;
@@ -67,6 +79,16 @@ try {
      exécuter l'attaque. */
   verite = new pg.Client({ connectionString: urlMigrateur(base) });
   await verite.connect();
+
+  /* Sessions de banc : créées par le propriétaire, car le rôle applicatif n'a
+     plus le droit d'écrire dans `sessions` (palier 013). */
+  for (const [nom, uid] of Object.entries(f.utilisateurs)) {
+    const empreinte = `banc-session-${nom}`;
+    await verite.query(
+      `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+       VALUES ($1,$2, now() + interval '1 day', true)`, [uid, empreinte]);
+    jetons.set(uid, empreinte);
+  }
 
   const { jokswed, video } = f.entreprises;
   const { proprietaire, videaste, assistant, photographe } = f.utilisateurs;
@@ -135,6 +157,14 @@ try {
        drain, qui tourne lui aussi sans acteur. */
     "deposer_demande","evenements_a_traiter","evenement_traite","evenement_echoue",
     "notifier","membres_avec",
+    /* V4.1 — `acteur()` est passée en SECURITY DEFINER au palier 013 : elle
+       lit `sessions`, dont la politique l'appelle elle-même. Sans cela,
+       récursion. Son périmètre est le plus étroit du schéma : elle ne rend
+       qu'un uuid, et seulement si une session valide le prouve. */
+    "acteur",
+    /* V4.1 — limitation de débit, journal d'envoi, verrou du drain, et la
+       relecture minimale d'une demande par le drain (qui n'a pas d'acteur). */
+    "limiter","journaliser_envoi","relancer_envoi","verrou_drain","demande_pour_envoi",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",
@@ -551,6 +581,90 @@ try {
   verifier("Une proposition est visible de l'émetteur comme du destinataire",
     propJokswed.rows[0].n === propVideo.rows[0].n,
     `émetteur ${propJokswed.rows[0].n}, destinataire ${propVideo.rows[0].n}`);
+
+  /* ═══════════ 17. USURPATION D'IDENTITÉ — LE TEST QUI A MOTIVÉ LE PALIER 013 ═══════════ */
+  /* ⚠️ CETTE FAILLE A EXISTÉ, ET ELLE ÉTAIT TOTALE.
+
+     Les paramètres personnalisés PostgreSQL (`app.*`) sont réglables par TOUT
+     rôle — `GRANT SET ON PARAMETER` ne couvre que les paramètres système.
+     Tant que `app.acteur_id` portait un identifiant d'utilisateur, ceci
+     suffisait à lire l'intégralité de la base :
+
+       SELECT set_config('app.acteur_id', '<uuid du propriétaire>', true);
+
+     Vérifié avec le rôle applicatif réel : deux dossiers rendus. Depuis le
+     palier 013, l'identité se DÉDUIT d'une session, elle ne se déclare plus. */
+
+  await app.query("BEGIN");
+  await app.query("SELECT set_config('app.acteur_id', $1, true)", [proprietaire]);
+  const ancienneFaille = await app.query("SELECT count(*)::int n FROM dossiers");
+  await app.query("COMMIT");
+  verifier("Poser `app.acteur_id` n'a plus aucun effet",
+    ancienneFaille.rows[0].n === 0, `${ancienneFaille.rows[0].n} dossier(s) rendus`);
+
+  await app.query("BEGIN");
+  await app.query("SELECT set_config('app.session_jeton', $1, true)", ["jeton-invente"]);
+  const jetonInvente = await app.query("SELECT count(*)::int n FROM dossiers");
+  const acteurInvente = await app.query("SELECT app.acteur() a");
+  await app.query("COMMIT");
+  verifier("Un jeton de session inventé ne résout aucun acteur",
+    acteurInvente.rows[0].a === null && jetonInvente.rows[0].n === 0,
+    `acteur=${acteurInvente.rows[0].a}, ${jetonInvente.rows[0].n} dossier(s)`);
+
+  /* L'empreinte d'autrui n'est pas lisible : c'est ce qui rend l'usurpation
+     impossible, et pas seulement improbable. */
+  const empreinteAutrui = await en(app, videaste,
+    "SELECT count(*)::int n FROM sessions WHERE utilisateur_id = $1", [proprietaire]);
+  verifier("L'empreinte de session d'autrui n'est pas lisible",
+    empreinteAutrui.rows[0].n === 0, `${empreinteAutrui.rows[0].n} ligne(s)`);
+
+  /* Et il ne peut pas s'en fabriquer une. */
+  const forgerSession = await refuse(app, videaste,
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+     VALUES ($1,'empreinte-forgee', now() + interval '1 day', true)`, [proprietaire]);
+  verifier("Insérer une session pour autrui est refusé",
+    forgerSession !== null && forgerSession.code === "42501",
+    forgerSession ? `code ${forgerSession.code}` : "L'INSERTION A RÉUSSI");
+
+  const detournerSession = await refuse(app, videaste,
+    "UPDATE sessions SET utilisateur_id = $1", [proprietaire]);
+  verifier("Détourner une session existante est refusé",
+    detournerSession !== null && detournerSession.code === "42501",
+    detournerSession ? `code ${detournerSession.code}` : "L'UPDATE A RÉUSSI");
+
+  /* Une session révoquée perd l'accès au niveau des POLITIQUES, pas seulement
+     dans le code serveur. */
+  await verite.query(
+    "UPDATE sessions SET revoquee_le = now() WHERE jeton_hache = 'banc-session-photographe'");
+  const apresRevocSession = await en(app, photographe, "SELECT count(*)::int n FROM dossiers");
+  verifier("Une session révoquée ne résout plus d'acteur, en base",
+    apresRevocSession.rows[0].n === 0, `${apresRevocSession.rows[0].n} dossier(s)`);
+
+  /* Un second facteur non validé n'ouvre rien non plus. */
+  await verite.query(
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+     VALUES ($1,'banc-session-sans-mfa', now() + interval '1 day', false)`, [proprietaire]);
+  await app.query("BEGIN");
+  await app.query("SELECT set_config('app.session_jeton','banc-session-sans-mfa', true)");
+  const sansMfa = await app.query("SELECT count(*)::int n FROM dossiers");
+  await app.query("COMMIT");
+  verifier("Une session dont le second facteur n'est pas validé n'ouvre rien",
+    sansMfa.rows[0].n === 0, `${sansMfa.rows[0].n} dossier(s)`);
+
+  /* Une session expirée non plus. */
+  /* ⚠️ `cree_le` doit précéder `expire_le` : la contrainte `expiration_future`
+     refuse une session née après sa propre expiration. On date donc la
+     création dans le passé, comme une vraie session qui a vieilli. */
+  await verite.query(
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, cree_le, expire_le, mfa_validee)
+     VALUES ($1,'banc-session-expiree', now() - interval '2 hours',
+             now() - interval '1 hour', true)`, [proprietaire]);
+  await app.query("BEGIN");
+  await app.query("SELECT set_config('app.session_jeton','banc-session-expiree', true)");
+  const expiree = await app.query("SELECT count(*)::int n FROM dossiers");
+  await app.query("COMMIT");
+  verifier("Une session expirée n'ouvre rien",
+    expiree.rows[0].n === 0, `${expiree.rows[0].n} dossier(s)`);
 } finally {
   if (app) await app.end();
   if (verite) await verite.end();

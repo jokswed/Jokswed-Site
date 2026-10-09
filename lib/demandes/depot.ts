@@ -1,5 +1,5 @@
 import "server-only";
-import { avecActeur, type Requete } from "@/lib/db/client";
+import { sansIdentite, type Requete } from "@/lib/db/client";
 import { formules, supplements, statutSupplement } from "@/content/offres";
 
 /* =============================================================================
@@ -150,15 +150,13 @@ export async function deposerDemande(charge: ChargeDemande): Promise<ResultatDep
     catalogue_version: `${formules.length}f/${supplements.length}s`,
   };
 
-  /* ⚠️ ACTEUR NUL, ET C'EST VOULU.
+  /* ⚠️ AUCUNE IDENTITÉ, ET C'EST VOULU.
      Le dépôt est public : il n'y a pas d'acteur. `app.deposer_demande` est
-     `SECURITY DEFINER` et n'a besoin d'aucune identité — c'est la seule
-     écriture publique autorisée, et elle ne peut rien faire d'autre que
-     déposer une demande. */
-  const { rows } = await avecActeur(
-    { utilisateurId: "00000000-0000-0000-0000-000000000000" },
-    (q: Requete) =>
-      q("SELECT * FROM app.deposer_demande($1::jsonb)", [JSON.stringify(chargeUtile)]),
+     `SECURITY DEFINER` et n'en a pas besoin — c'est la seule écriture
+     publique autorisée, et elle ne sait rien faire d'autre que déposer une
+     demande. */
+  const { rows } = await sansIdentite((q: Requete) =>
+    q("SELECT * FROM app.deposer_demande($1::jsonb)", [JSON.stringify(chargeUtile)]),
   );
 
   return {

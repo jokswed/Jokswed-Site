@@ -179,11 +179,39 @@ npm run test:admin      # 63 épreuves HTTP, dont le parcours complet
 npm run test:securite   # 66 épreuves RLS et élévation de privilèges
 ```
 
+## Ce que la V4.1 a apporté
+
+**L'identité n'est plus déclarée, elle est prouvée.** Les paramètres
+personnalisés PostgreSQL (`app.*`) sont réglables par tout rôle : tant que
+`app.acteur_id` portait un identifiant d'utilisateur, une seule ligne de SQL
+sous le rôle applicatif suffisait à se déclarer propriétaire. **La faille a été
+reproduite avant d'être corrigée.** Le réglage porte désormais l'empreinte du
+jeton de session, que `app.acteur()` résout en base — et qui vérifie en plus la
+révocation, l'expiration, le second facteur et l'état du compte.
+
+**E-mails Brevo** avec expéditeur distinct d'EyesofJoks, gabarits HTML et texte
+à l'identité JoksWed, fournisseur simulé pour les bancs, journal d'envoi avec
+statut et Message-ID.
+
+**File périodique** : `/api/cron/drain`, protégé par `CRON_SECRET`, verrou
+consultatif contre les traitements concurrents, report exponentiel, historique
+des tentatives, relance manuelle possible.
+
+**Limitation de débit persistante**, à deux échelles : stricte par adresse
+e-mail, large par réseau /24 — pour ne pas bloquer un opérateur mobile entier.
+
+### Actions manuelles avant mise en service
+
+1. **Brevo** : ajouter `jokswed.com` comme domaine, publier son DKIM et son code de vérification, déclarer et valider l'expéditeur `contact@jokswed.com`. ⚠️ Brevo n'exige **pas** d'`include` SPF à la racine : l'alignement passe par DKIM.
+2. **DMARC** : publier `v=DMARC1; p=none; rua=…` en observation avant de durcir.
+3. **Vercel** : vérifier que ton offre autorise une tâche planifiée toutes les 15 minutes (`vercel.json`). L'offre Hobby la limite à une fois par jour — et son usage commercial est de toute façon exclu.
+4. **`CRON_SECRET`** : sans lui, l'endpoint répond 503 au lieu de s'ouvrir.
+
 ## Ce qui reste ouvert
 
-- **Aucun e-mail n'est encore envoyé.** Les notifications internes sont posées ; l'accusé de réception au client et l'alerte par e-mail restent à brancher sur Brevo. L'emplacement est prêt dans `lib/demandes/drain.ts`.
-- **Le drain n'a pas encore de tâche périodique.** Il tourne après chaque dépôt ; un événement d'une instance arrêtée en cours de route attendrait le dépôt suivant.
-- **La limitation de débit du formulaire public reste en mémoire de processus.** C'est un garde-fou, pas un mur. Le patron en base existe déjà (`tentatives_connexion`).
+- **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
+- **Aucun webhook Brevo n'est branché** : un envoi reste au statut `envoye`, jamais `remis` ni `ouvert`.
+- **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
 - **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
 - **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».

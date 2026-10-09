@@ -48,7 +48,8 @@
    ============================================================================= */
 
 import { NextResponse } from "next/server";
-import { limiterDebit, cleDepuisRequete } from "@/lib/limite-debit";
+import { cleDepuisRequete } from "@/lib/limite-debit";
+import { verifierLimite } from "@/lib/public/limite";
 import { formules, supplements, statutSupplement } from "@/content/offres";
 import { deposerDemande } from "@/lib/demandes/depot";
 import { drainer } from "@/lib/demandes/drain";
@@ -56,22 +57,6 @@ import { tronquerIp } from "@/lib/auth/secrets";
 
 export const runtime = "nodejs";
 
-/* 5 demandes par demi-heure et par /24 : large pour un couple qui hésite,
-   étroit pour un script.
-
-   ⚠️ RÉGLABLE, MAIS BORNÉ.
-
-   Les bancs ont besoin de plus de marge que la production, parce qu'ils
-   enchaînent une quinzaine d'envois depuis une seule adresse. La variable
-   existe pour cela — et elle est encadrée : jamais moins de 3, jamais plus
-   de 50. Une variable mal saisie ne peut donc pas désactiver la protection,
-   ce qui serait le pire des deux mondes : une limite affichée, inopérante. */
-function limiteConfiguree() {
-  const brut = Number.parseInt(process.env.CONTACT_LIMITE ?? "", 10);
-  if (!Number.isFinite(brut)) return 5;
-  return Math.min(50, Math.max(3, brut));
-}
-const FENETRE_MS = 30 * 60 * 1000;
 
 /** Corps au-delà duquel on refuse sans même analyser. */
 const TAILLE_MAX = 32 * 1024;
@@ -168,19 +153,6 @@ export async function POST(request) {
       );
     }
 
-    const cle = cleDepuisRequete(request);
-    const quota = limiterDebit(cle, limiteConfiguree(), FENETRE_MS);
-    if (!quota.autorise) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message:
-            "Vous avez déjà envoyé plusieurs demandes. Merci de patienter un instant — je réponds à chacune.",
-        },
-        { status: 429, headers: { "Retry-After": String(quota.reessayerDansS) } },
-      );
-    }
-
     let body;
     try {
       body = JSON.parse(brut);
@@ -252,6 +224,39 @@ export async function POST(request) {
 
     if (erreurs.length > 0) {
       return NextResponse.json({ ok: false, message: erreurs[0], erreurs }, { status: 422 });
+    }
+
+    /* ═══════════════════════════════════════════════════════════════════
+       LIMITATION DE DÉBIT — EN BASE, ET APRÈS VALIDATION
+       ═══════════════════════════════════════════════════════════════════
+       Après, parce qu'elle s'appuie sur l'adresse e-mail : une limite par IP
+       seule interdirait le formulaire à tout un opérateur mobile, où des
+       milliers d'abonnés partagent la même adresse publique. Les contrôles
+       qui précèdent (origine, taille, type) n'ont pas besoin de la base et
+       écartent déjà l'essentiel du bruit. */
+    const cle = cleDepuisRequete(request);
+    let quota;
+    try {
+      quota = await verifierLimite(cle, email);
+    } catch {
+      /* ⚠️ BASE INJOIGNABLE : ON LAISSE PASSER LA LIMITE, PAS LA DEMANDE.
+         Le dépôt juste après échouera de toute façon et renverra un 503
+         honnête. Refuser ici afficherait « trop de demandes » à un client
+         qui n'a rien fait de mal. */
+      quota = { autorise: true, reessayerDans: 0 };
+    }
+    if (!quota.autorise) {
+      return NextResponse.json(
+        {
+          ok: false,
+          message:
+            quota.motif === "email"
+              ? "Vous avez déjà envoyé plusieurs demandes avec cette adresse. " +
+                "Je réponds à chacune — inutile de renvoyer."
+              : "Trop de demandes reçues à l'instant. Merci de réessayer dans quelques minutes.",
+        },
+        { status: 429, headers: { "Retry-After": String(quota.reessayerDans) } },
+      );
     }
 
     /* ═══════════════════════════════════════════════════════════════════

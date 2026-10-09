@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
-import { avecAuth, avecActeur } from "@/lib/db/client";
+import { avecAuth, sansIdentite } from "@/lib/db/client";
 import { engendrerJeton, hacherJeton, verifierMotDePasse, tronquerIp } from "./secrets";
 
 /* =============================================================================
@@ -22,6 +22,8 @@ export interface SessionActive {
   sessionId: string;
   utilisateurId: string;
   mfaValidee: boolean;
+  /** L'empreinte du jeton : c'est elle qui prouve l'identité à la base. */
+  jetonHache: string;
 }
 
 /** Résout la session depuis le cookie. `null` si absente, expirée ou révoquée. */
@@ -37,6 +39,7 @@ export async function sessionCourante(): Promise<SessionActive | null> {
     sessionId: rows[0].session_id,
     utilisateurId: rows[0].utilisateur_id,
     mfaValidee: rows[0].mfa_validee,
+    jetonHache: hacherJeton(jeton),
   };
 }
 
@@ -107,7 +110,10 @@ export async function connecter(email: string, motDePasse: string): Promise<Resu
      qui le pose sur LA réponse qu'il retourne. Plus d'ambiguïté sur qui
      écrit quoi. */
 
-  await avecActeur({ utilisateurId: rows[0].utilisateur_id }, (q) =>
+  /* L'audit de connexion s'écrit SANS identité : la politique d'insertion du
+     journal est ouverte, précisément pour qu'une action refusée reste
+     traçable. */
+  await sansIdentite((q) =>
     /* ⚠️ DEUX PARAMÈTRES DISTINCTS, PAS `$1` RÉUTILISÉ.
        `acteur_id` est un uuid et `ressource_id` un text : avec le même
        placeholder aux deux places, PostgreSQL ne peut pas déduire un type

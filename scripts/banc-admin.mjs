@@ -72,6 +72,11 @@ try {
       DATABASE_URL_APP: urlApplication(base),
       DATABASE_URL_AUTH: urlAuth(base),
       JOKSWED_CHIFFREMENT_CLE: Buffer.alloc(32, 7).toString("base64"),
+      /* ⚠️ FOURNISSEUR SIMULÉ : aucun message réel ne peut partir, même si une
+         clé Brevo traînait dans l'environnement. */
+      EMAIL_FOURNISSEUR: "simule",
+      CRON_SECRET: "banc-cron-secret-0123456789",
+      SITE_URL: BASE,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -431,6 +436,144 @@ try {
   v("Sans consentement : 422 et AUCUNE écriture en base",
     sansConsentement2.status === 422 && apresRefus2.rows[0].n === avantRefus.rows[0].n,
     `HTTP ${sansConsentement2.status}, ${avantRefus.rows[0].n} → ${apresRefus2.rows[0].n}`);
+
+
+  /* ═══════════ 10. V4.1 — E-MAILS, FILE PÉRIODIQUE, LIMITE PERSISTANTE ═══════════ */
+
+  /* ── Les envois sont journalisés, avec leur statut ──
+     ⚠️ `envois_email` EST EN `FORCE ROW LEVEL SECURITY`.
+     Même la connexion propriétaire n'y lit rien sans identité — c'est
+     précisément ce qu'on veut. Le banc pose donc une vraie session, comme le
+     ferait l'application, au lieu de contourner la politique. Lire la vérité
+     ne doit pas demander de désactiver la protection qu'on éprouve. */
+  await verite2.query(
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+     VALUES ($1,'banc-admin-lecture', now() + interval '1 day', true)
+     ON CONFLICT (jeton_hache) DO NOTHING`, [fixtures.utilisateurs.proprietaire]);
+
+  const lireAvecIdentite = async (texte, valeurs = []) => {
+    await verite2.query("BEGIN");
+    try {
+      await verite2.query("SELECT set_config('app.session_jeton','banc-admin-lecture', true)");
+      const r = await verite2.query(texte, valeurs);
+      await verite2.query("COMMIT");
+      return r;
+    } catch (e) { await verite2.query("ROLLBACK"); throw e; }
+  };
+
+  const envois = await lireAvecIdentite(
+    `SELECT gabarit, destinataire, statut, fournisseur, sujet
+       FROM envois_email WHERE demande_id = $1 ORDER BY gabarit`,
+    [enBase.rows[0].id]);
+  v("Un accusé de réception est journalisé pour le couple",
+    envois.rows.some((e) => e.gabarit === "accuse_reception"
+      && e.destinataire === "couple@exemple.invalid"),
+    JSON.stringify(envois.rows.map((e) => `${e.gabarit}/${e.destinataire}/${e.statut}`)));
+  v("Une alerte est journalisée pour l'équipe",
+    envois.rows.some((e) => e.gabarit === "alerte_administrateur"));
+  v("Les envois passent par le fournisseur SIMULÉ, jamais Brevo",
+    envois.rows.every((e) => e.fournisseur === "simule"),
+    envois.rows.map((e) => e.fournisseur).join(","));
+  v("Aucun message n'a été adressé au vidéaste",
+    !envois.rows.some((e) => e.destinataire === "videaste@exemple.invalid"));
+
+  /* ── Le contenu : l'accusé ne promet pas une réservation ── */
+  const { accuseReception, alerteAdministrateur } = await import("../lib/email/gabarits.ts");
+  const accuse = accuseReception({
+    prenoms: "Couple & Essai", reference: "DEM-TEST-0001",
+    dateMariage: "17 juin 2028", formule: "Formule 3",
+  });
+  v("L'accusé de réception ne promet PAS une réservation",
+    /n'est pas encore réservée/.test(accuse.html) && /pas encore réservée/.test(accuse.texte));
+  v("L'accusé porte une version texte complète",
+    accuse.texte.includes("DEM-TEST-0001") && accuse.texte.length > 200);
+  v("L'accusé reprend l'identité JoksWed", accuse.html.includes("Joks<em>Wed</em>"));
+
+  const alerte = alerteAdministrateur({
+    reference: "DEM-TEST-0001", ville: "Dangu", dateMariage: "17 juin 2028",
+    videoDemandee: true, lien: `${BASE}/admin/demandes/x`,
+  });
+  v("L'alerte administrateur ne contient AUCUNE coordonnée client",
+    !alerte.html.includes("@") || !/couple@|mariageramos|@exemple\.invalid/.test(alerte.html),
+    "une adresse client y figure");
+  v("L'alerte renvoie vers l'espace authentifié",
+    alerte.html.includes("/admin/demandes/"));
+
+  /* ── Brevo en panne : la demande survit, l'envoi est repris ── */
+  const avantPanne = await verite2.query("SELECT count(*)::int n FROM demandes");
+  /* On remet l'événement en file et on simule une panne du fournisseur. */
+  await verite2.query("UPDATE evenements SET traite_le = NULL, disponible_le = now()");
+  const cronPanne = await fetch(`${BASE}/api/cron/drain`, {
+    headers: { authorization: "Bearer banc-cron-secret-0123456789",
+               "x-simuler-panne": "1" },
+  });
+  v("L'endpoint périodique répond à un appel autorisé", cronPanne.status === 200,
+    `HTTP ${cronPanne.status}`);
+
+  const apresPanne = await verite2.query("SELECT count(*)::int n FROM demandes");
+  v("Une panne d'envoi ne fait disparaître AUCUNE demande",
+    apresPanne.rows[0].n === avantPanne.rows[0].n,
+    `${avantPanne.rows[0].n} → ${apresPanne.rows[0].n}`);
+
+  /* ── L'endpoint périodique est protégé ── */
+  const cronNu = await fetch(`${BASE}/api/cron/drain`);
+  v("L'endpoint périodique refuse un appel sans secret", cronNu.status === 401,
+    `HTTP ${cronNu.status}`);
+  const cronFaux = await fetch(`${BASE}/api/cron/drain`, {
+    headers: { authorization: "Bearer mauvais-secret-0123456789" } });
+  v("…et un secret erroné", cronFaux.status === 401, `HTTP ${cronFaux.status}`);
+
+  /* ── Concurrence : deux drains simultanés ne se marchent pas dessus ── */
+  await verite2.query("UPDATE evenements SET traite_le = NULL, disponible_le = now()");
+  const [a, b] = await Promise.all([
+    fetch(`${BASE}/api/cron/drain`, { headers: { authorization: "Bearer banc-cron-secret-0123456789" } }),
+    fetch(`${BASE}/api/cron/drain`, { headers: { authorization: "Bearer banc-cron-secret-0123456789" } }),
+  ]);
+  const [ja, jb] = [await a.json(), await b.json()];
+  v("Deux drains concurrents : l'un travaille, l'autre renonce",
+    (ja.verrouille === true) !== (jb.verrouille === true)
+      || (ja.pris === 0 || jb.pris === 0),
+    `A: pris=${ja.pris} verrouille=${ja.verrouille} · B: pris=${jb.pris} verrouille=${jb.verrouille}`);
+
+  /* ⚠️ ON GROUPE PAR DESTINATAIRE *ET* PAR CLÉ.
+     L'unicité porte sur le couple : deux membres différents reçoivent
+     légitimement la même notification pour la même demande. Grouper sur la
+     seule clé comptait cela comme un doublon — le banc accusait le code
+     d'une faute qu'il ne commettait pas. */
+  const doublons = await verite2.query(
+    `SELECT destinataire_id, cle_idempotence, count(*)::int n FROM notifications
+      GROUP BY destinataire_id, cle_idempotence HAVING count(*) > 1`);
+  v("Aucune notification en double après plusieurs passages",
+    doublons.rowCount === 0, `${doublons.rowCount} clé(s) dupliquée(s)`);
+
+  /* ── Historique des tentatives et relance ── */
+  const tentatives = await verite2.query(
+    "SELECT max(tentatives)::int n FROM evenements WHERE traite_le IS NOT NULL");
+  v("Le nombre de tentatives est historisé", tentatives.rows[0].n >= 1,
+    `${tentatives.rows[0].n}`);
+
+  /* ── Limitation de débit persistante ── */
+  const limiteBase = await verite2.query("SELECT count(*)::int n FROM limites_debit");
+  v("La limitation de débit vit en base, plus en mémoire",
+    limiteBase.rows[0].n > 0, `${limiteBase.rows[0].n} compteur(s)`);
+
+  /* Même adresse e-mail, quatre envois : le quatrième est refusé. */
+  let refuseEmail = false;
+  for (let i = 0; i < 5; i += 1) {
+    const r = await soumettre(
+      { ...demandeClient, email: "insistant@exemple.invalid", message: `essai ${i}` },
+      `banc-limite-email-${i}`);
+    if (r.status === 429) { refuseEmail = true; break; }
+  }
+  v("Trop de demandes depuis la MÊME adresse e-mail → 429", refuseEmail);
+
+  /* ⚠️ Et le point qui compte : une AUTRE adresse derrière la même IP passe
+     encore. Sans cela, un opérateur mobile entier serait bloqué. */
+  const autreClient = await soumettre(
+    { ...demandeClient, email: "autre.couple@exemple.invalid", message: "autre couple" },
+    "banc-limite-autre-email");
+  v("…mais une AUTRE adresse derrière la même IP passe encore",
+    autreClient.status === 200, `HTTP ${autreClient.status}`);
 
   /* ── Aucune donnée personnelle dans les journaux ── */
   v("Les journaux ne contiennent pas l'adresse du couple",

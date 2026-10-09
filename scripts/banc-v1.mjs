@@ -322,21 +322,35 @@ try {
   );
 
 
-  /* ───────────── 9. Limitation de débit ───────────── */
-  let vu429 = false;
-  for (let i = 0; i < 20; i += 1) {
+  /* ───────────── 9. Soumissions répétées, sans base ─────────────
+     ⚠️ RE-POINTÉ EN V4.1.
+
+     La limitation de débit vivait en mémoire de processus ; elle est passée
+     en base (table `limites_debit`, fenêtre glissante partagée par toutes les
+     instances). Ce banc tournant volontairement sans base, il ne peut plus
+     observer de 429 : la vérification de quota échoue et laisse passer —
+     délibérément, pour ne pas afficher « trop de demandes » à un client qui
+     n'a rien fait de mal.
+
+     Ce qui compte ici devient donc : aucune soumission répétée ne reçoit un
+     faux accusé de réception. La limitation elle-même est éprouvée par
+     `npm run test:admin`, avec une base, y compris le cas du réseau mobile
+     partagé. */
+  let faussePromesse = false;
+  for (let i = 0; i < 6; i += 1) {
     const r = await fetch(`${BASE}/api/contact`, {
       method: "POST",
       headers: ORIGINE,
       body: JSON.stringify({ ...demandeValide, message: `répétition ${i}` }),
     });
-    if (r.status === 429) {
-      vu429 = true;
-      verifier("Le 429 porte un en-tête Retry-After", Boolean(r.headers.get("retry-after")));
-      break;
-    }
+    const corps = await r.json().catch(() => ({}));
+    if (corps.ok === true) { faussePromesse = true; break; }
   }
-  verifier("Soumissions répétées → 429 (limite configurée : 12)", vu429);
+  verifier(
+    "Six soumissions répétées sans base : aucun faux accusé de réception",
+    !faussePromesse,
+    "une soumission a reçu `ok: true` alors que rien n'était enregistré",
+  );
 
   /* ───────────── 10. Les journaux ne contiennent aucune donnée personnelle ───────────── */
   verifier(
