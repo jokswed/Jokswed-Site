@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
-import { exigerAcces, interdireAutoModification, tracer } from "@/lib/auth/acces";
+import { exigerAcces, interdireAutoModification } from "@/lib/auth/acces";
 import { engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
 
 export const metadata = { title: "Collaborateurs" };
@@ -53,22 +53,16 @@ export default async function Collaborateurs() {
        n'existera donc que dans l'e-mail, le jour où il sera envoyé. */
     const jeton = engendrerJeton();
 
-    await a.executer(async (q) => {
-      const { rows } = await q(
-        `INSERT INTO invitations (entreprise_id, email, prenom, nom, jeton_hache,
-                                  roles, cree_par, expire_le)
-         VALUES ($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7, now() + make_interval(days => $8))
-         ON CONFLICT (entreprise_id, email)
-           WHERE utilisee_le IS NULL AND revoquee_le IS NULL DO NOTHING
-         RETURNING id`,
+    /* ⚠️ APPEL DE FONCTION, PAS D'INSERT DIRECT.
+       Depuis le palier 008, `jokswed_app` n'a plus le droit d'écrire dans
+       `invitations` : la permission `membre.inviter` et l'appartenance à
+       l'entreprise sont vérifiées EN BASE, et la trace d'audit est posée
+       dans la même transaction que l'écriture. */
+    await a.executer((q) =>
+      q(`SELECT app.admin_creer_invitation($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7)`,
         [e.id, email, String(formulaire.get("prenom") ?? "") || null,
          String(formulaire.get("nom") ?? "") || null, hacherJeton(jeton), roleId,
-         s.utilisateurId, DUREE_INVITATION_JOURS]);
-      if (rows[0]) {
-        await tracer(q, s.utilisateurId, e.id, "invitation.preparee", "invitation",
-          rows[0].id, null, { email });
-      }
-    });
+         DUREE_INVITATION_JOURS]));
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -78,20 +72,21 @@ export default async function Collaborateurs() {
     const a = await exigerAcces(e.id, ["membre.revoquer"]);
     const cible = String(formulaire.get("utilisateur") ?? "");
 
-    /* ⚠️ RLS NE PEUT PAS PORTER CETTE RÈGLE : elle dépend de l'identité de la
-       CIBLE, pas de l'appartenance de la ligne. C'est exactement le partage
-       des rôles entre la base et la couche applicative. */
+    /* Vérification applicative CONSERVÉE : elle donne un message clair avant
+       d'atteindre la base. Mais elle n'est plus la seule — `app.exiger()`
+       refuse la même chose côté PostgreSQL, hors de portée du code. */
     interdireAutoModification(s.utilisateurId, cible);
 
     await a.executer(async (q) => {
-      await q(
-        `UPDATE membres SET retire_le = now(), retire_par = $1
-          WHERE entreprise_id = $2 AND utilisateur_id = $3 AND retire_le IS NULL`,
-        [s.utilisateurId, e.id, cible]);
+      const { rows } = await q(
+        `SELECT id FROM membres
+          WHERE entreprise_id = $1 AND utilisateur_id = $2 AND retire_le IS NULL`,
+        [e.id, cible]);
+      if (!rows[0]) return;
       /* Les sessions ouvertes du collaborateur tombent d'elles-mêmes : sans
          adhésion active, `entreprises_de_lacteur()` rend un tableau vide et
          il ne voit plus rien dès la requête suivante. Vérifié au banc. */
-      await tracer(q, s.utilisateurId, e.id, "membre.revoque", "utilisateur", cible);
+      await q("SELECT app.admin_revoquer_membre($1)", [rows[0].id]);
     });
     revalidatePath("/admin/collaborateurs");
   }

@@ -1881,3 +1881,134 @@ button:hover .photo img {
   background: transparent;
   border-radius: 0;
 }
+
+/* =============================================================================
+   V4 — DEMANDES
+   ============================================================================= */
+
+/* Filtres : une barre défilante sur mobile, en ligne dès qu'il y a la place.
+   `-webkit-overflow-scrolling` garde l'inertie de Safari iOS. */
+.admin-filtres {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.admin-filtres::-webkit-scrollbar { display: none; }
+
+.admin-filtre {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.6rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--encre-douce);
+  text-decoration: none;
+}
+.admin-filtre span {
+  min-width: 1.5rem;
+  padding: 0.1rem 0.4rem;
+  background: var(--brume);
+  text-align: center;
+}
+.admin-filtre.est-actif {
+  background: var(--encre);
+  color: var(--blanc);
+  border-color: var(--encre);
+}
+.admin-filtre.est-actif span { background: rgba(255, 255, 255, 0.18); }
+
+/* Cartes de demande : toute la carte est cliquable — sur un pouce, une
+   petite zone de lien au milieu d'un bloc se rate. */
+.admin-cartes { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.8rem; }
+@media (min-width: 900px) {
+  .admin-cartes { grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
+}
+
+.admin-carte {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.1rem 1.2rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.3s var(--ease), transform 0.3s var(--ease);
+}
+.admin-carte:hover { border-color: var(--encre-douce); transform: translateY(-2px); }
+.admin-carte:focus-visible { outline: 2px solid var(--encre); outline-offset: 3px; }
+
+.admin-carte__haut {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.admin-carte__haut strong { font-family: var(--font-display), serif; font-size: 1.1rem; }
+.admin-carte__ligne { font-size: 0.86rem; color: var(--gris); }
+.admin-carte__bas { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.admin-pastille {
+  flex-shrink: 0;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--ligne);
+  color: var(--gris);
+  white-space: nowrap;
+}
+.admin-pastille--non_lue { background: var(--encre); color: var(--blanc); border-color: var(--encre); }
+.admin-pastille--confirmee { border-color: #2f6b45; color: #2f6b45; }
+.admin-pastille--refusee, .admin-pastille--archivee { opacity: 0.55; }
+
+.admin-jeton {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.5rem;
+  background: var(--brume);
+  color: var(--encre-douce);
+}
+.admin-jeton--vif { background: var(--encre); color: var(--blanc); }
+
+/* Fiche : une colonne sur mobile, deux dès 1000 px. Le panneau d'actions
+   passe EN PREMIER sur mobile — changer un statut depuis un téléphone ne
+   doit pas demander de faire défiler toute la fiche. */
+.admin-colonnes { display: grid; gap: clamp(1rem, 3vw, 1.8rem); }
+@media (min-width: 1000px) {
+  .admin-colonnes { grid-template-columns: 1.6fr 1fr; align-items: start; }
+}
+.admin-colonne { display: grid; gap: clamp(1rem, 3vw, 1.8rem); align-content: start; }
+@media (max-width: 999px) {
+  .admin-colonnes > .admin-colonne:last-child { order: -1; }
+}
+
+.admin-bloc {
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+.admin-bloc > h2 { margin-bottom: 1rem; }
+
+.admin-dl { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem 1.2rem; margin: 0; }
+.admin-dl dt {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gris);
+  padding-top: 0.15rem;
+}
+.admin-dl dd { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }

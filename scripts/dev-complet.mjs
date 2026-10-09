@@ -2,7 +2,7 @@
    fixtures + Next en mode dev (cookie sans préfixe __Host-, donc utilisable
    en HTTP local). Ctrl-C arrête les deux. */
 import { spawn } from "node:child_process";
-import { demarrer, urlMigrateur, urlApplication, BASE } from "./pg-dev.mjs";
+import { demarrer, urlMigrateur, urlApplication, urlAuth, BASE } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
 
@@ -21,6 +21,7 @@ const next = spawn("npx", ["next", "dev", "--port", String(PORT)], {
   env: {
     ...process.env,
     DATABASE_URL_APP: urlApplication(BASE),
+    DATABASE_URL_AUTH: urlAuth(BASE),
     JOKSWED_CHIFFREMENT_CLE: Buffer.alloc(32, 7).toString("base64"),
     SITE_URL: `http://127.0.0.1:${PORT}`,
   },

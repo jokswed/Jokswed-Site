@@ -82,6 +82,10 @@ export function urlApplication(base = BASE, motDePasse = "dev_app") {
   return `postgres://jokswed_app:${motDePasse}@127.0.0.1:${PORT}/${base}`;
 }
 
+export function urlAuth(base = BASE, motDePasse = "dev_auth") {
+  return `postgres://jokswed_auth:${motDePasse}@127.0.0.1:${PORT}/${base}`;
+}
+
 export function urlPublic(base = BASE, motDePasse = "dev_public") {
   return `postgres://jokswed_public:${motDePasse}@127.0.0.1:${PORT}/${base}`;
 }

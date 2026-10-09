@@ -168,6 +168,11 @@ export async function semer(urlMigrateur, { silencieux = false } = {}) {
     const proprietaire = await creerUtilisateur("proprietaire@exemple.invalid", "John", "Raharison");
     const videaste     = await creerUtilisateur("videaste@exemple.invalid", "Vidéaste", "Partenaire");
     const assistant    = await creerUtilisateur("assistant@exemple.invalid", "Assistant", "Essai");
+    /* Un second membre de JoksWed qui n'est jamais révoqué : les bancs ont
+       besoin d'une cible stable pour éprouver le CHEMIN LÉGITIME, et non
+       seulement les refus. Une protection qui bloque aussi l'usage normal
+       n'est pas une protection, c'est une panne. */
+    const photographe  = await creerUtilisateur("photographe@exemple.invalid", "Photographe", "Essai");
 
     const rattacher = async (utilisateur, entreprise, cleRole) => {
       const { rows: [m] } = await c.query(
@@ -187,7 +192,8 @@ export async function semer(urlMigrateur, { silencieux = false } = {}) {
     await rattacher(proprietaire, jokswed.id, "proprietaire");
     await rattacher(videaste, videoEnt.id, "proprietaire");
     await rattacher(assistant, jokswed.id, "assistant");
-    dire("  ✓ 3 utilisateurs de développement");
+    await rattacher(photographe, jokswed.id, "photographe");
+    dire("  ✓ 4 utilisateurs de développement");
 
     /* ── Deux mariages : un partagé, un propre à JoksWed ── */
     const { rows: [mPartage] } = await c.query(
@@ -241,7 +247,7 @@ export async function semer(urlMigrateur, { silencieux = false } = {}) {
     await c.query("COMMIT");
     return {
       entreprises: { jokswed: jokswed.id, video: videoEnt.id },
-      utilisateurs: { proprietaire, videaste, assistant },
+      utilisateurs: { proprietaire, videaste, assistant, photographe },
       mariages: { partage: mPartage.id, prive: mPrive.id },
       dossiers: { jokswedPartage: dJokswedPartage, videoPartage: dVideoPartage, jokswedPrive: dJokswedPrive },
       motDePasse: "mot-de-passe-de-developpement",
@@ -260,7 +266,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const r = await semer(urlMigrateur());
     console.log("\nFixtures posées. Identifiants de DÉVELOPPEMENT uniquement :");
-    console.log("  proprietaire@exemple.invalid / videaste@exemple.invalid / assistant@exemple.invalid");
+    console.log("  proprietaire@ · videaste@ · assistant@ · photographe@ (exemple.invalid)");
     console.log(`  mot de passe : ${r.motDePasse}`);
   } finally {
     await pgdev.stop();

@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
-import { sansActeur, avecActeur } from "@/lib/db/client";
+import { avecAuth, avecActeur } from "@/lib/db/client";
 import { engendrerJeton, hacherJeton, verifierMotDePasse, tronquerIp } from "./secrets";
 
 /* =============================================================================
@@ -29,7 +29,7 @@ export async function sessionCourante(): Promise<SessionActive | null> {
   const jeton = (await cookies()).get(NOM_COOKIE)?.value;
   if (!jeton) return null;
 
-  const { rows } = await sansActeur((q) =>
+  const { rows } = await avecAuth((q) =>
     q("SELECT * FROM app.auth_session($1)", [hacherJeton(jeton)]),
   );
   if (rows.length === 0) return null;
@@ -57,14 +57,14 @@ export async function connecter(email: string, motDePasse: string): Promise<Resu
   const ip = tronquerIp(entetes.get("x-forwarded-for") ?? entetes.get("x-real-ip"));
   const cle = `connexion:${ip}`;
 
-  const { rows: compte } = await sansActeur((q) =>
+  const { rows: compte } = await avecAuth((q) =>
     q("SELECT app.auth_tentatives_recentes($1,$2) AS n", [cle, FENETRE_MINUTES]),
   );
   if (Number(compte[0].n) >= LIMITE_TENTATIVES) {
     return { ok: false, motif: "trop_de_tentatives", attendre: FENETRE_MINUTES * 60 };
   }
 
-  const { rows } = await sansActeur((q) =>
+  const { rows } = await avecAuth((q) =>
     q("SELECT * FROM app.auth_identifiant($1)", [email.trim().toLowerCase()]),
   );
 
@@ -76,18 +76,18 @@ export async function connecter(email: string, motDePasse: string): Promise<Resu
   const correct = await verifierMotDePasse(motDePasse, empreinte);
 
   if (rows.length === 0 || !correct) {
-    await sansActeur((q) => q("SELECT app.auth_journaliser_tentative($1,false)", [cle]));
+    await avecAuth((q) => q("SELECT app.auth_journaliser_tentative($1,false)", [cle]));
     return { ok: false, motif: "identifiants" };
   }
   if (rows[0].desactive) {
-    await sansActeur((q) => q("SELECT app.auth_journaliser_tentative($1,false)", [cle]));
+    await avecAuth((q) => q("SELECT app.auth_journaliser_tentative($1,false)", [cle]));
     return { ok: false, motif: "compte_desactive" };
   }
 
   const jeton = engendrerJeton();
   const mfaRequise = Boolean(rows[0].mfa_requise);
 
-  await sansActeur((q) =>
+  await avecAuth((q) =>
     q("SELECT app.auth_creer_session($1,$2,$3,$4,$5,$6,$7)", [
       rows[0].utilisateur_id, hacherJeton(jeton), DUREE_JOURS,
       null, entetes.get("user-agent")?.slice(0, 300) ?? null, ip,
@@ -96,7 +96,7 @@ export async function connecter(email: string, motDePasse: string): Promise<Resu
       !mfaRequise,
     ]),
   );
-  await sansActeur((q) => q("SELECT app.auth_journaliser_tentative($1,true)", [cle]));
+  await avecAuth((q) => q("SELECT app.auth_journaliser_tentative($1,true)", [cle]));
 
   /* ⚠️ LE COOKIE N'EST PAS POSÉ ICI.
 
@@ -125,7 +125,7 @@ export async function connecter(email: string, motDePasse: string): Promise<Resu
 export async function deconnecter(): Promise<void> {
   const jeton = (await cookies()).get(NOM_COOKIE)?.value;
   if (jeton) {
-    await sansActeur((q) => q("SELECT app.auth_revoquer_session($1)", [hacherJeton(jeton)]));
+    await avecAuth((q) => q("SELECT app.auth_revoquer_session($1)", [hacherJeton(jeton)]));
   }
 }
 

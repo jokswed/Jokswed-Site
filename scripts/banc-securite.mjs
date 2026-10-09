@@ -12,7 +12,7 @@
    comme `avecActeur()` le fait en production.
    ============================================================================= */
 import pg from "pg";
-import { demarrer, urlMigrateur, urlApplication, baseVierge } from "./pg-dev.mjs";
+import { demarrer, urlMigrateur, urlApplication, urlAuth, baseVierge } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
 
@@ -69,7 +69,7 @@ try {
   await verite.connect();
 
   const { jokswed, video } = f.entreprises;
-  const { proprietaire, videaste, assistant } = f.utilisateurs;
+  const { proprietaire, videaste, assistant, photographe } = f.utilisateurs;
 
   /* ═══════════ 0. LE RÔLE LUI-MÊME ═══════════ */
   const role = await app.query(`
@@ -117,9 +117,24 @@ try {
     SELECT p.proname FROM pg_proc p
       JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE p.prosecdef AND n.nspname IN ('public','app') ORDER BY 1`);
+  /* ⚠️ LISTE BLANCHE EXPLICITE DES FONCTIONS À PRIVILÈGES.
+     Chaque entrée est une capacité accordée au-delà des politiques : elle doit
+     être justifiée en commentaire dans sa migration. Le banc échoue si une
+     nouvelle apparaît sans être inscrite ici — c'est la seule façon de ne pas
+     laisser la surface grandir en silence. */
   const secdefAttendues = [
     "auth_creer_session","auth_identifiant","auth_journaliser_tentative","auth_revoquer_session",
     "auth_session","auth_tentatives_recentes","auth_valider_mfa","entreprises_de_lacteur",
+    "admin_affecter","admin_creer_invitation","admin_definir_permission","admin_definir_roles",
+    "admin_maj_entreprise","admin_revoquer_membre","exiger","permissions_de",
+    "permissions_effectives",
+    /* V4 — dépôt public et file d'événements. `deposer_demande` est la seule
+       écriture PUBLIQUE du schéma : le formulaire n'a pas d'acteur, donc
+       aucune politique ne peut l'autoriser. Son périmètre est éprouvé plus
+       bas — elle ne sait que déposer une demande. Les cinq autres servent le
+       drain, qui tourne lui aussi sans acteur. */
+    "deposer_demande","evenements_a_traiter","evenement_traite","evenement_echoue",
+    "notifier","membres_avec",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",
@@ -245,60 +260,13 @@ try {
   verifier("Un non-pilote ne réécrit pas le mariage partagé",
     planningVideo.rowCount === 0, `${planningVideo.rowCount} lignes`);
 
-  /* ═══════════ 8. PERMISSIONS : ON NE S'AUTO-PROMEUT PAS ═══════════ */
-  const membreVideo = await en(app, videaste,
-    "SELECT id FROM membres WHERE utilisateur_id = $1 AND retire_le IS NULL", [videaste]);
-  const autoPromo = await refuse(app, videaste,
-    `INSERT INTO membres_permissions (membre_id, permission_cle, accorde)
-     VALUES ($1, 'finance.consolide.lire', true)`, [membreVideo.rows[0].id]);
-  /* La politique l'autorise au niveau SQL (c'est son entreprise) : c'est la
-     couche applicative qui l'interdit. Le banc le constate explicitement
-     plutôt que de laisser croire que RLS s'en charge. */
-  const autoPromoEcrite = await verite.query(
-    "SELECT count(*)::int n FROM membres_permissions WHERE membre_id = $1", [membreVideo.rows[0].id]);
-  verifier("RLS seul N'EMPÊCHE PAS l'auto-promotion dans sa propre entreprise",
-    autoPromo === null && autoPromoEcrite.rows[0].n === 1,
-    `erreur=${autoPromo?.code ?? "aucune"}, lignes=${autoPromoEcrite.rows[0].n}`);
-  /* ⚠️ CE RÉSULTAT EST ATTENDU, ET C'EST POUR CELA QU'IL EST TESTÉ.
-     Une politique répond à « quelles LIGNES » ; elle ne sait pas répondre à
-     « cet acteur a-t-il le droit de modifier SES PROPRES droits », qui dépend
-     de l'identité de la CIBLE. C'est exigerAcces() qui tranche, côté serveur,
-     et le banc des routes le vérifie séparément. Laisser croire que RLS s'en
-     charge serait la pire des illusions. */
-
-  /* ⚠️ ICI, L'ABSENCE D'ERREUR N'EST PAS UNE RÉUSSITE DE L'ATTAQUE.
-
-     `INSERT … SELECT` dont le SELECT est vidé par la politique de `membres`
-     insère ZÉRO ligne et ne lève RIEN. Une première version de ce banc
-     concluait à une faille : elle testait « une erreur a-t-elle été levée »
-     au lieu de « une ligne a-t-elle été écrite ». On constate donc désormais
-     l'état réel, depuis la connexion propriétaire. */
-  const avantPromo = await verite.query(
-    `SELECT count(*)::int n FROM membres_permissions mp
-       JOIN membres m ON m.id = mp.membre_id WHERE m.entreprise_id = $1`, [jokswed]);
-  const promoAutrui = await en(app, videaste,
-    `INSERT INTO membres_permissions (membre_id, permission_cle, accorde)
-     SELECT m.id, 'finance.lire', true FROM membres m
-      WHERE m.entreprise_id = $1 LIMIT 1`, [jokswed]);
-  const apresPromo = await verite.query(
-    `SELECT count(*)::int n FROM membres_permissions mp
-       JOIN membres m ON m.id = mp.membre_id WHERE m.entreprise_id = $1`, [jokswed]);
-  verifier("Accorder une permission dans une AUTRE entreprise n'écrit RIEN",
-    promoAutrui.rowCount === 0 && apresPromo.rows[0].n === avantPromo.rows[0].n,
-    `${promoAutrui.rowCount} ligne(s) insérée(s), ${avantPromo.rows[0].n} → ${apresPromo.rows[0].n}`);
-
-  /* Et avec un identifiant de membre DEVINÉ — le cas où le SELECT ne protège
-     plus, parce que l'attaquant fournit directement la clé. */
-  const { rows: [cible] } = await verite.query(
-    "SELECT id FROM membres WHERE entreprise_id = $1 LIMIT 1", [jokswed]);
-  const promoDirecte = await refuse(app, videaste,
-    `INSERT INTO membres_permissions (membre_id, permission_cle, accorde)
-     VALUES ($1, 'finance.consolide.lire', true)`, [cible.id]);
-  const apresDirecte = await verite.query(
-    "SELECT count(*)::int n FROM membres_permissions WHERE membre_id = $1", [cible.id]);
-  verifier("Même avec l'identifiant de membre deviné, l'écriture est refusée",
-    promoDirecte !== null && apresDirecte.rows[0].n === 0,
-    promoDirecte ? `reste ${apresDirecte.rows[0].n} ligne(s)` : "aucune erreur levée");
+  /* ═══════════ 8. PERMISSIONS ═══════════ */
+  /* ⚠️ CE BLOC A ÉTÉ RE-POINTÉ AU PALIER 008.
+     Il constatait auparavant que RLS N'EMPÊCHAIT PAS l'auto-promotion, et que
+     seule la couche applicative s'y opposait. Depuis le retrait des
+     privilèges d'écriture et l'ajout de `app.exiger()`, c'est la base qui
+     refuse. Laisser l'ancienne assertion aurait signifié qu'un banc vert
+     décrivait un comportement qui n'existe plus. */
 
   const permProprio = await en(app, proprietaire,
     "SELECT permission_cle FROM app.permissions_effectives($1) ORDER BY 1", [jokswed]);
@@ -313,13 +281,13 @@ try {
     !permAssistant.rows.some((r) => r.permission_cle.startsWith("finance.")),
     permAssistant.rows.map((r) => r.permission_cle).join(","));
 
-  /* Un refus individuel l'emporte sur le rôle. */
-  const membreAssistant = await en(app, proprietaire,
-    "SELECT id FROM membres WHERE utilisateur_id = $1 AND entreprise_id = $2", [assistant, jokswed]);
+  /* Un refus individuel l'emporte sur le rôle — posé par le chemin légitime. */
+  const membreAssistant = await verite.query(
+    "SELECT id FROM membres WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL",
+    [assistant, jokswed]);
   await en(app, proprietaire,
-    `INSERT INTO membres_permissions (membre_id, permission_cle, accorde, motif)
-     VALUES ($1,'dossier.lire',false,'banc') ON CONFLICT (membre_id, permission_cle)
-     DO UPDATE SET accorde = false`, [membreAssistant.rows[0].id]);
+    "SELECT app.admin_definir_permission($1,'dossier.lire',false,'banc')",
+    [membreAssistant.rows[0].id]);
   const apresRefus = await en(app, assistant,
     "SELECT permission_cle FROM app.permissions_effectives($1)", [jokswed]);
   verifier("Un refus individuel l'emporte sur la permission du rôle",
@@ -337,9 +305,14 @@ try {
 
   /* ═══════════ 10. RÉVOCATION IMMÉDIATE ═══════════ */
   const avantRevoc = await en(app, assistant, "SELECT count(*)::int n FROM dossiers");
-  await en(app, proprietaire,
-    "UPDATE membres SET retire_le = now() WHERE utilisateur_id = $1 AND entreprise_id = $2",
+  /* Re-pointé au palier 008 : l'UPDATE direct n'est plus permis au rôle
+     applicatif, la révocation passe par la fonction qui vérifie la
+     permission et pose la trace d'audit. */
+  const membreARevoquer = await verite.query(
+    "SELECT id FROM membres WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL",
     [assistant, jokswed]);
+  await en(app, proprietaire, "SELECT app.admin_revoquer_membre($1)",
+    [membreARevoquer.rows[0].id]);
   const apresRevoc = await en(app, assistant, "SELECT count(*)::int n FROM dossiers");
   verifier("Après retrait du membre, il ne voit plus rien — dès la requête suivante",
     avantRevoc.rows[0].n > 0 && apresRevoc.rows[0].n === 0,
@@ -369,6 +342,215 @@ try {
     [f.dossiers.jokswedPrive, jokswed, videaste]);
   verifier("On ne peut pas affecter quelqu'un qui n'est pas membre de l'entreprise",
     affectationCroisee !== null, "affectation acceptée");
+
+  /* ═══════════ 13. ÉLÉVATION DE PRIVILÈGES — FERMÉE EN BASE (palier 008) ═══════════ */
+  /* Toutes ces tentatives sont faites en SQL DIRECT avec le rôle de
+     l'application, sans passer par une seule ligne du code serveur. */
+  const monMembre = await en(app, videaste,
+    "SELECT id FROM membres WHERE utilisateur_id = $1 AND retire_le IS NULL", [videaste]);
+  const monMembreId = monMembre.rows[0].id;
+
+  const ecritureDirecte = await refuse(app, videaste,
+    `INSERT INTO membres_permissions (membre_id, permission_cle, accorde)
+     VALUES ($1,'finance.consolide.lire',true)`, [monMembreId]);
+  verifier("Écrire dans membres_permissions est refusé au rôle applicatif",
+    ecritureDirecte !== null && ecritureDirecte.code === "42501",
+    ecritureDirecte ? `code ${ecritureDirecte.code}` : "l'écriture a réussi");
+
+  const viaFonction = await refuse(app, videaste,
+    "SELECT app.admin_definir_permission($1,'finance.consolide.lire',true)", [monMembreId]);
+  const resteSansPerm = await verite.query(
+    "SELECT count(*)::int n FROM membres_permissions WHERE membre_id = $1", [monMembreId]);
+  verifier("La fonction d'administration refuse qu'on se vise soi-même",
+    viaFonction !== null && resteSansPerm.rows[0].n === 0,
+    viaFonction ? `reste ${resteSansPerm.rows[0].n} ligne(s)` : "aucune erreur levée");
+
+  const rolesDirect = await refuse(app, videaste,
+    "DELETE FROM membres_roles WHERE membre_id = $1", [monMembreId]);
+  verifier("Modifier ses propres rôles en SQL direct est refusé",
+    rolesDirect !== null && rolesDirect.code === "42501",
+    rolesDirect ? `code ${rolesDirect.code}` : "le DELETE a réussi");
+
+  const rolesFonction = await refuse(app, videaste,
+    "SELECT app.admin_definir_roles($1, ARRAY[]::uuid[])", [monMembreId]);
+  verifier("Se retirer ou se donner un rôle via la fonction est refusé",
+    rolesFonction !== null, "aucune erreur levée");
+
+  const changerEntreprise = await refuse(app, videaste,
+    "UPDATE membres SET entreprise_id = $1 WHERE id = $2", [jokswed, monMembreId]);
+  verifier("Changer son entreprise d'appartenance est refusé",
+    changerEntreprise !== null && changerEntreprise.code === "42501",
+    changerEntreprise ? `code ${changerEntreprise.code}` : "l'UPDATE a réussi");
+
+  const sAjouter = await refuse(app, videaste,
+    "INSERT INTO membres (entreprise_id, utilisateur_id) VALUES ($1,$2)", [jokswed, videaste]);
+  verifier("S'ajouter comme membre d'une autre entreprise est refusé",
+    sAjouter !== null && sAjouter.code === "42501",
+    sAjouter ? `code ${sAjouter.code}` : "l'INSERT a réussi");
+
+  const forgerRole = await refuse(app, videaste,
+    `INSERT INTO roles_permissions (role_id, permission_cle)
+     SELECT id, 'finance.consolide.lire' FROM roles WHERE entreprise_id = $1 LIMIT 1`, [video]);
+  verifier("Enrichir un rôle existant de permissions est refusé",
+    forgerRole !== null && forgerRole.code === "42501",
+    forgerRole ? `code ${forgerRole.code}` : "l'INSERT a réussi");
+
+  const sAffecter = await refuse(app, videaste,
+    `INSERT INTO affectations (dossier_id, entreprise_id, utilisateur_id, mission)
+     VALUES ($1,$2,$3,'intrusion')`, [f.dossiers.jokswedPrive, jokswed, videaste]);
+  verifier("S'affecter à un dossier d'autrui est refusé",
+    sAffecter !== null && sAffecter.code === "42501",
+    sAffecter ? `code ${sAffecter.code}` : "l'INSERT a réussi");
+
+  const inviterSansDroit = await refuse(app, assistant,
+    "SELECT app.admin_creer_invitation($1,'intrus@exemple.invalid',null,null,'x',ARRAY[]::uuid[],7)",
+    [jokswed]);
+  verifier("Inviter sans la permission `membre.inviter` est refusé",
+    inviterSansDroit !== null, "l'invitation a été créée");
+
+  const renommer = await refuse(app, assistant,
+    "UPDATE entreprises SET nom_commercial = 'Détournée' WHERE id = $1", [jokswed]);
+  verifier("Modifier les réglages de l'entreprise en SQL direct est refusé",
+    renommer !== null && renommer.code === "42501",
+    renommer ? `code ${renommer.code}` : "l'UPDATE a réussi");
+
+  /* Et le chemin légitime doit, lui, fonctionner. Une protection qui bloque
+     aussi l'usage normal n'est pas une protection, c'est une panne. */
+  /* On vise le photographe, membre stable : l'assistant a été révoqué plus
+     haut, et une cible révoquée ferait échouer ce contrôle positif pour une
+     raison étrangère à ce qu'il vérifie. */
+  const membreAssistant2 = await verite.query(
+    "SELECT id FROM membres WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL",
+    [photographe, jokswed]);
+  const legitime = await refuse(app, proprietaire,
+    "SELECT app.admin_definir_permission($1,'finance.lire',true,'banc')",
+    [membreAssistant2.rows[0].id]);
+  const posee = await verite.query(
+    "SELECT accorde FROM membres_permissions WHERE membre_id = $1 AND permission_cle = 'finance.lire'",
+    [membreAssistant2.rows[0].id]);
+  verifier("Le propriétaire PEUT accorder une permission à un autre membre",
+    legitime === null && posee.rows[0]?.accorde === true,
+    legitime ? `erreur ${legitime.code}` : "aucune ligne posée");
+
+  const traceLaissee = await verite.query(
+    "SELECT count(*)::int n FROM journal_audit WHERE action = 'permission.definie'");
+  verifier("L'octroi laisse une trace d'audit", traceLaissee.rows[0].n >= 1);
+
+  /* ═══════════ 14. LES 5 TABLES SANS `FORCE` N'OUVRENT RIEN ═══════════ */
+  /* Le propriétaire les contourne — mais l'application n'est PAS propriétaire.
+     On vérifie que le rôle applicatif y reste bien filtré. */
+  for (const [table, colonne] of [
+    ["utilisateurs", "id"], ["identifiants", "utilisateur_id"],
+    ["sessions", "utilisateur_id"], ["facteurs_mfa", "utilisateur_id"],
+  ]) {
+    const r = await en(app, videaste,
+      `SELECT count(*)::int n FROM ${table} WHERE ${colonne} = $1`, [proprietaire]);
+    verifier(`Table sans FORCE « ${table} » : les lignes d'autrui restent invisibles`,
+      r.rows[0].n === 0, `${r.rows[0].n} ligne(s)`);
+  }
+  const membresAutrui = await en(app, videaste,
+    "SELECT count(*)::int n FROM membres WHERE entreprise_id = $1", [jokswed]);
+  verifier("Table sans FORCE « membres » : les adhésions d'autrui restent invisibles",
+    membresAutrui.rows[0].n === 0, `${membresAutrui.rows[0].n} ligne(s)`);
+
+  /* ═══════════ 15. LE RÔLE MÉTIER NE PEUT PLUS FORGER DE SESSION ═══════════ */
+  const forger = await refuse(app, videaste,
+    "SELECT app.auth_creer_session($1,'empreinte-forgee',7,null,null,null,true)",
+    [proprietaire]);
+  verifier("Forger une session avec le rôle métier est refusé (palier 008)",
+    forger !== null && forger.code === "42501",
+    forger ? `code ${forger.code}` : "UNE SESSION A ÉTÉ CRÉÉE");
+
+  const lireEmpreinte = await refuse(app, videaste,
+    "SELECT * FROM app.auth_identifiant($1)", ["proprietaire@exemple.invalid"]);
+  verifier("Lire l'empreinte d'un mot de passe avec le rôle métier est refusé",
+    lireEmpreinte !== null && lireEmpreinte.code === "42501",
+    lireEmpreinte ? `code ${lireEmpreinte.code}` : "L'EMPREINTE A ÉTÉ RENDUE");
+
+  /* Le rôle d'authentification, lui, n'a aucun accès aux tables métier. */
+  const auth = new pg.Client({ connectionString: urlAuth(base) });
+  await auth.connect();
+  try {
+    let bloque = null;
+    try { await auth.query("SELECT count(*) FROM dossiers"); }
+    catch (e) { bloque = e; }
+    verifier("Le rôle d'authentification ne peut lire AUCUNE table métier",
+      bloque !== null && bloque.code === "42501",
+      bloque ? `code ${bloque.code}` : "la lecture a réussi");
+  } finally { await auth.end(); }
+
+  /* ═══════════ 16. V4 — LE DÉPÔT PUBLIC NE SAIT QUE DÉPOSER ═══════════ */
+  /* `app.deposer_demande` est accordée au rôle métier et s'exécute sans
+     acteur : c'est la seule écriture publique. On vérifie qu'elle ne sert à
+     rien d'autre, et que la demande déposée reste cloisonnée. */
+  const avantDepot = await verite.query("SELECT count(*)::int n FROM demandes");
+  const depot = await en(app, videaste, `SELECT * FROM app.deposer_demande($1::jsonb)`, [
+    JSON.stringify({
+      cle_idempotence: "banc-securite-depot",
+      entreprise_slug: "jokswed",
+      contact_nom: "Essai Sécurité",
+      contact_email: "securite@exemple.invalid",
+      message: "dépôt par le banc",
+      lignes: [], consentements: [],
+    }),
+  ]);
+  const apresDepot = await verite.query("SELECT count(*)::int n FROM demandes");
+  verifier("Le dépôt public fonctionne sans acteur authentifié",
+    depot.rows[0].rejeu === false && apresDepot.rows[0].n === avantDepot.rows[0].n + 1);
+
+  /* ⚠️ LE POINT QUI COMPTE : la demande a été déposée POUR JoksWed, par le
+     vidéaste. Il ne doit pas la voir pour autant. */
+  const depotVisible = await en(app, videaste,
+    "SELECT count(*)::int n FROM demandes WHERE id = $1", [depot.rows[0].demande_id]);
+  verifier("Déposer une demande pour une autre entreprise ne la rend pas visible",
+    depotVisible.rows[0].n === 0, `${depotVisible.rows[0].n} ligne(s)`);
+
+  const depotProprio = await en(app, proprietaire,
+    "SELECT count(*)::int n FROM demandes WHERE id = $1", [depot.rows[0].demande_id]);
+  verifier("…alors que le destinataire légitime la voit",
+    depotProprio.rows[0].n === 1, `${depotProprio.rows[0].n} ligne(s)`);
+
+  /* Rejeu : la même clé rend la demande existante, sans en créer une seconde. */
+  const rejeuDepot = await en(app, videaste, `SELECT * FROM app.deposer_demande($1::jsonb)`, [
+    JSON.stringify({
+      cle_idempotence: "banc-securite-depot", entreprise_slug: "jokswed",
+      contact_nom: "Essai Sécurité", contact_email: "securite@exemple.invalid",
+      message: "second envoi", lignes: [], consentements: [],
+    }),
+  ]);
+  const apresRejeu = await verite.query("SELECT count(*)::int n FROM demandes");
+  verifier("Un rejeu de clé d'idempotence ne crée pas de seconde demande",
+    rejeuDepot.rows[0].rejeu === true && apresRejeu.rows[0].n === apresDepot.rows[0].n);
+
+  /* Écriture directe dans les tables de la file : interdite. */
+  const ecrireEvenement = await refuse(app, videaste,
+    `INSERT INTO evenements (type, charge_utile, cle_idempotence)
+     VALUES ('faux', '{}'::jsonb, 'banc-faux')`);
+  verifier("Écrire directement dans la file d'événements est refusé",
+    ecrireEvenement !== null && ecrireEvenement.code === "42501",
+    ecrireEvenement ? `code ${ecrireEvenement.code}` : "l'INSERT a réussi");
+
+  /* Les notifications appartiennent à leur destinataire, pas à l'entreprise. */
+  const notifAutrui = await en(app, videaste,
+    "SELECT count(*)::int n FROM notifications WHERE destinataire_id <> $1", [videaste]);
+  verifier("Les notifications d'autrui sont invisibles",
+    notifAutrui.rows[0].n === 0, `${notifAutrui.rows[0].n} ligne(s)`);
+
+  /* Les notes internes restent dans leur entreprise. */
+  await en(app, proprietaire,
+    `INSERT INTO notes_internes (entreprise_id, demande_id, auteur_id, corps)
+     VALUES ($1,$2,$3,'note confidentielle du banc')`,
+    [jokswed, depot.rows[0].demande_id, proprietaire]);
+  const notesAutrui = await en(app, videaste, "SELECT count(*)::int n FROM notes_internes");
+  verifier("Les notes internes d'une autre entreprise sont invisibles",
+    notesAutrui.rows[0].n === 0, `${notesAutrui.rows[0].n} ligne(s)`);
+
+  /* La proposition est visible des DEUX parties, et d'elles seules. */
+  const propJokswed = await en(app, proprietaire, "SELECT count(*)::int n FROM propositions");
+  const propVideo = await en(app, videaste, "SELECT count(*)::int n FROM propositions");
+  verifier("Une proposition est visible de l'émetteur comme du destinataire",
+    propJokswed.rows[0].n === propVideo.rows[0].n,
+    `émetteur ${propJokswed.rows[0].n}, destinataire ${propVideo.rows[0].n}`);
 } finally {
   if (app) await app.end();
   if (verite) await verite.end();

@@ -39,10 +39,19 @@ import pg, { Pool, type PoolClient } from "pg";
 pg.types.setTypeParser(1082, (valeur: string) => valeur);
 
 let pool: Pool | null = null;
+let poolAuth: Pool | null = null;
+
+function construire(url: string, max: number): Pool {
+  return new Pool({
+    connectionString: url,
+    max,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+}
 
 function obtenirPool(): Pool {
   if (pool) return pool;
-
   const url = process.env.DATABASE_URL_APP;
   if (!url) {
     throw new Error(
@@ -50,14 +59,36 @@ function obtenirPool(): Pool {
         "PAS le rôle propriétaire : ce dernier contournerait les politiques RLS.",
     );
   }
-
-  pool = new Pool({
-    connectionString: url,
-    max: 8,
-    idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 10_000,
-  });
+  pool = construire(url, 8);
   return pool;
+}
+
+/**
+ * Connexion RÉSERVÉE au chemin d'authentification.
+ *
+ * ⚠️ POURQUOI UN SECOND RÔLE, ET PAS LE RÔLE MÉTIER.
+ *
+ * `app.auth_creer_session(utilisateur_id, …)` ouvre une session pour
+ * N'IMPORTE QUEL identifiant. Tant qu'elle était accordée à `jokswed_app`,
+ * la moindre exécution SQL arbitraire sous ce rôle — une injection dans une
+ * requête métier — permettait de se forger une session de propriétaire et de
+ * faire tomber tout le cloisonnement d'un coup.
+ *
+ * `jokswed_auth` ne possède AUCUN privilège de table : il ne peut
+ * qu'appeler les sept fonctions d'authentification. Une faille dans une
+ * requête métier ne l'atteint pas, puisqu'elle s'exécute sur l'autre pool.
+ */
+function obtenirPoolAuth(): Pool {
+  if (poolAuth) return poolAuth;
+  const url = process.env.DATABASE_URL_AUTH;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL_AUTH absente. Elle doit porter le rôle jokswed_auth, distinct " +
+        "de jokswed_app : c'est ce qui empêche une injection métier de forger une session.",
+    );
+  }
+  poolAuth = construire(url, 4);
+  return poolAuth;
 }
 
 export interface Acteur {
@@ -113,7 +144,7 @@ export async function avecActeur<T>(
 }
 
 /**
- * Transaction SANS identité, pour le chemin d'authentification lui-même.
+ * Transaction du chemin d'authentification, sur le rôle `jokswed_auth`.
  *
  * ⚠️ CE N'EST PAS UNE PORTE DÉROBÉE.
  *
@@ -128,8 +159,8 @@ export async function avecActeur<T>(
  * dédiées en `SECURITY DEFINER` (voir lib/auth/connexion.ts), au périmètre
  * strictement limité à la vérification d'identité.
  */
-export async function sansActeur<T>(travail: (q: Requete) => Promise<T>): Promise<T> {
-  const client = await obtenirPool().connect();
+export async function avecAuth<T>(travail: (q: Requete) => Promise<T>): Promise<T> {
+  const client = await obtenirPoolAuth().connect();
   try {
     await client.query("BEGIN");
     const resultat = await travail(enveloppe(client));
@@ -148,8 +179,6 @@ export async function sansActeur<T>(travail: (q: Requete) => Promise<T>): Promis
 }
 
 export async function fermerPool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
-  }
+  if (pool) { await pool.end(); pool = null; }
+  if (poolAuth) { await poolAuth.end(); poolAuth = null; }
 }

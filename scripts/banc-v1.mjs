@@ -4,12 +4,11 @@
    Démarre `next start` sur un port dédié, puis éprouve le site tel qu'il est
    servi. Pas de simulation : les requêtes passent par le vrai serveur.
 
-   ⚠️ AUCUN E-MAIL N'EST ENVOYÉ.
-      `RESEND_API_KEY` reçoit une valeur manifestement invalide. Les tests de
-      validation (403, 415, 422, 429) s'arrêtent AVANT l'appel au fournisseur.
-      Le seul test qui l'atteint vérifie précisément qu'une soumission valide
-      franchit toute la validation et échoue proprement en 502 — sans jamais
-      divulguer la réponse du fournisseur.
+   ⚠️ AUCUN E-MAIL N'EST ENVOYÉ, ET AUCUNE BASE N'EST JOIGNABLE.
+      Depuis la V4, la route n'envoie plus d'e-mail : elle écrit en base. Ce
+      banc tourne volontairement sans base, pour éprouver le site public seul
+      et vérifier qu'il REFUSE une demande qu'il ne peut pas enregistrer,
+      plutôt que de prétendre l'avoir reçue.
 
    Lancement :  node scripts/banc-v1.mjs
    ============================================================================= */
@@ -32,9 +31,9 @@ const serveur = spawn("npx", ["next", "start", "--port", String(PORT)], {
     ...process.env,
     NODE_ENV: "production",
     SITE_URL: BASE,
-    RESEND_API_KEY: "re_banc_cle_invalide_aucun_envoi",
-    CONTACT_TO_EMAIL: "banc@exemple.invalid",
-    CONTACT_FROM_EMAIL: "JoksWed <banc@exemple.invalid>",
+    /* ⚠️ AUCUNE CHAÎNE DE BASE N'EST FOURNIE, ET C'EST LE SUJET DU §8.
+       Ce banc éprouve le site public SEUL. Le parcours avec base est couvert
+       par `npm run test:admin`. */
     /* Le banc enchaîne une quinzaine d'envois depuis une seule adresse : avec
        la limite de production (5), tout ce qui suit le premier test de
        validation recevrait un 429 sans rapport avec ce qu'il vérifie.
@@ -233,7 +232,20 @@ try {
   });
   verifier("Champ piège rempli → 200 sans envoi", piege.status === 200);
 
-  /* ───────────── 8. Validation complète → le fournisseur est atteint ───────────── */
+  /* ───────────── 8. Validation complète → tentative d'ENREGISTREMENT ─────────────
+     ⚠️ CE BLOC A ÉTÉ RE-POINTÉ EN V4.
+
+     Il vérifiait auparavant qu'une soumission valide atteignait le fournisseur
+     d'e-mail (502 avec une clé invalide). La route n'envoie plus d'e-mail :
+     elle écrit en base, et la notification part d'une file d'événements.
+
+     Ce banc tourne SANS base de données — c'est voulu : il éprouve le site
+     public isolément. La bonne assertion devient donc « sans base joignable,
+     le site REFUSE la demande au lieu de prétendre l'avoir reçue ». Un faux
+     accusé de réception est le pire des échecs : le couple croit sa demande
+     partie, et elle n'existe nulle part.
+
+     Le parcours complet avec base est éprouvé par `npm run test:admin`. */
   const jusquAuBout = await fetch(`${BASE}/api/contact`, {
     method: "POST",
     headers: { ...ORIGINE, "Idempotency-Key": "banc-idempotence-1" },
@@ -241,14 +253,20 @@ try {
   });
   const corpsBout = await jusquAuBout.json().catch(() => ({}));
   verifier(
-    "Soumission valide → 502 (clé fournisseur invalide, donc validation franchie)",
-    jusquAuBout.status === 502,
+    "Sans base joignable, une soumission valide est REFUSÉE (503)",
+    jusquAuBout.status === 503,
     `HTTP ${jusquAuBout.status}`,
   );
   verifier(
-    "La réponse d'erreur ne divulgue rien du fournisseur",
+    "…et le site ne prétend PAS avoir reçu la demande",
+    corpsBout.ok === false && /n'a pas pu être enregistrée/.test(corpsBout.message ?? ""),
+    JSON.stringify(corpsBout).slice(0, 120),
+  );
+  verifier(
+    "La réponse d'erreur ne divulgue ni fournisseur ni détail technique",
     !JSON.stringify(corpsBout).toLowerCase().includes("resend") &&
-      !JSON.stringify(corpsBout).includes("api_key"),
+      !JSON.stringify(corpsBout).toLowerCase().includes("postgres") &&
+      !JSON.stringify(corpsBout).toLowerCase().includes("database"),
   );
 
   /* ⚠️ CES TROIS ENVOIS PASSENT AVANT LE TEST DE LIMITATION DE DÉBIT.
@@ -270,8 +288,8 @@ try {
     }),
   });
   verifier(
-    "Formule 3 + séance engagement : la validation passe (502 fournisseur)",
-    avecIncluse.status === 502,
+    "Formule 3 + séance engagement : la validation est franchie (503 = base absente)",
+    avecIncluse.status === 503,
     `HTTP ${avecIncluse.status}`,
   );
 
@@ -286,8 +304,8 @@ try {
     }),
   });
   verifier(
-    "Une clé de supplément inventée est ignorée sans erreur serveur",
-    cleInventee.status === 502,
+    "Une clé de supplément inventée est ignorée sans erreur 500",
+    cleInventee.status === 503,
     `HTTP ${cleInventee.status}`,
   );
 
@@ -298,8 +316,8 @@ try {
     body: JSON.stringify({ ...demandeValide, formule: "<script>alert(1)</script>" }),
   });
   verifier(
-    "Une formule inventée est ignorée sans erreur serveur",
-    formuleInventee.status === 502,
+    "Une formule inventée est ignorée sans erreur 500",
+    formuleInventee.status === 503,
     `HTTP ${formuleInventee.status}`,
   );
 
@@ -328,8 +346,8 @@ try {
     "une donnée personnelle apparaît dans les journaux",
   );
   verifier(
-    "Les journaux serveur ne contiennent pas la clé d'API",
-    !journalServeur.includes("re_banc_cle_invalide"),
+    "Les journaux serveur ne contiennent pas de détail d'infrastructure",
+    !journalServeur.includes("postgres://") && !journalServeur.includes("jokswed_app"),
   );
 
   /* ───────────── 11. Poids des images ───────────── */

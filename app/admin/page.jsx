@@ -12,6 +12,10 @@ export default async function TableauDeBord({ searchParams }) {
   const acces = await exigerAcces(entreprise.id);
 
   const chiffres = await acces.executer(async (q) => {
+    const { rows: [dem] } = await q(
+      `SELECT count(*) FILTER (WHERE lue_le IS NULL)::int AS non_lues,
+              count(*)::int AS total
+         FROM demandes WHERE entreprise_destinataire_id = $1`, [entreprise.id]);
     const { rows: [d] } = await q(
       `SELECT count(*) FILTER (WHERE statut = 'nouvelle_demande')::int AS nouvelles,
               count(*) FILTER (WHERE statut = 'reserve')::int AS reserves,
@@ -25,7 +29,7 @@ export default async function TableauDeBord({ searchParams }) {
          FROM dossiers d JOIN mariages m ON m.id = d.mariage_id
         WHERE d.entreprise_id = $1 AND m.date_mariage >= current_date
         ORDER BY m.date_mariage LIMIT 5`, [entreprise.id]);
-    return { ...d, membres: m.n, prochains };
+    return { ...d, membres: m.n, prochains, demandes: dem.total, nonLues: dem.non_lues };
   });
 
   const peut = (p) => acces.permissions.has(p);
@@ -58,7 +62,8 @@ export default async function TableauDeBord({ searchParams }) {
 
       <section className="admin-chiffres">
         {[
-          ["Demandes non traitées", chiffres.nouvelles],
+          ["Demandes non lues", chiffres.nonLues],
+          ["Demandes reçues", chiffres.demandes],
           ["Mariages réservés", chiffres.reserves],
           ["Dossiers au total", chiffres.total],
           ["Membres actifs", chiffres.membres],
@@ -92,6 +97,9 @@ export default async function TableauDeBord({ searchParams }) {
             Chaque page cible rappelle `exigerAcces()` avec ses propres
             permissions ; ce filtrage-ci ne sert qu'à ne pas proposer une
             porte fermée. */}
+        {peut("dossier.lire") ? (
+          <Link href="/admin/demandes" className="btn">Demandes</Link>
+        ) : null}
         {peut("membre.inviter") ? (
           <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>
         ) : null}
@@ -101,8 +109,8 @@ export default async function TableauDeBord({ searchParams }) {
       </nav>
 
       <p className="recap__note" style={{ marginTop: "2.5rem" }}>
-        Les demandes envoyées depuis le site public ne sont pas encore reliées à cette
-        administration : elles arrivent par e-mail. C&apos;est l&apos;objet de la V4.
+        Les demandes envoyées depuis le site public sont enregistrées en base avant
+        toute notification : un échec d&apos;envoi ne peut plus en perdre une.
       </p>
     </main>
   );

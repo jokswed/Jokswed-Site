@@ -29,17 +29,30 @@
 
    7. IDEMPOTENCE. Un double-clic ou un retour réseau ne crée plus deux e-mails.
 
-   ⚠️ CE QUI RESTE À FAIRE, ET QUI N'EST PAS DE LA V1.
-      La demande n'est TOUJOURS PAS persistée : l'e-mail reste le seul support.
-      Si Brevo/Resend échoue, la demande est perdue. C'est l'objet de la V4
-      (table `demandes`, clé d'idempotence en base, l'e-mail devenant une
-      simple notification). L'idempotence ci-dessous est en mémoire de
-      processus, donc partielle — même réserve que pour la limitation de débit.
+   ⚠️ CE QUI A CHANGÉ EN V4.
+
+   8. LA DEMANDE EST PERSISTÉE AVANT TOUTE NOTIFICATION. Elle n'est plus
+      portée par un e-mail : elle vit dans `demandes`, avec ses lignes, ses
+      consentements et un instantané du catalogue. Un échec d'envoi retarde
+      la notification ; il ne perd plus la demande.
+   9. L'IDEMPOTENCE EST PASSÉE EN BASE. Elle vivait dans une `Map` du
+      processus : sur une architecture sans état, deux soumissions arrivant
+      sur deux instances créaient deux demandes. Une contrainte `UNIQUE` est
+      partagée par tout le monde.
+  10. AUCUN E-MAIL N'EST PLUS ENVOYÉ D'ICI. Les notifications passent par une
+      file d'événements, écrite dans la même transaction que la demande.
+
+   ⚠️ CE QUI RESTE EN MÉMOIRE DE PROCESSUS : la limitation de débit. Même
+      réserve qu'en V1 — c'est un garde-fou, pas un mur. Elle rejoindra la
+      base avec `tentatives_connexion`, qui en porte déjà le patron.
    ============================================================================= */
 
 import { NextResponse } from "next/server";
 import { limiterDebit, cleDepuisRequete } from "@/lib/limite-debit";
 import { formules, supplements, statutSupplement } from "@/content/offres";
+import { deposerDemande } from "@/lib/demandes/depot";
+import { drainer } from "@/lib/demandes/drain";
+import { tronquerIp } from "@/lib/auth/secrets";
 
 export const runtime = "nodejs";
 
@@ -63,21 +76,17 @@ const FENETRE_MS = 30 * 60 * 1000;
 /** Corps au-delà duquel on refuse sans même analyser. */
 const TAILLE_MAX = 32 * 1024;
 
-/** Clés d'idempotence déjà traitées, avec leur réponse. */
-const dejaTraitees = new Map();
-const IDEMPOTENCE_MS = 10 * 60 * 1000;
+/* ⚠️ L'IDEMPOTENCE EN MÉMOIRE A ÉTÉ RETIRÉE (V4).
+
+   Elle vivait dans une `Map` du processus : sur une architecture sans état,
+   chaque instance avait la sienne, et deux soumissions arrivant sur deux
+   fonctions différentes créaient deux demandes. Elle est désormais portée par
+   une contrainte `UNIQUE` sur `demandes.cle_idempotence`, partagée par toutes
+   les instances. `app.deposer_demande` rend la demande existante au lieu
+   d'en créer une seconde. */
 
 function nettoyer(valeur, longueurMax = 2000) {
   return String(valeur ?? "").trim().slice(0, longueurMax);
-}
-
-function echapperHtml(valeur) {
-  return nettoyer(valeur)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function emailValide(email) {
@@ -182,14 +191,8 @@ export async function POST(request) {
       );
     }
 
-    /* Idempotence : la même clé renvoie la même réponse, sans second envoi. */
+    /* La clé voyage jusqu'à la contrainte UNIQUE de PostgreSQL. */
     const cleIdempotence = nettoyer(request.headers.get("idempotency-key") ?? "", 100);
-    if (cleIdempotence) {
-      const anterieure = dejaTraitees.get(cleIdempotence);
-      if (anterieure && Date.now() - anterieure.quand < IDEMPOTENCE_MS) {
-        return NextResponse.json({ ok: true, rejeu: true }, { status: 200 });
-      }
-    }
 
     /* Champ invisible anti-spam : un vrai visiteur le laisse vide.
        On répond `ok` pour ne pas renseigner le robot sur sa détection. */
@@ -251,143 +254,74 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, message: erreurs[0], erreurs }, { status: 422 });
     }
 
-    const dateLisible = dateBrute
-      ? new Date(`${dateBrute}T12:00:00Z`).toLocaleDateString("fr-FR", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-          timeZone: "UTC",
-        })
-      : "À définir";
-
-    /* ⚠️ AUCUN REPLI SUR UN DOMAINE TIERS. Mal configuré = erreur franche. */
-    const apiKey = process.env.RESEND_API_KEY;
-    const destinataire = process.env.CONTACT_TO_EMAIL;
-    const expediteur = process.env.CONTACT_FROM_EMAIL;
-
-    if (!apiKey || !destinataire || !expediteur) {
+    /* ═══════════════════════════════════════════════════════════════════
+       ON ENREGISTRE D'ABORD. LA NOTIFICATION VIENT ENSUITE.
+       ═══════════════════════════════════════════════════════════════════
+       Jusqu'à la V3, l'e-mail était le seul support : un échec d'envoi
+       perdait la demande, et rien ne le signalait. Désormais la demande, ses
+       lignes, ses consentements, la proposition vidéo éventuelle et
+       l'événement de notification sont écrits dans UNE transaction. */
+    let depot;
+    try {
+      depot = await deposerDemande({
+        cleIdempotence: cleIdempotence || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        contactNom: noms,
+        contactEmail: email,
+        contactTelephone: telephone || null,
+        dateMariage: dateBrute || null,
+        lieu: lieu || null,
+        message,
+        formuleCle: formuleRetenue?.cle ?? null,
+        supplementsCles: clesRecues,
+        consentementDemande,
+        consentementPartenaire,
+        ipTronquee: tronquerIp(
+          request.headers.get("x-forwarded-for") ?? request.headers.get("x-real-ip"),
+        ),
+      });
+    } catch (erreur) {
+      /* ⚠️ ÉCHEC D'ÉCRITURE : ON NE PRÉTEND PAS AVOIR REÇU LA DEMANDE.
+         Répondre `ok` ici reviendrait à dire au couple que leur message est
+         arrivé alors qu'il n'existe nulle part. On journalise un code de
+         corrélation, jamais la charge utile. */
       console.error(
-        `[contact] configuration incomplète (trace=${trace}) : ` +
-          `${!apiKey ? "RESEND_API_KEY " : ""}${!destinataire ? "CONTACT_TO_EMAIL " : ""}` +
-          `${!expediteur ? "CONTACT_FROM_EMAIL" : ""}`.trim(),
+        `[contact] enregistrement impossible (trace=${trace}) : ${
+          erreur instanceof Error ? erreur.name : "inconnue"
+        }`,
       );
       return NextResponse.json(
         {
           ok: false,
           message:
-            "Le service d'envoi n'est pas configuré. Écrivez-moi directement en attendant.",
+            "Votre demande n'a pas pu être enregistrée. Merci de réessayer, " +
+            "ou de m'écrire directement.",
           trace,
         },
-        { status: 500 },
+        { status: 503 },
       );
     }
 
-    const lignes = [
-      "Nouvelle demande reçue depuis le site JoksWed",
-      "",
-      `Prénoms : ${noms}`,
-      `E-mail : ${email}`,
-      telephone ? `Téléphone : ${telephone}` : null,
-      `Date du mariage : ${dateLisible}`,
-      `Lieu : ${lieu || "À définir"}`,
-      formule ? `Formule envisagée : ${formule}` : "Formule : non précisée",
-      supplementsRetenus.length ? `Suppléments souhaités : ${supplementsRetenus.join(", ")}` : null,
-      supplementsDejaInclus.length
-        ? `Déjà compris dans la formule (non facturé) : ${supplementsDejaInclus.join(", ")}`
-        : null,
-      "",
-      `Prestation vidéo demandée : ${videoDemandee ? "OUI" : "non"}`,
-      `Transmission au vidéaste partenaire : ${consentementPartenaire ? "acceptée" : "non acceptée"}`,
-      /* ⚠️ AUCUNE NOTIFICATION N'EST ENVOYÉE AU VIDÉASTE À CE STADE.
+    /* Rejeu d'une clé déjà vue : même réponse, aucune seconde demande. */
+    if (depot.rejeu) {
+      return NextResponse.json({ ok: true, reference: depot.reference, rejeu: true });
+    }
 
-         Son compte, son entreprise et ses permissions n'existent pas encore
-         (paliers 002, 003 et 010 du schéma). Transmettre maintenant
-         supposerait un espace authentifié où il n'y a rien à authentifier, et
-         ferait sortir des coordonnées clients hors de tout cadre.
-         La transmission automatique est l'objet de la V6 ; en attendant, la
-         demande arrive ici avec la mention ci-dessus, et le relais est
-         manuel. */
-      videoDemandee
-        ? "→ À transmettre manuellement au vidéaste (transmission automatique : V6)."
-        : null,
-      "",
-      "Message :",
-      message,
-    ].filter(Boolean);
-
-    const html = `
-      <div style="font-family:Arial,sans-serif;line-height:1.6;color:#171717;max-width:640px">
-        <h2 style="margin-bottom:20px">Nouvelle demande mariage</h2>
-        <p><strong>Prénoms :</strong> ${echapperHtml(noms)}</p>
-        <p><strong>E-mail :</strong> <a href="mailto:${echapperHtml(email)}">${echapperHtml(email)}</a></p>
-        ${telephone ? `<p><strong>Téléphone :</strong> ${echapperHtml(telephone)}</p>` : ""}
-        <p><strong>Date du mariage :</strong> ${echapperHtml(dateLisible)}</p>
-        <p><strong>Lieu :</strong> ${echapperHtml(lieu || "À définir")}</p>
-        ${formule ? `<p><strong>Formule envisagée :</strong> ${echapperHtml(formule)}</p>` : ""}
-        ${
-          supplementsRetenus.length
-            ? `<p><strong>Suppléments souhaités :</strong> ${echapperHtml(supplementsRetenus.join(", "))}</p>`
-            : ""
-        }
-        ${
-          supplementsDejaInclus.length
-            ? `<p style="color:#6b6b6b"><strong>Déjà compris dans la formule</strong> (non facturé) : ${echapperHtml(supplementsDejaInclus.join(", "))}</p>`
-            : ""
-        }
-        <p><strong>Prestation vidéo :</strong> ${videoDemandee ? "demandée" : "non"}</p>
-        <p><strong>Transmission au vidéaste partenaire :</strong> ${
-          consentementPartenaire ? "acceptée" : "non acceptée"
-        }</p>
-        ${
-          videoDemandee
-            ? `<p style="background:#fbf7e8;padding:10px;border-left:3px solid #c9a227">À transmettre <strong>manuellement</strong> au vidéaste : son espace collaborateur n'est pas encore en service.</p>`
-            : ""
-        }
-        <hr style="border:0;border-top:1px solid #ddd;margin:24px 0" />
-        <p><strong>Message :</strong></p>
-        <p style="white-space:pre-wrap">${echapperHtml(message)}</p>
-      </div>
-    `;
-
-    const reponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: expediteur,
-        to: [destinataire],
-        reply_to: email,
-        subject: `Nouvelle demande mariage — ${noms}`,
-        text: lignes.join("\n"),
-        html,
-      }),
-    });
-
-    if (!reponse.ok) {
-      /* ⚠️ On journalise le STATUT, jamais le corps de la réponse ni la
-         charge utile : l'un comme l'autre contiennent des données
-         personnelles, et les logs Vercel ne sont pas le bon endroit. */
-      console.error(`[contact] envoi refusé par le fournisseur : HTTP ${reponse.status} (trace=${trace})`);
-      return NextResponse.json(
-        { ok: false, message: "L'envoi a échoué. Merci de réessayer.", trace },
-        { status: 502 },
+    /* Le drain pose les notifications internes. Son échec ne doit PAS faire
+       échouer la demande : elle est déjà enregistrée, et l'événement reste en
+       file avec son report. */
+    try {
+      await drainer();
+    } catch (erreur) {
+      console.error(
+        `[contact] drain différé (trace=${trace}) : ${
+          erreur instanceof Error ? erreur.name : "inconnue"
+        }`,
       );
     }
 
-    if (cleIdempotence) {
-      dejaTraitees.set(cleIdempotence, { quand: Date.now() });
-      if (dejaTraitees.size > 2_000) {
-        for (const [k, v] of dejaTraitees) {
-          if (Date.now() - v.quand > IDEMPOTENCE_MS) dejaTraitees.delete(k);
-        }
-      }
-    }
-
-    /* On ne renvoie PAS l'identifiant du fournisseur au navigateur :
-       il n'en a aucun usage, et c'est un détail d'infrastructure. */
-    return NextResponse.json({ ok: true });
+    /* On renvoie la RÉFÉRENCE : le couple peut la citer s'il m'écrit, et
+       elle prouve que la demande existe bien en base. */
+    return NextResponse.json({ ok: true, reference: depot.reference });
   } catch (erreur) {
     console.error(
       `[contact] erreur inattendue (trace=${trace}) : ${

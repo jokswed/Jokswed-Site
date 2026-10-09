@@ -140,10 +140,50 @@ npm run test:admin      # 27 épreuves HTTP sur les routes d'administration
 npm run test:secrets    # 24 épreuves des primitives, dont le vecteur RFC 6238
 ```
 
+## Ce que la V4 a apporté
+
+**Correction de sécurité préalable (paliers 008-009)** — l'élévation de privilèges
+est fermée EN BASE, pas seulement côté serveur. Le rôle applicatif a perdu tout
+droit d'écriture sur `membres`, `membres_roles`, `membres_permissions`, `roles`,
+`roles_permissions`, `affectations`, `invitations` et sur les réglages
+d'entreprise. Ces opérations passent par six fonctions qui vérifient
+l'appartenance, la permission et l'interdiction de se viser soi-même.
+
+**Second vecteur trouvé en auditant** : `app.auth_creer_session()` était accordée
+au rôle métier et ouvre une session pour n'importe quel identifiant. Une
+injection dans une requête métier permettait de se forger une session de
+propriétaire. Elle appartient désormais à `jokswed_auth`, un rôle **sans aucun
+privilège de table**, utilisé par le seul chemin de connexion.
+
+**Les demandes sont persistées avant toute notification.** La demande, ses
+lignes, ses consentements, la proposition vidéo et l'événement de notification
+sont écrits dans **une seule transaction**. Un échec d'envoi retarde la
+notification ; il ne perd plus la demande. L'idempotence est passée d'une `Map`
+de processus à une contrainte `UNIQUE` partagée par toutes les instances.
+
+**Instantané tarifaire** : chaque demande fige le catalogue tel qu'il était.
+Changer un prix demain ne réécrit pas ce que ce client a vu.
+
+**`/admin/demandes`** : liste filtrable, fiche complète, complétion des
+informations, notes internes, changement de statut. Aucun bouton de devis ou de
+contrat n'est affiché tant que leur moteur n'existe pas.
+
+**Collaboration vidéo enregistrée, non transmise** : la proposition est créée
+automatiquement, `envoyee_le` reste nul. Aucune coordonnée ne part.
+
+### Tests V4
+
+```bash
+npm run test:neon       # 9 contrôles de compatibilité avant migration
+npm run test:admin      # 63 épreuves HTTP, dont le parcours complet
+npm run test:securite   # 66 épreuves RLS et élévation de privilèges
+```
+
 ## Ce qui reste ouvert
 
-- **La demande n'est pas persistée.** L'e-mail reste le seul support : si l'envoi échoue, la demande est perdue. Objet de la V4 (table `demandes`).
-- **La limitation de débit et l'idempotence sont en mémoire de processus**, donc partielles sur une architecture sans état. Elles passent en base en V3.
+- **Aucun e-mail n'est encore envoyé.** Les notifications internes sont posées ; l'accusé de réception au client et l'alerte par e-mail restent à brancher sur Brevo. L'emplacement est prêt dans `lib/demandes/drain.ts`.
+- **Le drain n'a pas encore de tâche périodique.** Il tourne après chaque dépôt ; un événement d'une instance arrêtée en cours de route attendrait le dépôt suivant.
+- **La limitation de débit du formulaire public reste en mémoire de processus.** C'est un garde-fou, pas un mur. Le patron en base existe déjà (`tentatives_connexion`).
 - **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
 - **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».

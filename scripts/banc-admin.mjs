@@ -9,7 +9,7 @@
    ============================================================================= */
 import { spawn } from "node:child_process";
 import pg from "pg";
-import { demarrer, urlMigrateur, urlApplication, baseVierge } from "./pg-dev.mjs";
+import { demarrer, urlMigrateur, urlApplication, urlAuth, baseVierge } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
 
@@ -70,6 +70,7 @@ try {
       NODE_ENV: "production",
       SITE_URL: BASE,
       DATABASE_URL_APP: urlApplication(base),
+      DATABASE_URL_AUTH: urlAuth(base),
       JOKSWED_CHIFFREMENT_CLE: Buffer.alloc(32, 7).toString("base64"),
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -236,6 +237,208 @@ try {
     !journal.includes(fixtures.motDePasse));
   v("Aucune chaîne de connexion complète dans les journaux",
     !journal.includes("jokswed_app:dev_app"));
+
+  /* ═══════════ 9. V4 — PARCOURS COMPLET D'UNE DEMANDE ═══════════ */
+  const soumettre = (corps, cle) =>
+    fetch(`${BASE}/api/contact`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: BASE,
+        ...(cle ? { "idempotency-key": cle } : {}),
+      },
+      body: JSON.stringify(corps),
+    });
+
+  const demandeClient = {
+    noms: "Couple & Essai",
+    email: "couple@exemple.invalid",
+    telephone: "06 11 22 33 44",
+    date: "2028-06-17",
+    lieu: "Château d'Essai",
+    message: "Nous aimerions un reportage complet, et peut-être une vidéo.",
+    formule: "formule-3",
+    supplements: ["videaste", "seance-engagement", "album-supplementaire"],
+    consentement: true,
+    consentementPartenaire: true,
+  };
+
+  const envoi = await soumettre(demandeClient, "banc-v4-parcours");
+  const corpsEnvoi = await envoi.json().catch(() => ({}));
+  v("Le formulaire public enregistre la demande (200)",
+    envoi.status === 200 && corpsEnvoi.ok === true, `HTTP ${envoi.status}`);
+  v("Une référence DEM-AAAA-NNNN est rendue",
+    /^DEM-\d{4}-\d{4}$/.test(corpsEnvoi.reference ?? ""), corpsEnvoi.reference);
+
+  /* La demande existe-t-elle VRAIMENT en base ? On le constate depuis la
+     connexion propriétaire, pas depuis la réponse HTTP. */
+  const verite2 = new pg.Client({ connectionString: urlMigrateur(base) });
+  await verite2.connect();
+  const enBase = await verite2.query(
+    "SELECT * FROM demandes WHERE reference = $1", [corpsEnvoi.reference]);
+  v("La demande est réellement persistée en base", enBase.rowCount === 1);
+  v("Les coordonnées sont enregistrées",
+    enBase.rows[0]?.contact_email === "couple@exemple.invalid"
+      && enBase.rows[0]?.contact_telephone === "06 11 22 33 44");
+  /* ⚠️ On interroge la date EN TEXTE. Le client `pg` de ce banc n'a pas le
+     parseur d'OID 1082 que pose lib/db/client.ts : il rendrait un `Date` à
+     minuit local, et l'assertion jugerait le fuseau du banc, pas la valeur
+     stockée. */
+  const dateTexte = await verite2.query(
+    "SELECT to_char(date_mariage,'YYYY-MM-DD') d FROM demandes WHERE id = $1",
+    [enBase.rows[0].id]);
+  v("La date du mariage est stockée sans décalage",
+    dateTexte.rows[0].d === "2028-06-17", dateTexte.rows[0].d);
+  v("La vidéo demandée est enregistrée", enBase.rows[0]?.video_demandee === true);
+  v("L'instantané du catalogue est conservé",
+    typeof enBase.rows[0]?.instantane === "object"
+      && Array.isArray(enBase.rows[0].instantane.lignes)
+      && enBase.rows[0].instantane.lignes.length >= 3);
+
+  const lignes = await verite2.query(
+    "SELECT * FROM demande_lignes WHERE demande_id = $1 ORDER BY ordre", [enBase.rows[0].id]);
+  const incluse = lignes.rows.find((l) => l.cle === "seance-engagement");
+  v("La séance engagement, incluse dans la Formule 3, est marquée `inclus`",
+    incluse?.compatibilite === "inclus", incluse?.compatibilite);
+  v("…et son prix est NUL, pas zéro — elle ne sera jamais facturée",
+    incluse?.prix_cents === null, String(incluse?.prix_cents));
+  const formuleLigne = lignes.rows.find((l) => l.type === "formule");
+  v("Le prix de la formule est figé en centimes",
+    formuleLigne?.prix_cents === 160000, String(formuleLigne?.prix_cents));
+
+  const cons = await verite2.query(
+    "SELECT finalite, accorde, texte_version FROM consentements WHERE demande_id = $1",
+    [enBase.rows[0].id]);
+  v("Les deux consentements sont enregistrés séparément", cons.rowCount === 2);
+  v("Le texte exact soumis est conservé",
+    cons.rows.every((c) => (c.texte_version ?? "").length > 20));
+
+  /* ── La collaboration vidéo est ENREGISTRÉE mais NON TRANSMISE ── */
+  const prop = await verite2.query(
+    "SELECT * FROM propositions WHERE demande_id = $1", [enBase.rows[0].id]);
+  v("Une proposition vidéo est créée automatiquement", prop.rowCount === 1);
+  v("⚠️ Elle n'est PAS transmise : envoyee_le est nul",
+    prop.rows[0]?.envoyee_le === null && prop.rows[0]?.statut === "preparee",
+    `statut=${prop.rows[0]?.statut}, envoyee_le=${prop.rows[0]?.envoyee_le}`);
+
+  /* ── L'événement naît avec la demande, et la notification en découle ── */
+  const ev = await verite2.query(
+    "SELECT * FROM evenements WHERE cle_idempotence = $1",
+    [`demande.recue:${enBase.rows[0].id}`]);
+  v("Un événement a été écrit dans la même transaction", ev.rowCount === 1);
+  v("L'événement a été traité par le drain", ev.rows[0]?.traite_le !== null);
+
+  const notifs = await verite2.query(
+    "SELECT * FROM notifications WHERE cle_idempotence = $1",
+    [`demande.recue:${enBase.rows[0].id}`]);
+  v("Une notification interne est posée", notifs.rowCount >= 1);
+  v("La notification ne contient ni nom, ni date, ni montant",
+    notifs.rows.every((n) =>
+      !`${n.titre} ${n.corps ?? ""}`.includes("Couple")
+      && !`${n.titre} ${n.corps ?? ""}`.includes("2028")
+      && !`${n.titre} ${n.corps ?? ""}`.includes("600")),
+    JSON.stringify(notifs.rows.map((n) => `${n.titre} / ${n.corps}`)));
+
+  /* ── Idempotence : même clé, une seule demande ── */
+  const rejeu = await soumettre(demandeClient, "banc-v4-parcours");
+  const corpsRejeu = await rejeu.json().catch(() => ({}));
+  const compte = await verite2.query(
+    "SELECT count(*)::int n FROM demandes WHERE cle_idempotence = 'banc-v4-parcours'");
+  v("Une soumission répétée ne crée pas de seconde demande",
+    compte.rows[0].n === 1 && corpsRejeu.rejeu === true,
+    `${compte.rows[0].n} demande(s), rejeu=${corpsRejeu.rejeu}`);
+  const notifsApres = await verite2.query(
+    "SELECT count(*)::int n FROM notifications WHERE cle_idempotence = $1",
+    [`demande.recue:${enBase.rows[0].id}`]);
+  v("…ni de notification en double",
+    notifsApres.rows[0].n === notifs.rowCount, `${notifsApres.rows[0].n}`);
+
+  /* ── La demande apparaît dans l'administration ── */
+  const liste = await proprio.fetch("/admin/demandes");
+  const htmlListe = await liste.text();
+  v("La demande apparaît dans /admin/demandes",
+    liste.status === 200 && htmlListe.includes(corpsEnvoi.reference), `HTTP ${liste.status}`);
+  v("Le nom du couple est visible dans la liste", htmlListe.includes("Couple &amp; Essai")
+    || htmlListe.includes("Couple & Essai"));
+
+  const fiche = await proprio.fetch(`/admin/demandes/${enBase.rows[0].id}`);
+  const htmlFiche = await fiche.text();
+  v("La fiche complète s'ouvre", fiche.status === 200, `HTTP ${fiche.status}`);
+  v("La fiche montre l'e-mail et le téléphone",
+    htmlFiche.includes("couple@exemple.invalid") && htmlFiche.includes("06 11 22 33 44"));
+  v("La fiche montre la formule et son prix figé",
+    htmlFiche.includes("Formule 3") && htmlFiche.replace(/[  ]/g, " ").includes("1 600 €"));
+  v("La fiche signale la séance engagement comme incluse et non facturée",
+    htmlFiche.includes("Incluse dans la formule"));
+  v("La fiche signale que rien n'a été transmis au vidéaste",
+    htmlFiche.includes("Préparée — non transmise")
+      || htmlFiche.includes("Pr&#x27;éparée") || htmlFiche.includes("non transmise"));
+  v("Aucun bouton de devis/contrat n'est présenté comme opérationnel",
+    !/Générer (le |un )?(devis|contrat|facture)/i.test(htmlFiche));
+
+  /* ── Cloisonnement : le vidéaste ne doit PAS voir cette demande ──
+     ⚠️ Son compte a été DÉSACTIVÉ par l'épreuve n° 6. Le laisser ainsi ferait
+     échouer les contrôles qui suivent pour une raison étrangère à ce qu'ils
+     vérifient : on obtiendrait une redirection de connexion, pas un refus
+     d'accès. On le réactive et on rouvre une session. */
+  await verite2.query("UPDATE utilisateurs SET desactive_le = NULL WHERE id = $1",
+    [fixtures.utilisateurs.videaste]);
+  /* ⚠️ ET ON PURGE LES TENTATIVES DE CONNEXION.
+     L'épreuve n° 7 en a volontairement accumulé douze depuis la même IP pour
+     déclencher le blocage. Sans purge, la reconnexion ci-dessous est refusée
+     pour « trop de tentatives » — et les contrôles de cloisonnement qui
+     suivent échoueraient sur une redirection de connexion, pas sur un refus
+     d'accès. Un banc doit échouer pour la bonne raison. */
+  await verite2.query("DELETE FROM tentatives_connexion");
+
+  const video2 = navigateur();
+  await seConnecter(video2, "videaste@exemple.invalid", fixtures.motDePasse);
+  v("Le vidéaste peut rouvrir une session après réactivation",
+    video2.cookies.has(NOM_SESSION), [...video2.cookies.keys()].join(",") || "aucun cookie");
+
+  const listeVideo = await video2.fetch("/admin/demandes");
+  const htmlVideo2 = await listeVideo.text();
+  /* ⚠️ ON VÉRIFIE D'ABORD LE STATUT.
+     Sans cela, une redirection (0 octet de contenu) satisferait les deux
+     assertions suivantes : le test passerait À VIDE, en prouvant seulement
+     que le vidéaste n'a rien vu du tout. */
+  v("Le vidéaste accède bien à SA liste de demandes",
+    listeVideo.status === 200, `HTTP ${listeVideo.status}`);
+  v("Le vidéaste ne voit pas la demande de JoksWed dans sa liste",
+    !htmlVideo2.includes(corpsEnvoi.reference) && !htmlVideo2.includes("couple@exemple.invalid"));
+
+  const ficheVolee = await video2.fetch(`/admin/demandes/${enBase.rows[0].id}`);
+  v("Le vidéaste attaquant l'URL directe de la fiche obtient un 404",
+    ficheVolee.status === 404, `HTTP ${ficheVolee.status}`);
+
+  /* ── Droits d'écriture : l'assistant ne peut pas modifier ── */
+  const ficheAssistant = await assistant.fetch(`/admin/demandes/${enBase.rows[0].id}`);
+  if (ficheAssistant.status === 200) {
+    const htmlA = await ficheAssistant.text();
+    v("L'assistant voit la fiche mais sans formulaire de modification",
+      !htmlA.includes('name="statut"') && !htmlA.includes('name="complements"'));
+  } else {
+    v("L'assistant voit la fiche mais sans formulaire de modification",
+      [302, 303, 307].includes(ficheAssistant.status),
+      `HTTP ${ficheAssistant.status}`);
+  }
+
+  /* ── Une demande sans consentement obligatoire est refusée AVANT la base ── */
+  const avantRefus = await verite2.query("SELECT count(*)::int n FROM demandes");
+  const sansConsentement2 = await soumettre(
+    { ...demandeClient, consentement: false }, "banc-v4-sans-consentement");
+  const apresRefus2 = await verite2.query("SELECT count(*)::int n FROM demandes");
+  v("Sans consentement : 422 et AUCUNE écriture en base",
+    sansConsentement2.status === 422 && apresRefus2.rows[0].n === avantRefus.rows[0].n,
+    `HTTP ${sansConsentement2.status}, ${avantRefus.rows[0].n} → ${apresRefus2.rows[0].n}`);
+
+  /* ── Aucune donnée personnelle dans les journaux ── */
+  v("Les journaux ne contiennent pas l'adresse du couple",
+    !journal.includes("couple@exemple.invalid"));
+  v("Les journaux ne contiennent pas le message du client",
+    !journal.includes("Nous aimerions un reportage complet"));
+
+  await verite2.end();
 } finally {
   if (serveur) { serveur.kill("SIGTERM"); await new Promise((r) => setTimeout(r, 600)); serveur.kill("SIGKILL"); }
   await pgdev.stop();
