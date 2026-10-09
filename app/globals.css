@@ -2012,3 +2012,28 @@ button:hover .photo img {
   padding-top: 0.15rem;
 }
 .admin-dl dd { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }
+
+/* --- V5 : actions documentaires --------------------------------------------
+   En pile sur iPhone, alignées dès qu'il y a la place. Chaque bouton garde
+   une hauteur confortable : on génère un devis depuis un téléphone, entre
+   deux rendez-vous. */
+.admin-actions { display: grid; gap: 0.7rem; }
+.admin-ligne-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+.admin-ligne-actions select { flex: 1 1 11rem; min-height: 2.9rem; }
+.admin-ligne-actions button { flex: 0 0 auto; }
+
+/* Sur iPhone, le menu déroulant prend toute la largeur et le bouton passe
+   dessous : un « Générer » étroit, coincé à gauche sous un champ pleine
+   largeur, rompt l'alignement de la colonne. */
+@media (max-width: 560px) {
+  .admin-ligne-actions { flex-direction: column; align-items: stretch; }
+  .admin-ligne-actions select,
+  .admin-ligne-actions button { flex: 1 1 auto; width: 100%; }
+  .admin-ligne-actions button { justify-content: center; text-align: center; }
+}
+.admin-pastille--emis { border-color: #2f6b45; color: #2f6b45; }

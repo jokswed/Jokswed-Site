@@ -5,7 +5,10 @@ import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
 import { formaterDateSql } from "@/lib/dates";
 import { formaterPrix } from "@/content/offres";
-import { genererDevisDepuisDemande, rendrePdf } from "@/lib/documents/generer";
+import {
+  genererDevisDepuisDemande, genererContratDepuisDevis,
+  genererFactureDepuisDevis, genererAvoir, rendrePdf,
+} from "@/lib/documents/generer";
 import { createHash } from "node:crypto";
 import { LIBELLES_STATUT } from "../page";
 
@@ -59,6 +62,14 @@ export default async function FicheDemande({ params }) {
        AVANT que l'utilisateur clique, pas après. */
     const verdict = await q(
       "SELECT * FROM app.verdict_emission($1,'devis')", [entreprise.id]);
+    /* ⚠️ LES PRÉREQUIS DIFFÈRENT SELON LE TYPE DE DOCUMENT.
+       Le médiateur n'est exigé que pour un contrat : une facture peut être
+       émise sans lui. On interroge donc la garde pour chaque type plutôt que
+       d'appliquer le verdict du devis à tout. */
+    const verdictContrat = await q(
+      "SELECT * FROM app.verdict_emission($1,'contrat')", [entreprise.id]);
+    const situation = await q(
+      "SELECT * FROM app.situation_financiere($1)", [id]);
 
     /* Première ouverture : on marque la demande lue et on la sort de « non
        lue ». C'est une lecture qui change l'état, donc on la trace. */
@@ -78,11 +89,16 @@ export default async function FicheDemande({ params }) {
       proposition: proposition.rows[0] ?? null,
       documents: documents.rows,
       motifsBlocage: verdict.rows[0]?.motifs ?? [],
+      motifsContrat: verdictContrat.rows[0]?.motifs ?? [],
+      situation: situation.rows[0] ?? null,
     };
   });
 
   if (!vue) notFound();
-  const { demande, lignes, consentements, notes, proposition, documents, motifsBlocage } = vue;
+  const { demande, lignes, consentements, notes, proposition, documents,
+          motifsBlocage, motifsContrat, situation } = vue;
+  const devisEmis = documents.find((d) => d.type === "devis" && d.statut !== "brouillon");
+  const devisDisponible = devisEmis ?? documents.find((d) => d.type === "devis");
   const peutEcrire = acces.permissions.has("dossier.ecrire");
 
   async function changerStatut(formulaire) {
@@ -151,20 +167,46 @@ export default async function FicheDemande({ params }) {
     revalidatePath(`/admin/demandes/${id}`);
   }
 
+  async function genererContrat(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.rediger"]);
+    const devis = String(formulaire.get("devis") ?? "");
+    await a.executer((q) => genererContratDepuisDevis(q, devis, e.id, s.utilisateurId));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function genererFacture(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.rediger"]);
+    const devis = String(formulaire.get("devis") ?? "");
+    const role = String(formulaire.get("role") ?? "acompte");
+    if (!["acompte", "solde", "totale"].includes(role)) return;
+    await a.executer((q) => genererFactureDepuisDevis(q, devis, role, e.id, s.utilisateurId));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
   async function emettreDocument(formulaire) {
     "use server";
     const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["document.emettre"]);
     const documentId = String(formulaire.get("document") ?? "");
     await a.executer(async (q) => {
+      /* ⚠️ L'ORDRE COMPTE : ÉMETTRE, PUIS RENDRE, PUIS SCELLER.
+         Le numéro n'existe qu'à l'émission, et il doit figurer SUR le PDF.
+         Calculer l'empreinte avant scellait un document sans son numéro. */
+      const { rows: emission } = await q(
+        "SELECT * FROM app.emettre_document($1)", [documentId]);
+      if (!emission[0]?.emis) return;
+
       const { rows } = await q(
         "SELECT instantane FROM documents WHERE id = $1", [documentId]);
-      if (!rows[0]) return;
+      const { pdf } = rendrePdf(rows[0].instantane, false);
       /* L'empreinte scelle le PDF EXACT qui est émis : c'est elle qui
          prouvera plus tard ce qui a été accepté. */
-      const { pdf } = rendrePdf(rows[0].instantane, false);
-      const empreinte = createHash("sha256").update(pdf).digest("hex");
-      await q("SELECT * FROM app.emettre_document($1,$2)", [documentId, empreinte]);
+      await q("SELECT app.sceller_document($1,$2)",
+        [documentId, createHash("sha256").update(pdf).digest("hex")]);
     });
     revalidatePath(`/admin/demandes/${id}`);
   }
@@ -422,20 +464,78 @@ export default async function FicheDemande({ params }) {
             )}
 
             {acces.permissions.has("document.rediger") ? (
-              <form action={genererDevis} style={{ marginTop: "1.2rem" }}>
-                <button type="submit" className="btn btn--bloc">Générer un devis</button>
-              </form>
+              <div className="admin-actions" style={{ marginTop: "1.2rem" }}>
+                <form action={genererDevis}>
+                  <button type="submit" className="btn btn--bloc">Générer un devis</button>
+                </form>
+
+                {devisDisponible ? (
+                  <>
+                    <form action={genererContrat}>
+                      <input type="hidden" name="devis" value={devisDisponible.id} />
+                      <button type="submit" className="btn btn--fantome btn--bloc">
+                        Générer le contrat
+                      </button>
+                    </form>
+                    <form action={genererFacture} className="admin-ligne-actions">
+                      <input type="hidden" name="devis" value={devisDisponible.id} />
+                      <select name="role" defaultValue="acompte" aria-label="Type de facture">
+                        <option value="acompte">Facture d&apos;acompte</option>
+                        <option value="solde">Facture de solde</option>
+                        <option value="totale">Facture complète</option>
+                      </select>
+                      <button type="submit" className="btn btn--fantome">Générer</button>
+                    </form>
+                  </>
+                ) : (
+                  /* ⚠️ PAS DE BOUTON CONTRAT NI FACTURE SANS DEVIS.
+                     Le contrat se génère DEPUIS un devis — c'est ce qui garantit
+                     qu'ils ne se contredisent pas sur le prix ou l'échéancier. */
+                  <p className="recap__note">
+                    Le contrat et les factures se génèrent depuis un devis.
+                    Commencez par en créer un.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {situation ? (
+              <div className="recap" style={{ marginTop: "1.2rem" }}>
+                <p className="label label--nu">Situation financière</p>
+                {/* ⚠️ TROIS MESURES DISTINCTES, JAMAIS CONFONDUES.
+                    Émettre une facture n'encaisse rien ; encaisser ne facture
+                    rien. Les afficher séparément évite de facturer deux fois. */}
+                <p className="recap__ligne">
+                  <span>Prestation (devis émis)</span>
+                  <span>{formaterPrix(situation.total_prestation_cents)}</span>
+                </p>
+                <p className="recap__ligne">
+                  <span>Facturé</span>
+                  <span>{formaterPrix(situation.facture_cents - situation.avoirs_cents)}</span>
+                </p>
+                <p className="recap__ligne">
+                  <span>Encaissé (paiements confirmés)</span>
+                  <span>{formaterPrix(situation.encaisse_cents)}</span>
+                </p>
+                <p className="recap__ligne recap__ligne--total">
+                  <span>Reste dû</span>
+                  <span>{formaterPrix(situation.reste_du_cents)}</span>
+                </p>
+              </div>
             ) : null}
 
             {/* ⚠️ LES MOTIFS DE BLOCAGE SONT AFFICHÉS AVANT LE CLIC.
                 Un bouton « Émettre » qui échoue après coup fait perdre du
                 temps et de la confiance. Tant qu'il reste un motif, le
                 brouillon se prépare mais ne devient jamais définitif. */}
-            {motifsBlocage.length > 0 ? (
+            {motifsBlocage.length > 0 || motifsContrat.length > 0 ? (
               <div className="admin-alerte" style={{ marginTop: "1.2rem" }}>
                 <strong>Émission définitive bloquée :</strong>
                 <ul style={{ margin: "0.5rem 0 0 1rem", padding: 0 }}>
                   {motifsBlocage.map((m) => <li key={m}>{m}</li>)}
+                  {motifsContrat
+                    .filter((m) => !motifsBlocage.includes(m))
+                    .map((m) => <li key={m}>{m} <em>(contrats uniquement)</em></li>)}
                 </ul>
                 <p style={{ marginTop: "0.6rem", fontSize: "0.85rem" }}>
                   Les brouillons restent possibles : vous pouvez préparer, relire

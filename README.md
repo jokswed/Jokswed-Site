@@ -33,12 +33,17 @@ npm run dev                  # http://localhost:3000
 npm run suite
 ```
 
-Enchaîne quatre étapes et **échoue** à la première qui casse :
+Enchaîne neuf étapes, **362 vérifications**, et **échoue** à la première qui casse :
 
 1. `verifier:sitemap` — chaque URL annoncée a sa page, chaque page publique est annoncée ;
 2. `verifier:coherence` — aucune formulation contradictoire, aucun lien mort, aucune image manquante, aucun prix en dur ;
 3. `build` — compilation de production ;
-4. `banc` — démarre le serveur et éprouve 32 points : codes HTTP de la route de contact, limitation de débit, consentements, absence de données personnelles dans les journaux, image Open Graph, balisage FAQPage, poids des images, `npm audit`.
+4. `banc` (52) — démarre le serveur : codes HTTP de la route de contact, limitation de débit, consentements, absence de données personnelles dans les journaux, image Open Graph, balisage FAQPage, poids des images, `npm audit` ;
+5. `test:secrets` (24) — chiffrement, hachage, jetons ;
+6. `test:pdf` (90) — moteur documentaire : trois formules, tarifs, échéanciers, arrondis, clauses conditionnelles, pagination, libellés ;
+7. `test:securite` (79) — RLS et autorisations **sous le rôle applicatif réel** ;
+8. `test:admin` (108) — parcours complets et cloisonnement entre entreprises ;
+9. `test:neon` (9) — compatibilité du schéma avec Neon.
 
 Le banc **n'envoie aucun e-mail** : la clé fournisseur qu'il utilise est volontairement invalide.
 
@@ -234,14 +239,75 @@ aucun trou. Les bancs puisent dans une série `TEST-` distincte.
 **Immuabilité** : un document émis ne peut être ni modifié ni supprimé —
 exception levée, jamais un silence.
 
+**Contrat et CGV, en quatre pages.** `lib/documents/gabarit-contrat.ts`
+reproduit `Contrat Kimberly & Jérémy.pdf` : encadré gris des parties, puces
+d'informations du mariage, quinze articles, signatures, annexe de rétractation
+détachable, pied de page courant. Un titre d'article ne reste jamais seul en
+bas de page — il réclame sa place avec son premier paragraphe.
+
+**Les clauses sont conditionnées par le catalogue réel.** `clauses.ts` lit les
+inclusions de la formule et n'affirme que ce qu'elle contient : pas d'album
+dans la Formule 1, donc pas d'article « album », mais un article « supports
+livrés » ; la clause d'aperçu avant solde n'apparaît qu'en paiement
+fractionné ; la séance d'engagement n'est citée que si elle est incluse. Un
+banc le vérifie formule par formule.
+
+**Factures et avoirs partagent la mise en page du devis.** Un seul gabarit,
+`gabarit-commercial.ts`, sert le devis, la facture d'acompte, la facture de
+solde, la facture complète et l'avoir : même fond crème, même grille bordée,
+même bandeau noir pleine largeur. Une facture ajoute deux lignes — « Déjà
+réglé » et « Reste à payer » — et rien d'autre. Un client reconnaît
+immédiatement d'où vient le document.
+
+**Facturé et encaissé ne sont jamais confondus.** `app.situation_financiere()`
+rend quatre mesures distinctes — prestation, facturé, encaissé, reste dû — et
+le reste à payer se déduit des **paiements confirmés** et des avoirs, jamais
+des factures émises. C'est ce qui empêche de facturer deux fois le même
+montant.
+
+**Les prérequis diffèrent selon le type de document.** Le médiateur de la
+consommation n'est exigé que pour un contrat ; une facture peut être émise
+sans lui. La fiche interroge la garde pour chaque type et étiquette le motif
+`(contrats uniquement)`.
+
+### Deux défauts trouvés en comparant les rendus aux modèles
+
+Les PDF générés ont été rastérisés et comparés page à page aux originaux, pas
+seulement ouverts.
+
+- **`Tc` survit à `BT`/`ET`.** L'interlettrage n'était écrit que lorsqu'il
+  était non nul ; le `1.4 Tc` du bandeau « BROUILLON » restait donc actif pour
+  tout le reste de la page, qui sortait lettre-espacée. Sur une facture,
+  « Date de la prestation : » recouvrait sa propre valeur. L'interlettrage est
+  désormais émis systématiquement, y compris à zéro, et un banc refuse tout
+  bloc de texte qui ne le redéclare pas.
+- **Un libellé de catalogue passé au tout-minuscule.** Le contrat reprenait les
+  inclusions en milieu de phrase avec `.toLowerCase()` : « clé usb
+  personnalisée », « en france métropolitaine ». Seule l'initiale est
+  abaissée, et jamais sur un sigle.
+- **Un document émis sortait sans son numéro.** `emettre_document` écrivait
+  `documents.numero`, mais le PDF se rend depuis `documents.instantane`, qui
+  gardait `"numero": null` — sur une facture, une mention obligatoire
+  manquante. Le numéro est désormais estampillé dans l'instantané au moment
+  de l'émission, et l'ordre est devenu **émettre → rendre → sceller**
+  (migration 021). Comme PostgreSQL ne sait pas différer un `CHECK`,
+  l'exigence « un document émis a numéro, date et empreinte » est passée en
+  déclencheur `DEFERRABLE INITIALLY DEFERRED` : une transaction qui émettrait
+  sans sceller ne peut pas aboutir.
+
+**Trois exemplaires sont versionnés** dans `exemples/`, produits par
+`scripts/exemples.mts` à travers la **vraie** chaîne — dépôt du formulaire
+public, persistance PostgreSQL, génération, émission — sur une base jetable.
+Les données sont fictives : aucune reprise des informations de Kimberly &
+Jérémy, aucune signature scannée.
+
 ## Ce qui reste ouvert
 
 - **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
 - **Aucun webhook Brevo n'est branché** : un envoi reste au statut `envoye`, jamais `remis` ni `ouvert`.
 - **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
-- **Le contrat et la facture n'ont pas encore de moteur.** Le devis en a un ; la structure (clauses conditionnées, versions de CGV, signatures) est en base et attend son gabarit. Aucun bouton ne les propose — un bouton qui ne produit rien est pire que son absence.
 - **Aucune signature électronique.** La table `signatures` distingue déjà `case_acceptation` d'une signature qualifiée, et l'interface ne présentera jamais la première comme la seconde.
-- **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif.
+- **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif — mais **pas** celle d'une facture.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
 - **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».
 - **La vidéo d'aperçu du vidéaste est absente** du ZIP et des pièces jointes. L'emplacement est prêt (`videastePartenaire.apercuVideo`), à `null`.

@@ -172,6 +172,12 @@ function echapperChaine(texte: string): Buffer {
 
 export type Couleur = [number, number, number]; // 0..1
 export const NOIR: Couleur = [0, 0, 0];
+/* ⚠️ COULEURS RELEVÉES AU PIXEL SUR LES MODÈLES FOURNIS, pas estimées.
+   Le devis Canva est sur un fond crème (248,247,244) ; le contrat
+   LibreOffice est sur blanc, avec un encadré gris (245,244,241). */
+export const CREME: Couleur = [248 / 255, 247 / 255, 244 / 255];
+export const GRIS_BOITE: Couleur = [245 / 255, 244 / 255, 241 / 255];
+export const BORDURE: Couleur = [0.72, 0.71, 0.69];
 export const ENCRE: Couleur = [0.078, 0.075, 0.071];
 export const GRIS: Couleur = [0.545, 0.529, 0.506];
 export const LIGNE_CLAIRE: Couleur = [0.91, 0.898, 0.875];
@@ -210,7 +216,12 @@ export class Page {
 
     this.flux.push(
       `BT /${police === "grasse" ? "FB" : "FN"} ${taille} Tf ` +
-      `${interlettrage ? `${interlettrage} Tc ` : ""}` +
+      /* ⚠️ `Tc` FAIT PARTIE DE L'ÉTAT DE TEXTE, ET BT/ET NE LE RÉINITIALISE PAS.
+         On l'écrivait seulement quand il était non nul : le `1.4 Tc` du
+         bandeau de brouillon restait alors actif pour TOUT le reste de la
+         page, qui sortait lettre-espacée et débordait de ses colonnes. On
+         l'émet donc systématiquement, y compris à zéro. */
+      `${interlettrage} Tc ` +
       `${couleur.map((c) => c.toFixed(3)).join(" ")} rg ` +
       `1 0 0 1 ${xReel.toFixed(2)} ${y.toFixed(2)} Tm ` +
       `(${echapperChaine(contenu).toString("latin1")}) Tj ET`,
@@ -246,8 +257,107 @@ export class Page {
     this.rectangle(x, yDepuisHaut, largeur, epaisseur, couleur);
   }
 
+  /** Rectangle en CONTOUR : les cellules bordées du tableau du modèle. */
+  cadre(
+    x: number, yDepuisHaut: number, largeur: number, hauteur: number,
+    epaisseur = 0.6, couleur: Couleur = BORDURE,
+  ): void {
+    this.rectangle(x, yDepuisHaut, largeur, epaisseur, couleur);
+    this.rectangle(x, yDepuisHaut + hauteur - epaisseur, largeur, epaisseur, couleur);
+    this.rectangle(x, yDepuisHaut, epaisseur, hauteur, couleur);
+    this.rectangle(x + largeur - epaisseur, yDepuisHaut, epaisseur, hauteur, couleur);
+  }
+
+  /** Fond de page. Doit être le PREMIER appel : il recouvre ce qui précède. */
+  fond(couleur: Couleur): void {
+    this.flux.unshift(
+      `${couleur.map((c) => c.toFixed(3)).join(" ")} rg 0 0 ${LARGEUR} ${HAUTEUR} re f`,
+    );
+  }
+
   contenu(): string {
     return this.flux.join("\n");
+  }
+}
+
+/* =============================================================================
+   DOCUMENT MULTIPAGE
+   -----------------------------------------------------------------------------
+   ⚠️ LE CONTRAT FAIT QUATRE PAGES, ET LE TEXTE NE DOIT JAMAIS ÊTRE COUPÉ.
+
+   Écrire page par page en comptant les lignes à la main, c'est la garantie
+   qu'un article décalera tout le reste au premier mot ajouté. Le document
+   tient donc un CURSEUR : chaque bloc demande la place dont il a besoin, et
+   si elle manque, une nouvelle page s'ouvre avec son fond et son pied.
+
+   `garderEnsemble` existe pour les titres : un « ARTICLE 7 » seul en bas de
+   page, son texte à la page suivante, c'est laid et c'est évitable.
+   ============================================================================= */
+export interface OptionsDocument {
+  margeHaut?: number;
+  margeBas?: number;
+  fond?: Couleur;
+  /** Pied de page répété, centré. */
+  pied?: string;
+}
+
+export class DocumentPdf {
+  private pages: Page[] = [];
+  private courante: Page;
+  public y: number;
+  private readonly margeHaut: number;
+  private readonly margeBas: number;
+  private readonly couleurFond?: Couleur;
+  private readonly pied?: string;
+
+  constructor(options: OptionsDocument = {}) {
+    this.margeHaut = options.margeHaut ?? 54;
+    this.margeBas = options.margeBas ?? 54;
+    this.couleurFond = options.fond;
+    this.pied = options.pied;
+    this.courante = this.ouvrirPage();
+    this.y = this.margeHaut;
+  }
+
+  private ouvrirPage(): Page {
+    const page = new Page();
+    if (this.couleurFond) page.fond(this.couleurFond);
+    if (this.pied) {
+      page.texte(LARGEUR / 2, HAUTEUR - this.margeBas + 24, this.pied, {
+        taille: 6.5, couleur: GRIS, align: "centre",
+      });
+    }
+    this.pages.push(page);
+    return page;
+  }
+
+  page(): Page {
+    return this.courante;
+  }
+
+  /** Place restante avant le pied de page. */
+  restant(): number {
+    return HAUTEUR - this.margeBas - this.y;
+  }
+
+  /** Ouvre une page si `hauteur` ne tient pas. Rend `true` si on a changé. */
+  assurer(hauteur: number): boolean {
+    if (this.restant() >= hauteur) return false;
+    this.courante = this.ouvrirPage();
+    this.y = this.margeHaut;
+    return true;
+  }
+
+  sauter(hauteur: number): void {
+    this.y += hauteur;
+  }
+
+  nombreDePages(): number {
+    return this.pages.length;
+  }
+
+  rendre(): Buffer {
+    return assembler(this.pages);
   }
 }
 

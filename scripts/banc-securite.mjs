@@ -166,7 +166,15 @@ try {
        relecture minimale d'une demande par le drain (qui n'a pas d'acteur). */
     "limiter","journaliser_envoi","relancer_envoi","verrou_drain","demande_pour_envoi",
     /* V5 — garde d'émission, numérotation atomique, passage au définitif. */
-    "verdict_emission","numero_suivant","emettre_document",
+    "verdict_emission","numero_suivant","emettre_document","sceller_document",
+    /* V5 — paiements. `situation_financiere` est la seule qui lit plusieurs
+       tables ; elle ne rend que des TOTAUX, jamais une ligne de détail, et
+       l'appelant doit déjà connaître l'identifiant de la demande. */
+    "situation_financiere","enregistrer_paiement","confirmer_paiement",
+    /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
+       INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
+       silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
+    "documents_emis_complets",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",
@@ -667,6 +675,36 @@ try {
   await app.query("COMMIT");
   verifier("Une session expirée n'ouvre rien",
     expiree.rows[0].n === 0, `${expiree.rows[0].n} dossier(s)`);
+
+  /* ═══════════ 18. V5 — PAIEMENTS ET CLOISONNEMENT DES DOCUMENTS ═══════════ */
+  const docAutrui = await en(app, videaste,
+    "SELECT count(*)::int n FROM documents WHERE entreprise_id = $1", [jokswed]);
+  verifier("Les documents d'une autre entreprise sont invisibles",
+    docAutrui.rows[0].n === 0, `${docAutrui.rows[0].n} document(s)`);
+
+  const paiementAutrui = await refuse(app, videaste,
+    `INSERT INTO paiements (entreprise_id, montant_cents, moyen)
+     VALUES ($1, 10000, 'virement')`, [jokswed]);
+  verifier("Enregistrer un paiement pour une autre entreprise est refusé",
+    paiementAutrui !== null, "l'insertion a réussi");
+
+  const serieAutrui = await refuse(app, videaste,
+    "SELECT app.numero_suivant($1,'facture',false)", [jokswed]);
+  verifier("Puiser dans la série de numérotation d'autrui est refusé",
+    serieAutrui !== null, "un numéro a été attribué");
+
+  /* ⚠️ CHAQUE ENTREPRISE A SA PROPRE SÉRIE, ET ELLES NE SE CROISENT PAS. */
+  const n1 = await en(app, proprietaire,
+    "SELECT app.numero_suivant($1,'facture',false) AS n", [jokswed]);
+  const n2 = await en(app, videaste,
+    "SELECT app.numero_suivant($1,'facture',false) AS n", [video]);
+  verifier("Deux entreprises démarrent chacune à 0001",
+    n1.rows[0].n.endsWith("-0001") && n2.rows[0].n.endsWith("-0001"),
+    `${n1.rows[0].n} / ${n2.rows[0].n}`);
+  const n3 = await en(app, proprietaire,
+    "SELECT app.numero_suivant($1,'facture',false) AS n", [jokswed]);
+  verifier("…et la série de l'une n'avance pas celle de l'autre",
+    n3.rows[0].n.endsWith("-0002"), n3.rows[0].n);
 } finally {
   if (app) await app.end();
   if (verite) await verite.end();

@@ -1,7 +1,11 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import type { Requete } from "@/lib/db/client";
-import { dessinerDevis, repartir, type InstantaneDocument } from "./gabarit-devis";
+import {
+  dessinerCommercial, euros, repartir, type InstantaneCommercial,
+} from "./gabarit-commercial";
+import { dessinerContrat } from "./gabarit-contrat";
+import { contexteDepuisInclusions } from "./clauses";
 import { formaterDateSql } from "@/lib/dates";
 
 /* =============================================================================
@@ -83,8 +87,7 @@ export async function genererDevisDepuisDemande(
   const inclusionsFormule: string[] =
     (demande.instantane?.lignes ?? []).find((l: any) => l.type === "formule")?.inclus ?? [];
 
-  const instantane: InstantaneDocument = {
-    type: "devis",
+  const instantane: InstantaneCommercial = {
     titre: "DEVIS",
     numero: null,
     dateEmission: new Date().toLocaleDateString("fr-FR"),
@@ -109,11 +112,15 @@ export async function genererDevisDepuisDemande(
     },
     formuleNom: formule?.libelle ?? "Prestation sur mesure",
     lignes: facturables.map((l) => ({
-      designation: l.libelle,
-      livraison: l.type === "formule" ? "Galerie : 13-15 jours\nAlbum : ~1 mois*" : null,
+      description: l.libelle,
+      livraison: l.type === "formule"
+        ? (inclusionsFormule.some((i) => /album/i.test(i))
+            ? "Galerie :\n13-15 jours\nAlbum :\n~1 mois*"
+            : "Galerie :\n13-15 jours")
+        : null,
       lieu: demande.lieu ?? demande.ville ?? null,
-      prixCents: l.prix_cents,
-      quantite: l.type === "formule" ? "Minimum 800 photos retouchées" : null,
+      prix: l.prix_cents === null ? "Sur devis" : `${euros(l.prix_cents)}\nTTC`,
+      quantite: l.type === "formule" ? "Minimum\n800 photos\nretouchées" : null,
       duree: l.type === "formule" ? dureeLisible(demande.instantane) : null,
       date: demande.date_mariage ? formaterDateSql(demande.date_mariage) : "à confirmer",
     })),
@@ -141,8 +148,12 @@ export async function genererDevisDepuisDemande(
       "téléchargement HD. Le solde est exigible avant le déblocage de la galerie " +
       "complète en haute définition. Les autres conditions figurent au contrat de " +
       "prestation et aux CGV." +
-      (regime?.mention_legale ? `\n${regime.mention_legale}` : ""),
+      "",
     mentionFin: "Merci de votre confiance",
+    noteBasDePage: inclusionsFormule.some((i) => /album/i.test(i))
+      ? "* Délai indicatif après validation de la maquette et selon le laboratoire."
+      : null,
+    mentionsLegales: regime?.mention_legale ? [regime.mention_legale] : [],
     brouillon: true,
   };
 
@@ -180,14 +191,247 @@ export async function genererDevisDepuisDemande(
 
 function dureeLisible(instantane: any): string {
   const minutes = instantane?.lignes?.find((l: any) => l.type === "formule")?.duree_minutes;
-  return minutes ? `Jusqu'à ${Math.round(minutes / 60)} h` : "à confirmer";
+  return minutes
+    ? `Jusqu'à ${Math.round(minutes / 60)} h\nhoraires finaux\nà confirmer`
+    : "à confirmer";
 }
 
-/** Rend le PDF d'un document, et son empreinte — qui servira de preuve. */
-export function rendrePdf(instantane: InstantaneDocument, brouillon: boolean): {
-  pdf: Buffer;
-  empreinte: string;
-} {
-  const pdf = dessinerDevis({ ...instantane, brouillon });
+/* =============================================================================
+   CONTRAT
+   ============================================================================= */
+export async function genererContratDepuisDevis(
+  q: Requete,
+  devisId: string,
+  entrepriseId: string,
+  acteurId: string,
+): Promise<{ documentId: string }> {
+  const { rows: devis } = await q("SELECT * FROM documents WHERE id = $1", [devisId]);
+  if (devis.length === 0) throw new Error("devis introuvable");
+  const source = devis[0];
+  const inst = source.instantane as InstantaneCommercial;
+
+  const { rows: demandes } = await q(
+    "SELECT * FROM demandes WHERE id = $1", [source.demande_id]);
+  const demande = demandes[0];
+
+  const { rows: entreprises } = await q(
+    "SELECT * FROM entreprises WHERE id = $1", [entrepriseId]);
+  const entreprise = entreprises[0];
+
+  const { rows: echeances } = await q(
+    "SELECT * FROM echeances WHERE document_id = $1 ORDER BY ordre", [devisId]);
+
+  const inclusions = inst.inclusions ?? [];
+  const contexte = contexteDepuisInclusions(inclusions, echeances.length);
+
+  /* ⚠️ LES MENTIONS MANQUANTES SONT ÉCRITES TELLES QUELLES DANS LE BROUILLON.
+     « À COMPLÉTER AVANT SIGNATURE » est exactement ce que porte ton modèle.
+     On ne masque pas le trou : on le rend visible, et la garde d'émission
+     refuse de passer ce contrat en définitif tant qu'il subsiste. */
+  const instantaneContrat = {
+    numero: null,
+    dateContrat: new Date().toLocaleDateString("fr-FR"),
+    prestataire: inst.prestataire,
+    clients: [{ nom: demande.contact_nom, telephone: demande.contact_telephone }],
+    emailClient: demande.contact_email,
+    adresseClient: null,
+    mariage: {
+      date: demande.date_mariage ? formaterDateSql(demande.date_mariage) : "à confirmer",
+      ceremonie: null,
+      reception: demande.lieu ?? demande.ville ?? null,
+      formule: inst.formuleNom,
+      duree: dureeContrat(demande.instantane),
+    },
+    devisReference: source.numero ? `Devis ${source.numero}` : "Devis final",
+    totalTtc: euros(source.total_ttc_cents),
+    detailTva: source.total_tva_cents > 0
+      ? `, soit ${euros(source.total_ht_cents)} HT et ${euros(source.total_tva_cents)} de TVA`
+      : "",
+    acompte: euros(echeances[0]?.montant_cents ?? source.total_ttc_cents),
+    solde: euros(echeances[echeances.length - 1]?.montant_cents ?? source.total_ttc_cents),
+    echeances: echeances.map((e, i) => ({
+      libelle: i === 0 ? "à la réservation"
+        : i === echeances.length - 1 ? "après mise à disposition de l'aperçu prévu à l'article 7"
+        : "à une échéance convenue avant le mariage",
+      montant: euros(e.montant_cents),
+    })),
+    inclusions,
+    contexte,
+    mediateurNom: entreprise.mediateur_nom ?? "À COMPLÉTER AVANT SIGNATURE",
+    mediateurUrl: entreprise.mediateur_url ?? "À COMPLÉTER AVANT SIGNATURE",
+  };
+
+  const { rows: cree } = await q(
+    `INSERT INTO documents (entreprise_id, demande_id, type, statut, devis_source_id,
+                            total_ht_cents, total_tva_cents, total_ttc_cents,
+                            instantane, cree_par)
+     VALUES ($1,$2,'contrat','brouillon',$3,$4,$5,$6,$7::jsonb,$8) RETURNING id`,
+    [entrepriseId, source.demande_id, devisId, source.total_ht_cents,
+     source.total_tva_cents, source.total_ttc_cents,
+     JSON.stringify(instantaneContrat), acteurId]);
+
+  return { documentId: cree[0].id };
+}
+
+function dureeContrat(instantane: any): string {
+  const minutes = instantane?.lignes?.find((l: any) => l.type === "formule")?.duree_minutes;
+  return minutes ? `${Math.round(minutes / 60)} heures` : "la durée convenue";
+}
+
+/* =============================================================================
+   FACTURES ET AVOIRS
+   ============================================================================= */
+export type RoleFacture = "acompte" | "solde" | "totale";
+
+const TITRES: Record<RoleFacture, string> = {
+  acompte: "FACTURE D'ACOMPTE",
+  solde: "FACTURE DE SOLDE",
+  totale: "FACTURE",
+};
+
+export async function genererFactureDepuisDevis(
+  q: Requete,
+  devisId: string,
+  role: RoleFacture,
+  entrepriseId: string,
+  acteurId: string,
+): Promise<{ documentId: string; montantCents: number }> {
+  const { rows: devis } = await q("SELECT * FROM documents WHERE id = $1", [devisId]);
+  if (devis.length === 0) throw new Error("devis introuvable");
+  const source = devis[0];
+  const inst = source.instantane as InstantaneCommercial;
+
+  const { rows: echeances } = await q(
+    "SELECT * FROM echeances WHERE document_id = $1 ORDER BY ordre", [devisId]);
+  const { rows: situation } = await q(
+    "SELECT * FROM app.situation_financiere($1)", [source.demande_id]);
+  const { rows: demandes } = await q(
+    "SELECT date_mariage FROM demandes WHERE id = $1", [source.demande_id]);
+
+  /* ⚠️ LE MONTANT DÉPEND DU RÔLE, ET DU DÉJÀ-FACTURÉ.
+     Facturer l'acompte puis le total reviendrait à réclamer deux fois la
+     même somme. Le solde se déduit donc de ce qui est DÉJÀ FACTURÉ, jamais
+     de ce qui est encaissé — ce sont deux grandeurs différentes. */
+  const dejaFacture = situation[0].facture_cents - situation[0].avoirs_cents;
+  const montant =
+    role === "acompte" ? (echeances[0]?.montant_cents ?? source.total_ttc_cents)
+    : role === "solde" ? source.total_ttc_cents - dejaFacture
+    : source.total_ttc_cents - dejaFacture;
+
+  if (montant <= 0) {
+    throw new Error("rien ne reste à facturer sur ce devis");
+  }
+
+  const tauxBp = inst.tauxTvaBp ?? 0;
+  const tva = tauxBp === 0 ? 0 : Math.round((montant * tauxBp) / (10000 + tauxBp));
+
+  const instantaneFacture: InstantaneCommercial = {
+    ...inst,
+    titre: TITRES[role],
+    numero: null,
+    validite: null,
+    datePrestation: demandes[0]?.date_mariage
+      ? formaterDateSql(demandes[0].date_mariage) : null,
+    lignes: role === "acompte"
+      ? [{
+          description: `Acompte sur ${inst.formuleNom}`,
+          lieu: inst.lignes[0]?.lieu ?? null,
+          prix: `${euros(montant)}
+TTC`,
+          date: inst.lignes[0]?.date ?? null,
+        }]
+      : inst.lignes,
+    totalHtCents: montant - tva,
+    totalTvaCents: tva,
+    totalTtcCents: montant,
+    dejaRegleCents: situation[0].encaisse_cents,
+    echeances: [],
+    conditions: role === "acompte"
+      ? "Facture d'acompte. Le solde fera l'objet d'une facture distincte, " +
+        "exigible selon l'échéancier du devis signé."
+      : "Facture de solde. Les conditions d'exécution figurent au contrat de " +
+        "prestation et aux CGV.",
+    brouillon: true,
+  };
+
+  const { rows: cree } = await q(
+    `INSERT INTO documents (entreprise_id, demande_id, type, role_facture, statut,
+                            devis_source_id, total_ht_cents, total_tva_cents,
+                            total_ttc_cents, instantane, cree_par)
+     VALUES ($1,$2,'facture',$3,'brouillon',$4,$5,$6,$7,$8::jsonb,$9) RETURNING id`,
+    [entrepriseId, source.demande_id, role, devisId,
+     montant - tva, tva, montant, JSON.stringify(instantaneFacture), acteurId]);
+
+  return { documentId: cree[0].id, montantCents: montant };
+}
+
+/** Avoir : il annule tout ou partie d'une facture émise. */
+export async function genererAvoir(
+  q: Requete,
+  factureId: string,
+  montantCents: number | null,
+  motif: string,
+  entrepriseId: string,
+  acteurId: string,
+): Promise<{ documentId: string }> {
+  const { rows } = await q("SELECT * FROM documents WHERE id = $1", [factureId]);
+  if (rows.length === 0) throw new Error("facture introuvable");
+  const facture = rows[0];
+  if (facture.statut === "brouillon") {
+    /* ⚠️ ON N'AVOIRE PAS UN BROUILLON : on le supprime. Émettre un avoir sur
+       un document qui n'a jamais existé fiscalement créerait une pièce
+       comptable sans contrepartie. */
+    throw new Error("un brouillon se supprime, il ne s'avoire pas");
+  }
+  const montant = montantCents ?? facture.total_ttc_cents;
+  const inst = facture.instantane as InstantaneCommercial;
+  const tauxBp = inst.tauxTvaBp ?? 0;
+  const tva = tauxBp === 0 ? 0 : Math.round((montant * tauxBp) / (10000 + tauxBp));
+
+  const instantaneAvoir: InstantaneCommercial = {
+    ...inst,
+    titre: "AVOIR",
+    numero: null,
+    referenceOrigine: facture.numero,
+    lignes: [{
+      description: `Avoir sur facture ${facture.numero}`,
+      prix: `${euros(montant)}
+TTC`,
+      lieu: motif,
+    }],
+    totalHtCents: montant - tva,
+    totalTvaCents: tva,
+    totalTtcCents: montant,
+    dejaRegleCents: null,
+    echeances: [],
+    conditions: `Avoir émis en rectification de la facture ${facture.numero}. Motif : ${motif}.`,
+    brouillon: true,
+  };
+
+  const { rows: cree } = await q(
+    `INSERT INTO documents (entreprise_id, demande_id, type, statut,
+                            document_origine_id, total_ht_cents, total_tva_cents,
+                            total_ttc_cents, instantane, cree_par)
+     VALUES ($1,$2,'avoir','brouillon',$3,$4,$5,$6,$7::jsonb,$8) RETURNING id`,
+    [entrepriseId, facture.demande_id, factureId, montant - tva, tva, montant,
+     JSON.stringify(instantaneAvoir), acteurId]);
+
+  return { documentId: cree[0].id };
+}
+
+/**
+ * Rend le PDF d'un document, et son empreinte — qui servira de preuve.
+ *
+ * Le contrat et les documents commerciaux n'ont pas la même mise en page :
+ * on choisit sur la nature de l'instantané, pas sur un drapeau que l'appelant
+ * pourrait oublier de passer.
+ */
+export function rendrePdf(
+  instantane: Record<string, unknown>,
+  brouillon: boolean,
+): { pdf: Buffer; empreinte: string } {
+  const pdf = "mariage" in instantane
+    ? dessinerContrat({ ...instantane, brouillon } as never)
+    : dessinerCommercial({ ...instantane, brouillon } as never);
   return { pdf, empreinte: createHash("sha256").update(pdf).digest("hex") };
 }

@@ -113,11 +113,21 @@ export async function semer(urlMigrateur, { silencieux = false } = {}) {
                'jokswed@exemple.invalid','07 00 00 00 00')
        ON CONFLICT (slug) DO UPDATE SET maj_le = now() RETURNING id`);
 
-    /* ⚠️ LE RÉGIME DE TVA N'EST PAS RENSEIGNÉ.
+    /* ⚠️ LE RÉGIME DE TVA N'EST PAS RENSEIGNÉ, ET ON LE REMET À VIDE.
        Le devis fourni applique 20 % sans numéro intracommunautaire : soit le
        numéro manque, soit le taux est l'anomalie. Seul le comptable tranche.
        Tant que `regimes_tva` est vide pour cette entreprise, la garde
-       d'émission documentaire (V5) refusera tout document définitif. */
+       d'émission documentaire (V5) refusera tout document définitif.
+
+       Le EFFACEMENT est volontaire : une valeur saisie à la main dans
+       /admin/entreprise pendant une session de test survivait au ré-amorçage,
+       et la fiche affichait alors « aucun motif de blocage » — exactement le
+       contraire de la situation réelle. Les fixtures doivent décrire l'état
+       réel, pas celui qu'on a bricolé la veille. */
+    await c.query(`DELETE FROM regimes_tva WHERE entreprise_id = $1`, [jokswed.id]);
+    await c.query(
+      `UPDATE entreprises SET mediateur_nom = NULL, mediateur_url = NULL
+        WHERE id = $1`, [jokswed.id]);
 
     /* ── Entreprise 2 : celle du vidéaste partenaire ── */
     const { rows: [videoEnt] } = await c.query(

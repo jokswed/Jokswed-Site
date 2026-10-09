@@ -19,9 +19,26 @@ const cheminServerOnly = require_.resolve("server-only");
 require_.cache[cheminServerOnly] = {
   id: cheminServerOnly, filename: cheminServerOnly, loaded: true, exports: {},
 };
+import { createHash } from "node:crypto";
 import { demarrer, urlMigrateur, urlApplication, urlAuth, baseVierge } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
+const { rendrePdf } = await import("../lib/documents/generer.ts");
+
+/* Le texte affiché d'un PDF : les opérateurs `Tj`, recollés et normalisés.
+   Chercher dans les octets bruts ne marche pas — un retour à la ligne coupe
+   une phrase en plusieurs opérateurs, et « € » s'encode sur 0x80. */
+function texteDuPdf(pdf) {
+  const brut = pdf.toString("latin1");
+  const morceaux = [];
+  for (const m of brut.matchAll(/\(((?:\\.|[^\\()])*)\)\s*Tj/g)) {
+    morceaux.push(m[1].replace(/\\([()\\])/g, "$1"));
+  }
+  return morceaux.join(" ")
+    .replace(/\u0080/g, "€")
+    .replace(/[\u00a0\u202f\u2009]/g, " ")
+    .replace(/\s+/g, " ");
+}
 
 const PORT = 3143;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -288,6 +305,11 @@ try {
   /* La demande existe-t-elle VRAIMENT en base ? On le constate depuis la
      connexion propriétaire, pas depuis la réponse HTTP. */
   const verite2 = new pg.Client({ connectionString: urlMigrateur(base) });
+  /* ⚠️ SANS CE GESTIONNAIRE, L'ARRÊT DE POSTGRES MASQUE L'ÉCHEC RÉEL.
+     Le `finally` coupe le serveur ; la connexion encore ouverte émet alors un
+     « error » non géré qui tue le processus AVANT que l'erreur d'origine ne
+     soit affichée. On a cherché un bug de migration qui n'existait pas. */
+  verite2.on("error", () => {});
   await verite2.connect();
   const enBase = await verite2.query(
     "SELECT * FROM demandes WHERE reference = $1", [corpsEnvoi.reference]);
@@ -656,7 +678,7 @@ try {
 
   /* ── L'émission est refusée tant que les mentions manquent ── */
   const refusEmission = await lireAvecIdentite(
-    "SELECT * FROM app.emettre_document($1,'empreinte-essai')", [documentId]);
+    "SELECT * FROM app.emettre_document($1)", [documentId]);
   v("L'émission définitive est REFUSÉE, avec ses motifs",
     refusEmission.rows[0].emis === false && refusEmission.rows[0].motifs.length > 0,
     JSON.stringify(refusEmission.rows[0]));
@@ -702,10 +724,47 @@ try {
             mediateur_url = 'https://exemple.invalid' WHERE id = $1`,
     [fixtures.entreprises.jokswed]);
 
-  const emission = await lireAvecIdentite(
-    "SELECT * FROM app.emettre_document($1,'empreinte-essai-2')", [documentId]);
+  /* ⚠️ ÉMETTRE, RENDRE, SCELLER — DANS UNE SEULE TRANSACTION.
+     Le numéro n'existe qu'à l'émission et doit figurer SUR le PDF : on ne peut
+     donc calculer l'empreinte qu'après. Le déclencheur différé refuse de
+     valider une transaction qui émettrait sans sceller. */
+  const emission = await avecIdentite(async (q) => {
+    const e = await q("SELECT * FROM app.emettre_document($1)", [documentId]);
+    if (e.rows[0].emis) {
+      const d = await q("SELECT instantane FROM documents WHERE id = $1", [documentId]);
+      const { pdf } = rendrePdf(d.rows[0].instantane, false);
+      await q("SELECT app.sceller_document($1,$2)",
+        [documentId, createHash("sha256").update(pdf).digest("hex")]);
+    }
+    return e;
+  });
   v("Mentions complètes : l'émission est acceptée",
     emission.rows[0].emis === true, JSON.stringify(emission.rows[0].motifs));
+
+  /* ⚠️ LE NUMÉRO DOIT ÊTRE SUR LE PDF, PAS SEULEMENT EN BASE.
+     L'instantané est la seule source du rendu : s'il garde « numero: null »,
+     la facture servie n'a pas de numéro — une mention obligatoire manquante. */
+  const apresEmission = await verite2.query(
+    "SELECT numero, instantane, pdf_sha256 FROM documents WHERE id = $1", [documentId]);
+  v("Le numéro est estampillé dans l'instantané",
+    apresEmission.rows[0].instantane.numero === apresEmission.rows[0].numero,
+    `instantané : ${apresEmission.rows[0].instantane.numero}`);
+  const pdfServi = rendrePdf(apresEmission.rows[0].instantane, false).pdf;
+  v("Le PDF émis porte son numéro",
+    texteDuPdf(pdfServi).includes(apresEmission.rows[0].numero),
+    apresEmission.rows[0].numero);
+  v("L'empreinte scellée est celle du PDF servi",
+    createHash("sha256").update(pdfServi).digest("hex") === apresEmission.rows[0].pdf_sha256);
+  v("Le PDF émis ne porte PAS le bandeau de brouillon",
+    !texteDuPdf(pdfServi).includes("SANS VALEUR"));
+
+  /* L'empreinte ne se re-scelle pas. */
+  let rescellement = "aucune erreur";
+  try {
+    await avecIdentite((q) => q("SELECT app.sceller_document($1,'autre')", [documentId]));
+  } catch (e) { rescellement = e.message; }
+  v("Une empreinte déjà scellée ne peut pas être remplacée",
+    /déjà scellée/.test(rescellement), rescellement);
   v("Le numéro porte le préfixe TEST hors production",
     /^TEST-DEV-\d{4}-0001$/.test(emission.rows[0].numero ?? ""), emission.rows[0].numero);
 
@@ -751,6 +810,9 @@ try {
     !journal.includes("Nous aimerions un reportage complet"));
 
   await verite2.end();
+} catch (e) {
+  console.error("\n✗ Le banc s'est interrompu :", e?.message ?? e);
+  resultats.push({ nom: "Le banc va jusqu'au bout", ok: false, detail: String(e?.message ?? e) });
 } finally {
   if (serveur) { serveur.kill("SIGTERM"); await new Promise((r) => setTimeout(r, 600)); serveur.kill("SIGKILL"); }
   await pgdev.stop();
