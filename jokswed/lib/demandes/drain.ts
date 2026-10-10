@@ -140,6 +140,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               reference,
               dateMariage: d.date_mariage ? formaterDateSql(d.date_mariage) : null,
               formule: d.formule_nom,
+              emailReponse: adresseDeReponse(),
             });
             const r1 = await envoyer({
               destinataire: d.contact_email,
