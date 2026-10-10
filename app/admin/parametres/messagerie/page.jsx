@@ -27,22 +27,44 @@ export const dynamic = "force-dynamic";
        Tant que ces démarches ne sont pas faites, proposer le bouton serait
        mentir. Le schéma les prévoit ; l'écran les affiche comme indisponibles.
    ============================================================================= */
+/* ⚠️ CORRECTION D'UNE AFFIRMATION ANTÉRIEURE.
+   On a d'abord écrit que connecter Gmail exigeait une évaluation de
+   sécurité annuelle (CASA). C'est vrai pour LIRE une boîte, pas pour
+   envoyer. Google classe `gmail.send` comme scope SENSIBLE : vérification
+   de l'application, sans évaluation de sécurité ni frais. Les scopes de
+   LECTURE (`gmail.readonly`, `gmail.modify`, `gmail.compose`) sont
+   RESTREINTS : évaluation annuelle par un tiers agréé, quelques centaines à
+   quelques milliers d'euros par an, et environ six semaines.
+
+   Conséquence concrète pour Yvann :
+     · envoyer depuis son Gmail — faisable, à condition de monter un projet
+       Google Cloud, un écran de consentement, une politique de
+       confidentialité publique et de passer la vérification (~10 jours
+       ouvrés). Rien de tout cela n'est fait ;
+     · synchroniser sa boîte pour y LIRE les réponses — hors de portée tant
+       qu'on n'engage pas l'évaluation annuelle.
+
+   On ne propose donc ni l'un ni l'autre aujourd'hui, et on dit pourquoi. */
 const METHODES = {
   brevo_partage: {
     libelle: "Envoi via JoksWed (Brevo)",
-    note: "Opérationnel. Votre adresse doit être vérifiée comme expéditeur chez Brevo.",
+    note: "Opérationnel. Les messages partent de contact@jokswed.com, signés de "
+      + "votre nom. Les réponses reviennent dans JoksWed si la réception est "
+      + "configurée, sinon dans la boîte indiquée ci-dessous.",
     disponible: true,
   },
   oauth_gmail: {
-    libelle: "Connecter Gmail (OAuth)",
-    note: "Indisponible : nécessite la vérification Google de l'application et une "
-      + "évaluation de sécurité annuelle. Architecture prête, intégration non faite.",
+    libelle: "Envoyer depuis mon Gmail (OAuth)",
+    note: "Pas encore disponible. `gmail.send` est un scope sensible : il "
+      + "demande un projet Google Cloud, un écran de consentement, une "
+      + "politique de confidentialité publique et une vérification Google "
+      + "(~10 jours ouvrés). Sans frais, mais non engagé. L'architecture est "
+      + "prête ; l'intégration ne l'est pas.",
     disponible: false,
   },
   oauth_outlook: {
-    libelle: "Connecter Outlook (OAuth)",
-    note: "Indisponible : nécessite un consentement administrateur Microsoft. "
-      + "Architecture prête, intégration non faite.",
+    libelle: "Envoyer depuis mon Outlook (OAuth)",
+    note: "Pas encore disponible : consentement administrateur Microsoft requis.",
     disponible: false,
   },
 };
@@ -53,7 +75,8 @@ export default async function ParametresMessagerie() {
 
   const identites = await acces.executer(async (q) => {
     const { rows } = await q(
-      `SELECT id, adresse, nom_affiche, methode, statut, note, utilisateur_id
+      `SELECT id, adresse, nom_affiche, methode, statut, note, utilisateur_id,
+              reponse_vers, signature
          FROM identites_messagerie WHERE entreprise_id = $1
         ORDER BY utilisateur_id NULLS FIRST, adresse`, [entreprise.id]);
     return rows;
@@ -74,15 +97,25 @@ export default async function ParametresMessagerie() {
        qui la bascule en `active`, une fois la validation faite de son côté. */
     const statut = METHODES[methode]?.disponible ? "a_configurer" : "non_disponible";
     const personnelle = formulaire.get("personnelle") === "1";
+    /* ⚠️ LA BOÎTE DE RÉPONSE DOIT EXISTER VRAIMENT.
+       C'est là qu'arrivent les réponses tant que la réception intégrée
+       n'est pas configurée. Y mettre une adresse d'expédition sans boîte
+       derrière, c'est perdre le courrier des clients. */
+    const reponse = String(formulaire.get("reponse_vers") ?? "").trim().toLowerCase() || null;
+    const signature = String(formulaire.get("signature") ?? "").trim() || null;
 
     await a.executer((q) => q(
       `INSERT INTO identites_messagerie
-         (entreprise_id, utilisateur_id, adresse, nom_affiche, methode, statut, note)
-       VALUES ($1,$2,$3::citext,$4,$5,$6,$7)
+         (entreprise_id, utilisateur_id, adresse, nom_affiche, methode, statut,
+          note, reponse_vers, signature)
+       VALUES ($1,$2,$3::citext,$4,$5,$6,$7,$8::citext,$9)
        ON CONFLICT (entreprise_id, adresse)
-         DO UPDATE SET nom_affiche = EXCLUDED.nom_affiche, methode = EXCLUDED.methode`,
+         DO UPDATE SET nom_affiche = EXCLUDED.nom_affiche, methode = EXCLUDED.methode,
+                       reponse_vers = EXCLUDED.reponse_vers,
+                       signature = EXCLUDED.signature`,
       [e.id, personnelle ? s.utilisateurId : null, adresse, nom, methode, statut,
-       METHODES[methode]?.disponible ? null : "intégration non disponible"]));
+       METHODES[methode]?.disponible ? null : "intégration non disponible",
+       reponse, signature]));
     revalidatePath("/admin/parametres/messagerie");
   }
 
@@ -169,6 +202,7 @@ export default async function ParametresMessagerie() {
                     : "indisponible"}
                 </span>
                 <span>{i.utilisateur_id ? "personnelle" : "entreprise"}</span>
+                <span>réponses → {i.reponse_vers ?? "non configurée"}</span>
                 {i.note ? <span style={{ flexBasis: "100%" }}>{i.note}</span> : null}
                 {i.methode === "brevo_partage"
                   && acces.permissions.has("entreprise.reglages") ? (
@@ -197,6 +231,16 @@ export default async function ParametresMessagerie() {
               <label htmlFor="adresse">Adresse d&apos;expédition</label>
               <input id="adresse" name="adresse" type="email" required />
             </div>
+            <div className="champ">
+              <label htmlFor="reponse_vers">Boîte qui reçoit les réponses</label>
+              <input id="reponse_vers" name="reponse_vers" type="email"
+                placeholder="votre@gmail.com" />
+            </div>
+            <div className="champ">
+              <label htmlFor="signature">Signature ajoutée à vos messages</label>
+              <input id="signature" name="signature" type="text"
+                placeholder="Yvann Cretinoir — Vidéaste" />
+            </div>
             <div className="champ pleine">
               <label htmlFor="methode">Méthode</label>
               <select id="methode" name="methode" defaultValue="brevo_partage">
@@ -218,7 +262,15 @@ export default async function ParametresMessagerie() {
             Identité personnelle (visible de moi seul)
           </label>
           <p className="recap__note">
+            <strong>Connecter mon adresse e-mail.</strong>{" "}
             {METHODES.oauth_gmail.note}
+          </p>
+          <p className="recap__note">
+            En attendant : vos messages partent de{" "}
+            <code>contact@jokswed.com</code>, signés de votre nom, et les
+            réponses arrivent dans la boîte que vous indiquez ci-dessus.
+            Vous pouvez y répondre directement — mais cette réponse-là ne
+            remontera pas dans JoksWed.
           </p>
           <button type="submit" className="btn btn--bloc">Déclarer cette identité</button>
         </form>

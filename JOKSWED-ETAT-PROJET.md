@@ -72,7 +72,7 @@ sous le rôle `jokswed_app` réel, jamais sous le propriétaire.
 | 022–033 | finances, tableau, saison, collaborateurs, notifications et vidéo, invitations envoyables, partenaires, dossiers de collaborateur, parrainage |
 | 034–039 | **RLS par permission (034)**, transmission auto, paliers d'engagement, montants masqués, garde-fous du parrain, engagé par dossier |
 | 040–046 | messagerie : tables, RLS, fonctions, réception, modèles, participants |
-| 047–048 | **amorçage du propriétaire, mot de passe, MFA, sessions (047)** ; **rôles modèles en migration (048)** |
+| 047–049 | amorçage du propriétaire, mot de passe, MFA, sessions ; rôles modèles en migration ; **identités d'envoi, adresses de réponse, conversation depuis un dossier (049)** |
 
 Appliquer : `npm run db:migrer` (dev) ou `DATABASE_URL_MIGRATEUR=… npx tsx scripts/migrer.mjs`.
 La table `schema_migrations` est la source de vérité ; les migrations sont
@@ -149,10 +149,28 @@ restauration par *branch from timestamp*. Avant toute migration de production :
 
 | Usage | État |
 | --- | --- |
-| Envoi transactionnel (accusés, alertes, invitations, messagerie) | prêt — exige `BREVO_API_KEY` et un expéditeur vérifié |
-| Expéditeur `contact@jokswed.com` | à **vérifier** dans Brevo (Senders) |
-| Authentification du domaine `jokswed.com` (DKIM + code Brevo) | à vérifier ; **SPF racine non requis** |
+| Domaine `jokswed.com` authentifié | **fait** |
+| Expéditeur unique `contact@jokswed.com` | **vérifié** |
+| Envoi transactionnel (accusés, alertes, invitations, messagerie) | prêt — exige `BREVO_API_KEY` |
 | Réception des réponses | **non opérationnelle** — voir ci-dessous |
+
+⚠️ **`contact@jokswed.com` est un expéditeur, pas une boîte aux lettres.**
+Une réponse qui y arriverait ne serait lue par personne. Deux mécanismes
+distincts, à ne jamais confondre :
+
+| Type d'e-mail | `Reply-To` |
+| --- | --- |
+| Transactionnel (accusé, alerte, invitation, proposition) | `JOKSWED_EMAIL_REPONSE` → `jokswed@gmail.com` |
+| Conversation de la messagerie | `rep+<jeton>@reply.jokswed.com`, sinon la boîte de l'identité (`reponse_vers`) |
+
+Diriger une conversation vers Gmail la ferait sortir de la plateforme : la
+réponse n'apparaîtrait jamais dans JoksWed. `notifications@jokswed.com`
+n'est référencé nulle part dans le code.
+
+Chaque identité d'envoi (`identites_messagerie`) porte sa propre
+`reponse_vers` et sa `signature` : Yvann signe de son nom, ses réponses
+arrivent sur son Gmail, et l'expéditeur technique reste
+`contact@jokswed.com`.
 
 Réception, trois actions manuelles :
 1. sous-domaine **distinct** du domaine d'envoi, ex. `reply.jokswed.com` ;
@@ -176,6 +194,7 @@ webhook nouveaux).
 | `BREVO_API_KEY` | pour envoyer | sans elle, tout est inhibé |
 | `JOKSWED_EMAIL_EXPEDITEUR` / `_NOM` | oui | expéditeur vérifié chez Brevo |
 | `CRON_SECRET` | oui | protège `/api/cron/drain` |
+| `JOKSWED_EMAIL_REPONSE` | oui | boîte RÉELLE qui reçoit les réponses (`jokswed@gmail.com`) |
 | `JOKSWED_DOMAINE_REPONSE` | réception | ex. `reply.jokswed.com` |
 | `JOKSWED_WEBHOOK_ENTRANT` | réception | secret long, dans l'URL du webhook |
 | `JOKSWED_AMORCAGE` | **temporaire** | active `/admin/amorcage`, à retirer après usage |
@@ -189,7 +208,14 @@ Aucune valeur secrète n'est versionnée. `.env.example` les liste toutes.
 - **Réception d'e-mails** : code prêt et éprouvé sur un faux webhook ; exige
   MX + webhook réels. L'écran l'annonce.
 - **OAuth Gmail / Outlook** pour l'identité d'un collaborateur : modélisé,
-  affiché indisponible (scope « restricted », évaluation de sécurité annuelle).
+  affiché indisponible. ⚠️ **Correction d'une affirmation antérieure** :
+  `gmail.send` est un scope **sensible**, pas restreint — vérification de
+  l'application (~10 jours ouvrés), **sans** évaluation de sécurité ni
+  frais. Ce sont les scopes de LECTURE (`gmail.readonly`, `gmail.modify`,
+  `gmail.compose`) qui sont restreints : évaluation annuelle par un tiers
+  agréé, quelques centaines à quelques milliers d'euros, ~6 semaines.
+  Envoyer depuis le Gmail d'Yvann est donc atteignable ; lire sa boîte ne
+  l'est pas à court terme. Ni l'un ni l'autre n'est engagé.
 - **Aucune synchronisation d'une boîte existante.**
 - **Pas de webhook de remise Brevo** : un envoi reste `envoye`, jamais `remis`.
 - **Pas de relance d'échéance automatique** (`echeance.proche` existe, rien ne
@@ -203,7 +229,7 @@ Aucune valeur secrète n'est versionnée. `.env.example` les liste toutes.
 ## 12. Tests de référence
 
 ```bash
-npm run suite        # 619 vérifications, échoue à la première qui casse
+npm run suite        # 626 vérifications, échoue à la première qui casse
 ```
 
 | Étape | Nb | Objet |
@@ -216,7 +242,7 @@ npm run suite        # 619 vérifications, échoue à la première qui casse
 | `test:pdf` | 90 | moteur documentaire, 3 formules, arrondis, clauses |
 | `test:securite` | 81 | RLS et autorisations **sous `jokswed_app`** |
 | `test:v6` | 149 | finances, collaborateurs, vidéo, 2 entreprises |
-| `test:v7` | 56 | messagerie, réception sur vrai serveur HTTP |
+| `test:v7` | 86 | messagerie, réception, **parcours complet d'Yvann** |
 | `test:admin` | 130 | parcours complets, cloisonnement |
 | `test:amorcage` | 22 | création du premier propriétaire **sur base vide**, sans fixtures |
 | `test:neon` | 9 | compatibilité du schéma |
