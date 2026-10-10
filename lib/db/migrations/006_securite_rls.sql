@@ -57,16 +57,29 @@ $$;
 -- Son périmètre est donc le plus étroit possible : elle ne rend QUE des
 -- identifiants d'entreprises, jamais une donnée métier. `search_path` est
 -- épinglé pour qu'aucun objet homonyme ne puisse la détourner.
+-- ⚠️ CETTE FONCTION NE LIT PAS `entreprises`, ET C'EST ESSENTIEL.
+--
+-- Une première version la joignait, pour écarter les entreprises archivées.
+-- Or la politique de `entreprises` est « id IN (SELECT unnest(
+-- app.entreprises_de_lacteur())) » : la fonction appelait la politique qui
+-- appelait la fonction. Récursion infinie, « stack depth limit exceeded ».
+--
+-- Le défaut est resté invisible pendant tout le développement parce que le
+-- migrateur local est SUPERUTILISATEUR : `SECURITY DEFINER` le fait
+-- contourner la RLS, la politique ne s'évalue jamais. Sur un PostgreSQL
+-- géré — Neon — aucun rôle client n'est superutilisateur, et la toute
+-- première requête échoue.
+--
+-- L'exclusion des entreprises archivées se fait donc par les DONNÉES : un
+-- déclencheur retire les adhésions à l'archivage (voir le palier 050).
 CREATE OR REPLACE FUNCTION app.entreprises_de_lacteur() RETURNS uuid[]
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = public, pg_temp AS $$
   SELECT coalesce(array_agg(m.entreprise_id), '{}'::uuid[])
     FROM membres m
-    JOIN entreprises e ON e.id = m.entreprise_id
     JOIN utilisateurs u ON u.id = m.utilisateur_id
    WHERE m.utilisateur_id = app.acteur()
      AND m.retire_le IS NULL
-     AND e.archivee_le IS NULL
      AND u.desactive_le IS NULL
 $$;
 REVOKE ALL ON FUNCTION app.entreprises_de_lacteur() FROM PUBLIC;

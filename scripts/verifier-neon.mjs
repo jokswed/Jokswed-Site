@@ -42,6 +42,24 @@ try {
   const politiques = await c.query("SELECT count(*)::int n FROM pg_policies WHERE schemaname='public'");
   v("Politiques RLS", politiques.rows[0].n >= 25, `${politiques.rows[0].n} politiques`);
 
+  /* ⚠️ LA RACINE DE LA RLS NE DOIT LIRE AUCUNE TABLE QU'ELLE PROTÈGE.
+     `entreprises_de_lacteur()` joignait `entreprises`, dont la politique
+     appelle cette même fonction. En local, le migrateur est superutilisateur
+     et contourne la RLS : la récursion n'apparaît jamais. Sur Neon, elle fait
+     échouer la toute première requête. Ce contrôle encode la leçon — il
+     s'exécute en local, là où le symptôme est invisible. */
+  {
+    const { rows } = await c.query(
+      `SELECT pg_get_functiondef(p.oid) AS src
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'app' AND p.proname = 'entreprises_de_lacteur'`);
+    const src = rows[0]?.src ?? "";
+    v("La racine de la RLS ne lit pas `entreprises`",
+      src.length > 0 && !/\bentreprises\b(?!_de_lacteur)/.test(
+        src.replace(/entreprises_de_lacteur/g, "X")),
+      "récursion : la politique de `entreprises` rappelle cette fonction");
+  }
+
   const roles = await c.query(
     "SELECT rolname FROM pg_roles WHERE rolname LIKE 'jokswed%' ORDER BY 1");
   v("Rôles applicatifs créés par migration", roles.rowCount >= 3,
@@ -82,4 +100,5 @@ try {
 const echecs = resultats.filter((r) => !r.ok);
 console.log(`\n${resultats.length - echecs.length}/${resultats.length} contrôles de compatibilité Neon.`);
 if (echecs.length) process.exit(1);
+
 console.log("Schéma compatible Neon (PG 14+). Mots de passe de rôles à définir hors migration.");

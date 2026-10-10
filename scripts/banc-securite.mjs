@@ -126,19 +126,33 @@ try {
   verifier("Toute table métier a RLS activé", sansRls.rowCount === 0,
     sansRls.rows.map((r) => r.relname).join(", "));
 
-  const sansForce = await app.query(`
+  /* ⚠️ CE BANC VÉRIFIAIT L'INVARIANT INVERSE — VOIR LE PALIER 056.
+     Il exigeait `FORCE ROW LEVEL SECURITY` partout sauf sur cinq tables. Mais
+     `FORCE` ne contraint que le PROPRIÉTAIRE des tables, `jokswed_migrateur`,
+     qui possède aussi toutes les fonctions `SECURITY DEFINER` de l'accès
+     contrôlé : il les soumettait aux politiques qu'elles arbitrent. En local
+     le migrateur est superutilisateur, l'assertion passait sans rien prouver ;
+     sur Neon le dépôt public échouait.
+
+     L'invariant qui porte réellement la garantie est celui-ci : les rôles
+     applicatifs ne possèdent AUCUNE table, donc la RLS leur est opposée en
+     toutes circonstances. C'est lui qu'on vérifie désormais. */
+  const force = await app.query(`
+    SELECT c.relname FROM pg_class c
+      JOIN pg_namespace ns ON ns.oid = c.relnamespace
+     WHERE ns.nspname = 'public' AND c.relkind = 'r' AND c.relforcerowsecurity
+     ORDER BY 1`);
+  verifier("Aucune table n'est en FORCE (incompatible avec SECURITY DEFINER)",
+    force.rowCount === 0, force.rows.map((r) => r.relname).join(", "));
+
+  const possedees = await app.query(`
     SELECT c.relname FROM pg_class c
       JOIN pg_namespace ns ON ns.oid = c.relnamespace
      WHERE ns.nspname = 'public' AND c.relkind = 'r'
-       AND c.relrowsecurity AND NOT c.relforcerowsecurity
+       AND pg_get_userbyid(c.relowner) IN ('jokswed_app','jokswed_public','jokswed_auth')
      ORDER BY 1`);
-  /* Liste blanche EXPLICITE et justifiée : `membres` à cause de la récursion
-     de la fonction SECURITY DEFINER, les quatre autres parce que le chemin
-     d'authentification doit les lire avant qu'un acteur existe. */
-  const forceAttendu = ["facteurs_mfa", "identifiants", "membres", "sessions", "utilisateurs"];
-  const horsListe = sansForce.rows.map((r) => r.relname).filter((n) => !forceAttendu.includes(n));
-  verifier("Seules les 5 tables justifiées sont sans FORCE", horsListe.length === 0,
-    `inattendues : ${horsListe.join(", ")}`);
+  verifier("⚠️ Les rôles applicatifs ne possèdent aucune table : la RLS leur est opposable",
+    possedees.rowCount === 0, possedees.rows.map((r) => r.relname).join(", "));
 
   const secdef = await app.query(`
     SELECT p.proname FROM pg_proc p
@@ -268,6 +282,16 @@ try {
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
     "documents_emis_complets",
+    /* Mise en service — PRÉDICATS D'AMORÇAGE, appelés par les POLITIQUES
+       elles-mêmes. Ils doivent compter des lignes de `membres` et de
+       `membres_roles` sans être filtrés par la politique qu'ils servent à
+       évaluer. Chacun ne rend qu'un booléen, et chacun est AUTO-REFERMANT :
+       il devient faux dès que l'entreprise a un membre actif
+       (`entreprise_sans_membre`), dès qu'un rôle y est attribué
+       (`entreprise_sans_role`), ou dès que la base compte un second membre
+       (`base_un_seul_membre`). C'est ce qui autorise la création du tout
+       premier compte sans jamais ouvrir une porte ensuite. */
+    "entreprise_sans_membre","entreprise_sans_role","base_un_seul_membre",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",
@@ -644,21 +668,24 @@ try {
     "SELECT count(*)::int n FROM journal_audit WHERE action = 'permission.definie'");
   verifier("L'octroi laisse une trace d'audit", traceLaissee.rows[0].n >= 1);
 
-  /* ═══════════ 14. LES 5 TABLES SANS `FORCE` N'OUVRENT RIEN ═══════════ */
-  /* Le propriétaire les contourne — mais l'application n'est PAS propriétaire.
-     On vérifie que le rôle applicatif y reste bien filtré. */
+  /* ═══════════ 14. LE CONTOURNEMENT DU PROPRIÉTAIRE N'OUVRE RIEN ═══════════ */
+  /* Depuis le palier 056, plus aucune table n'est en `FORCE` : le
+     propriétaire des tables les lit donc toutes sans politique. C'est voulu,
+     et sans effet sur l'application — elle n'est PAS propriétaire. Cette
+     section le prouve table par table, sur celles où la tentation serait la
+     plus forte : identité, secrets, sessions, adhésions. */
   for (const [table, colonne] of [
     ["utilisateurs", "id"], ["identifiants", "utilisateur_id"],
     ["sessions", "utilisateur_id"], ["facteurs_mfa", "utilisateur_id"],
   ]) {
     const r = await en(app, videaste,
       `SELECT count(*)::int n FROM ${table} WHERE ${colonne} = $1`, [proprietaire]);
-    verifier(`Table sans FORCE « ${table} » : les lignes d'autrui restent invisibles`,
+    verifier(`Le rôle applicatif reste filtré sur « ${table} » : les lignes d'autrui restent invisibles`,
       r.rows[0].n === 0, `${r.rows[0].n} ligne(s)`);
   }
   const membresAutrui = await en(app, videaste,
     "SELECT count(*)::int n FROM membres WHERE entreprise_id = $1", [jokswed]);
-  verifier("Table sans FORCE « membres » : les adhésions d'autrui restent invisibles",
+  verifier("Le rôle applicatif reste filtré sur « membres » : les adhésions d'autrui restent invisibles",
     membresAutrui.rows[0].n === 0, `${membresAutrui.rows[0].n} ligne(s)`);
 
   /* ═══════════ 15. LE RÔLE MÉTIER NE PEUT PLUS FORGER DE SESSION ═══════════ */

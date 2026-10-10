@@ -20,14 +20,16 @@ ALTER TABLE membres
 CREATE OR REPLACE FUNCTION app.entreprises_de_lacteur() RETURNS uuid[]
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = public, pg_temp AS $$
+  -- ⚠️ PAS DE JOINTURE SUR `entreprises` : sa politique appelle cette
+  -- fonction, et la récursion est infinie dès que le rôle qui l'exécute
+  -- n'est pas superutilisateur — c'est-à-dire partout sauf en local. Les
+  -- entreprises archivées sont écartées par les données (palier 050).
   SELECT coalesce(array_agg(m.entreprise_id), '{}'::uuid[])
     FROM membres m
-    JOIN entreprises e ON e.id = m.entreprise_id
     JOIN utilisateurs u ON u.id = m.utilisateur_id
    WHERE m.utilisateur_id = app.acteur()
      AND m.retire_le IS NULL
      AND m.suspendu_le IS NULL
-     AND e.archivee_le IS NULL
      AND u.desactive_le IS NULL
 $$;
 REVOKE ALL ON FUNCTION app.entreprises_de_lacteur() FROM PUBLIC;

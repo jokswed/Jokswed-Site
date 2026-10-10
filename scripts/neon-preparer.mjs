@@ -34,10 +34,18 @@ if (!url) {
   process.exit(1);
 }
 
+/* ⚠️ `jokswed_public` EST CRÉÉ PAR LA MIGRATION 006, ET SUR NEON LE
+   MIGRATEUR N'A PAS LE DROIT DE CRÉER UN RÔLE. Les migrations gardent leurs
+   créations derrière `IF NOT EXISTS` : il suffit que les quatre rôles
+   existent AVANT, et elles deviennent des non-opérations. Sans celui-ci, la
+   migration 006 échoue sur « permission denied to create role ».
+   Il n'est utilisé par aucune chaîne de connexion de l'application ; on lui
+   donne quand même un mot de passe fort plutôt que celui de développement. */
 const roles = {
   jokswed_migrateur: process.env.MDP_MIGRATEUR,
   jokswed_app: process.env.MDP_APP,
   jokswed_auth: process.env.MDP_AUTH,
+  jokswed_public: process.env.MDP_PUBLIC,
 };
 
 for (const [role, mdp] of Object.entries(roles)) {
@@ -51,8 +59,8 @@ for (const [role, mdp] of Object.entries(roles)) {
     process.exit(1);
   }
 }
-if (new Set(Object.values(roles)).size !== 3) {
-  console.error("Les trois rôles doivent avoir des mots de passe DIFFÉRENTS.");
+if (new Set(Object.values(roles)).size !== Object.keys(roles).length) {
+  console.error("Chaque rôle doit avoir un mot de passe DIFFÉRENT.");
   process.exit(1);
 }
 
@@ -94,16 +102,49 @@ try {
       await c.query(`ALTER ROLE ${role} WITH LOGIN PASSWORD '${mdp.replace(/'/g, "''")}'`);
       console.log(`  ✓ ${role} mis à jour`);
     }
-    /* Aucun de nos rôles n'a besoin de créer des rôles, d'hériter de
-       superutilisateur, ni de contourner la RLS. On le dit explicitement. */
-    await c.query(`ALTER ROLE ${role} NOSUPERUSER NOCREATEROLE NOCREATEDB NOBYPASSRLS`);
+    /* ⚠️ ON NE PEUT PAS — ET ON N'A PAS BESOIN DE — FORCER LES ATTRIBUTS.
+       Sur Neon, le propriétaire de la base n'est pas superutilisateur :
+       PostgreSQL refuse `ALTER ROLE … NOSUPERUSER` même pour remettre la
+       valeur déjà en place (« Only roles with the SUPERUSER attribute may
+       change the SUPERUSER attribute »). Or `CREATE ROLE` sans mention
+       produit déjà NOSUPERUSER, NOCREATEROLE, NOCREATEDB, NOBYPASSRLS.
+       On vérifie donc, plus bas, au lieu d'imposer — et si un rôle porte un
+       attribut de trop, le contrôle échoue bruyamment. */
   }
 
   /* Neon donne la base à `neondb_owner` : nos objets doivent appartenir au
      migrateur, sinon la RLS FORCE ne protège pas ce qu'on croit. */
-  await c.query("GRANT jokswed_migrateur TO CURRENT_USER");
-  await c.query(`ALTER SCHEMA public OWNER TO jokswed_migrateur`);
-  console.log("  ✓ schéma public confié au migrateur");
+  /* Neon donne la base à son rôle propriétaire ; nos objets doivent
+     appartenir au migrateur, sinon `FORCE ROW LEVEL SECURITY` ne protège
+     pas ce qu'on croit. Le propriétaire doit d'abord être membre du rôle
+     qu'il institue. */
+  try {
+    await c.query("GRANT jokswed_migrateur TO CURRENT_USER");
+  } catch (e) {
+    if (e.code !== "42501") throw e;
+    console.log("  · appartenance au migrateur déjà en place");
+  }
+  await c.query("ALTER SCHEMA public OWNER TO jokswed_migrateur");
+  /* ⚠️ LE MIGRATEUR DOIT POUVOIR CRÉER LE SCHÉMA `app`.
+     Le palier 006 fait `CREATE SCHEMA IF NOT EXISTS app`, ce qui exige
+     CREATE sur la BASE — un droit que Neon ne donne qu'au propriétaire.
+     Sans ce GRANT : « permission denied for database ». */
+  await c.query(
+    `GRANT CREATE, CONNECT ON DATABASE ${JSON.stringify(
+      (await c.query("SELECT current_database() d")).rows[0].d).replace(/"/g, '"')} `
+    + "TO jokswed_migrateur");
+  console.log("  ✓ schéma public confié au migrateur, création autorisée");
+
+  /* ⚠️ LES EXTENSIONS SE CRÉENT AVEC LE RÔLE PROPRIÉTAIRE, PAS LE MIGRATEUR.
+     Sur Neon, `CREATE EXTENSION` est réservé au rôle propriétaire de la
+     base, et seulement pour les extensions de sa liste blanche. On les pose
+     donc ici ; les `CREATE EXTENSION IF NOT EXISTS` du palier 001 seront
+     alors de simples non-opérations, qui n'exigent aucun privilège. */
+  console.log("\nExtensions…");
+  for (const ext of ["citext", "btree_gist"]) {
+    await c.query(`CREATE EXTENSION IF NOT EXISTS ${ext}`);
+    console.log(`  ✓ ${ext}`);
+  }
 
   console.log("\nMigrations…");
   const { migrer } = await import("./migrer.mjs");
@@ -125,9 +166,14 @@ try {
     console.log(`  ${ok ? "✓" : "✗"} ${nom}${ok ? "" : ` — ${detail}`}`);
   };
 
+  /* ⚠️ ON NE CONTRÔLE QUE NOS RÔLES.
+     Neon donne CREATEROLE à son propre rôle propriétaire (`*_owner`) : c'est
+     sa mécanique, pas la nôtre, et on ne peut ni la changer ni la lui
+     reprocher. Les rôles que NOUS créons, eux, doivent rester nus. */
   const { rows: attributs } = await m.query(
     `SELECT rolname, rolsuper, rolbypassrls, rolcreaterole FROM pg_roles
-      WHERE rolname LIKE 'jokswed_%' ORDER BY rolname`);
+      WHERE rolname IN ('jokswed_migrateur','jokswed_app','jokswed_auth','jokswed_public')
+      ORDER BY rolname`);
   for (const r of attributs) {
     ctl(`${r.rolname} : ni superutilisateur, ni BYPASSRLS, ni créateur de rôles`,
       !r.rolsuper && !r.rolbypassrls && !r.rolcreaterole);
@@ -149,6 +195,18 @@ try {
       WHERE grantee = 'jokswed_auth'`);
   ctl("Le rôle d'authentification n'a AUCUN privilège de table",
     tablesApp.n === 0, `${tablesApp.n} privilège(s)`);
+
+  /* ⚠️ FORCE DOIT AVOIR ÉTÉ RETIRÉ PARTOUT — VOIR LE PALIER 056.
+     Ce contrôle exigeait l'inverse. `FORCE` ne contraint que le propriétaire
+     des tables, qui possède aussi les fonctions `SECURITY DEFINER` de l'accès
+     contrôlé : il les faisait échouer. Ce qui porte la garantie, et qui est
+     vérifié juste au-dessus, c'est que les rôles applicatifs ne possèdent
+     aucune table — la RLS leur est donc opposée en toutes circonstances. */
+  const { rows: [force] } = await m.query(
+    `SELECT count(*)::int n FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+      WHERE ns.nspname='public' AND c.relkind='r' AND c.relforcerowsecurity`);
+  ctl("Aucune table en FORCE (incompatible avec SECURITY DEFINER)", force.n === 0,
+    `${force.n} table(s) encore en FORCE`);
 
   const { rows: [politiques] } = await m.query("SELECT count(*)::int n FROM pg_policies");
   ctl(`Politiques RLS en place (${politiques.n})`, politiques.n > 40);
