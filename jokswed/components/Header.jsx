@@ -25,7 +25,17 @@ export default function Header() {
   const [defile, setDefile] = useState(false);
   const [ouvert, setOuvert] = useState(false);
 
-  const surHeros = pathname === "/" || pathname.startsWith("/faq");
+  /* ⚠️ L'ACCUEIL N'EST PLUS DANS CETTE LISTE, ET C'EST LA V2 QUI L'IMPOSE.
+
+     L'en-tête se rend en blanc translucide par-dessus un « héros » sombre
+     tant qu'on n'a pas défilé. L'accueil n'a plus de héros sombre : il
+     commence par la bande photographique, dont la luminosité change à chaque
+     image. Vérifié à l'écran en 1024 px — « JoksWed » et tout le menu
+     devenaient illisibles sur les photos claires.
+
+     Sur l'accueil, l'en-tête est donc opaque dès le départ. Les pages qui
+     ouvrent encore sur une image sombre gardent l'effet. */
+  const surHeros = pathname.startsWith("/faq");
 
   useEffect(() => {
     const onScroll = () => setDefile(window.scrollY > 24);
@@ -76,7 +86,11 @@ export default function Header() {
         {!ouvert && (
           <button
             className="burger"
-            aria-expanded="false"
+            /* ⚠️ `aria-expanded` était écrit en dur à "false".
+               Il décrit l'état du menu, pas celui du bouton : il doit suivre
+               `ouvert`, sinon un lecteur d'écran annonce « replié » alors que
+               le menu est déployé. */
+            aria-expanded={ouvert}
             aria-controls="menu-mobile"
             aria-label="Ouvrir le menu"
             onClick={() => setOuvert(true)}
@@ -92,15 +106,27 @@ export default function Header() {
       </div>
 
       {/* Menu mobile */}
+      {/* ⚠️ `inert` ET `aria-hidden` QUAND LE MENU EST FERMÉ.
+
+          Ce <nav> reste TOUJOURS dans le document — il est simplement déplacé
+          hors écran par la CSS. Sans `inert`, ses six liens et sa croix
+          restaient donc atteignables à la tabulation alors qu'ils sont
+          invisibles : un utilisateur au clavier traversait un menu fantôme
+          avant d'atteindre le contenu. `inert` les retire du parcours de focus
+          et des lecteurs d'écran. */}
       <nav
         id="menu-mobile"
         className={`menu-mobile ${ouvert ? "est-ouvert" : ""}`}
         aria-label="Menu mobile"
+        aria-hidden={!ouvert}
+        inert={!ouvert}
       >
         {/* Croix indépendante */}
         <button
           className="menu-mobile__close"
           aria-label="Fermer le menu"
+          aria-expanded={ouvert}
+          aria-controls="menu-mobile"
           onClick={() => setOuvert(false)}
         >
           ✕
