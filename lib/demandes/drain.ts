@@ -1,6 +1,6 @@
 import "server-only";
 import { sansIdentite, type Requete } from "@/lib/db/client";
-import { envoyer, expediteur, type ResultatEnvoi } from "@/lib/email/fournisseur";
+import { adresseDeReponse, envoyer, expediteur, type ResultatEnvoi } from "@/lib/email/fournisseur";
 import {
   accuseReception, alerteAdministrateur, invitationCollaborateur,
   propositionCollaborateur,
@@ -114,6 +114,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
 
     for (const evenement of rows) {
       try {
+        await q("SAVEPOINT avant_evenement");
         if (evenement.type === "demande.recue") {
           const { demande_id, reference, entreprise_id, video_demandee } =
             evenement.charge_utile;
@@ -146,6 +147,10 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               sujet: accuse.sujet,
               html: accuse.html,
               texte: accuse.texte,
+              /* ⚠️ UNE RÉPONSE À L'ACCUSÉ DOIT ARRIVER QUELQUE PART.
+                 Sans Reply-To, elle partirait vers l'expéditeur — une
+                 adresse vérifiée chez Brevo, sans boîte derrière. */
+              repondreA: adresseDeReponse(),
               etiquettes: ["jokswed", "accuse-reception"],
             });
             await journaliser(q, evenement.id, demande_id, entreprise_id,
@@ -172,6 +177,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 sujet: alerte.sujet,
                 html: alerte.html,
                 texte: alerte.texte,
+                repondreA: adresseDeReponse(),
                 etiquettes: ["jokswed", "alerte-admin"],
               });
               await journaliser(q, evenement.id, demande_id, entreprise_id,
@@ -219,6 +225,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               sujet: gabarit.sujet,
               html: gabarit.html,
               texte: gabarit.texte,
+              repondreA: adresseDeReponse(),
               etiquettes: ["jokswed", "invitation"],
             });
             await journaliser(q, evenement.id, null, entreprise_id,
@@ -259,6 +266,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 sujet: gabarit.sujet,
                 html: gabarit.html,
                 texte: gabarit.texte,
+                repondreA: adresseDeReponse(),
                 etiquettes: ["jokswed", "proposition"],
               });
               await journaliser(q, evenement.id, null, entreprise_id,
@@ -283,7 +291,18 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
           const msg = rows[0];
           if (msg) {
             const destinataires = msg.destinataires as { email: string; nom: string | null }[];
-            const repondreA = adresseReponse(msg.jeton_reponse);
+            /* ⚠️ DEUX ADRESSES DE RÉPONSE POSSIBLES, ET LE CHOIX COMPTE.
+
+               Avec la réception intégrée configurée, c'est l'adresse à
+               jeton : la réponse revient DANS la conversation.
+
+               Sans elle, on retombe sur une vraie boîte — celle de
+               l'auteur, pas celle de JoksWed : une réponse au message
+               d'Yvann doit arriver chez Yvann. La conversation ne se mettra
+               pas à jour toute seule, et l'interface le dit déjà. */
+            const repondreA = adresseReponse(msg.jeton_reponse)
+              ?? msg.reponse_vers
+              ?? adresseDeReponse();
 
             /* ⚠️ LES PIÈCES SE RÉGÉNÈRENT, ELLES NE SE STOCKENT PAS.
                Le PDF est rendu depuis l'instantané du document au moment de
@@ -306,8 +325,14 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 destinataire: destinataire.email,
                 destinataireNom: destinataire.nom,
                 sujet: msg.sujet,
-                html: msg.corps_html ?? texteVersHtml(msg.corps_texte),
-                texte: msg.corps_texte,
+                /* La signature dit QUI répond. L'expéditeur technique est
+                   toujours `contact@jokswed.com` ; le professionnel, lui,
+                   doit être identifiable par le client. */
+                html: msg.corps_html ?? texteVersHtml(
+                  msg.signature ? `${msg.corps_texte}\n\n${msg.signature}` : msg.corps_texte),
+                texte: msg.signature
+                  ? `${msg.corps_texte}\n\n${msg.signature}`
+                  : msg.corps_texte,
                 repondreA,
                 expediteurEmail: msg.auteur_email,
                 expediteurNom: msg.auteur_nom ?? msg.entreprise_nom,
@@ -325,9 +350,8 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
                 [message_id, "echoue", "aucun", null, null, "aucun destinataire"]);
             } else if (dernier && dernier.statut === "echoue") {
-              await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
-                [message_id, "echoue", dernier.fournisseur, null, null,
-                 (dernier.erreur ?? "").slice(0, 200)]);
+              /* On lève sans écrire : le bloc de reprise annulerait
+                 l'écriture, puis posera lui-même le statut d'échec. */
               throw new Error(`messagerie : ${dernier.erreur}`);
             } else {
               await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
@@ -338,16 +362,33 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
         }
 
         await q("SELECT app.evenement_traite($1)", [evenement.id]);
+        await q("RELEASE SAVEPOINT avant_evenement");
         bilan.traites += 1;
       } catch (erreur) {
         bilan.echoues += 1;
+        /* ⚠️ UNE ERREUR SQL ABORTE LA TRANSACTION : TOUT CE QUI SUIT ÉCHOUE.
+           Le drain traite plusieurs événements dans UNE transaction. Si
+           l'un d'eux lève une erreur PostgreSQL, les suivants — y compris
+           ce `evenement_echoue` — se heurtent à « current transaction is
+           aborted », et le message d'origine disparaît. Un point de reprise
+           isole chaque échec sans perdre le travail déjà validé. */
+        try {
+          await q("ROLLBACK TO SAVEPOINT avant_evenement");
+        } catch { /* pas de point de reprise : erreur applicative, pas SQL */ }
         /* ⚠️ LE MESSAGE D'ERREUR EST TRONQUÉ ET SANS DONNÉE PERSONNELLE.
            L'événement revient avec un report exponentiel : une panne du
            fournisseur retarde l'envoi, elle ne le perd pas. */
-        await q("SELECT app.evenement_echoue($1,$2)", [
-          evenement.id,
-          erreur instanceof Error ? erreur.message.slice(0, 200) : "erreur inconnue",
-        ]);
+        const motif = erreur instanceof Error
+          ? erreur.message.slice(0, 200) : "erreur inconnue";
+        await q("SELECT app.evenement_echoue($1,$2)", [evenement.id, motif]);
+        /* ⚠️ LE STATUT DU MESSAGE S'ÉCRIT APRÈS LE POINT DE REPRISE.
+           L'écrire avant le `throw` le ferait annuler par le retour au
+           point de reprise : le message resterait « en attente » alors que
+           l'envoi a échoué, et rien ne le dirait à l'écran. */
+        if (evenement.type === "message.envoyer") {
+          await q("SELECT app.message_envoye($1,'echoue',$2,NULL,NULL,$3)",
+            [evenement.charge_utile.message_id, "brevo", motif]);
+        }
       }
     }
   });

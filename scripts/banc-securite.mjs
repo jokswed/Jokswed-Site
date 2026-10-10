@@ -254,6 +254,9 @@ try {
        qu'au palier 029 : la politique de `entreprises` ne rend que les
        siennes, et seule la raison commerciale est exposée. */
     "participants_conversation","partenaires_invitables",
+    /* Mise en service — identités d'envoi, conversation d'un collaborateur
+       depuis SON dossier, transmission manuelle avec choix du partage. */
+    "identite_envoi","ouvrir_conversation_dossier","transmettre_a_partenaire",
     /* V8 (stabilisation) — compte propriétaire. `auth_amorcer_proprietaire`
        crée un compte SANS session : elle est réservée à `jokswed_auth`, et
        refuse dès qu'un utilisateur existe. Les autres s'appuient sur

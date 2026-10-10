@@ -469,6 +469,215 @@ try {
     rendu.texte.includes("{{inconnue}}") && rendu.manquantes.includes("inconnue"),
     rendu.texte);
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     LE PARCOURS COMPLET D'YVANN, DE BOUT EN BOUT
+     -----------------------------------------------------------------------
+     Les neuf étapes demandées : la demande arrive, une proposition est
+     créée, il la voit, il est notifié, il accepte, il accède au dossier, il
+     écrit au couple, la réponse revient au bon endroit, et rien d'autre ne
+     lui est accessible.
+     ═══════════════════════════════════════════════════════════════════════ */
+  /* Son entreprise se configure comme la vraie : identité d'envoi avec une
+     adresse de réponse qui EXISTE (son Gmail), et un régime fiscal. */
+  await verite.query(
+    `INSERT INTO identites_messagerie
+       (entreprise_id, adresse, nom_affiche, methode, statut, reponse_vers, signature)
+     VALUES ($1,'contact@jokswed.com','Yvann Cretinoir — Vidéaste','brevo_partage',
+             'active','yvann@exemple.invalid','Yvann Cretinoir — Vidéaste')`, [VD]);
+
+  /* 1. Une demande vidéo arrive. */
+  const depotYvann = await deposerDemande({
+    cleIdempotence: "banc-v7-parcours-yvann",
+    contactNom: "Camille & Noé FICTIF", contactEmail: "camille.noe@exemple.invalid",
+    contactTelephone: "06 11 22 33 44", dateMariage: `${annee}-09-19`,
+    lieu: "Château d'Essai, 27720 Dangu",
+    formuleCle: formules[2].cle, supplementsCles: ["videaste"],
+    message: "Photo et vidéo.", consentementDemande: true, consentementPartenaire: true,
+    ipTronquee: "203.0.113.0/24",
+  });
+  await en(app, PROPRIO, "SELECT app.confirmer_demande($1)", [depotYvann.demandeId]);
+  const vuJohn = await en(app, PROPRIO,
+    "SELECT count(*)::int n FROM demandes WHERE id = $1", [depotYvann.demandeId]);
+  v("1. La demande vidéo arrive dans l'administration de John", vuJohn.rows[0].n === 1);
+
+  /* 2. Une proposition est créée pour le vidéaste. */
+  const propYvann = await verite.query(
+    "SELECT * FROM propositions WHERE demande_id = $1", [depotYvann.demandeId]);
+  v("2. Une proposition est créée pour le vidéaste",
+    propYvann.rows.length === 1 && propYvann.rows[0].entreprise_destinataire_id === VD);
+
+  /* 3 et 4. Le drain la transmet et la notifie — e-mail compris. */
+  viderBoiteDeTest();
+  await drainer(50);
+  await drainer(50);
+  const vuYvann = await en(app, VIDEASTE, "SELECT * FROM app.propositions_recues($1)", [VD]);
+  const sienne = vuYvann.rows.find((p) => p.demande_id === depotYvann.demandeId);
+  v("3. Son administration affiche la proposition", !!sienne,
+    `${vuYvann.rows.length} proposition(s)`);
+  v("⚠️ …avec la date, le lieu et la prestation, et RIEN d'autre",
+    !!sienne && !!sienne.date_mariage && !!sienne.lieu && sienne.prestation === "video"
+      && sienne.contact_nom === null && sienne.contact_email === null,
+    JSON.stringify(sienne));
+  const notifYvann = await verite.query(
+    `SELECT count(*)::int n FROM notifications
+      WHERE destinataire_id = $1 AND type = 'collaboration.proposee'`, [VIDEASTE]);
+  v("4. Une notification interne lui est préparée", notifYvann.rows[0].n >= 1);
+  const mailYvann = boiteDeTest().find((m) => m.destinataire === "videaste@exemple.invalid");
+  v("…et un e-mail lui est composé", !!mailYvann,
+    boiteDeTest().map((m) => m.destinataire).join(", "));
+  v("⚠️ …sans aucune coordonnée du couple",
+    !!mailYvann && !/camille|No[ée]|06 11 22 33 44/i.test(mailYvann.texte),
+    (mailYvann?.texte ?? "").slice(0, 150));
+  v("…et avec un lien vers son administration",
+    !!mailYvann && /\/admin\/propositions/.test(mailYvann.texte));
+  v("…et une adresse de réponse qui EXISTE",
+    !!mailYvann && mailYvann.repondreA === "jokswed@gmail.com", mailYvann?.repondreA);
+
+  /* 5. Il accepte. */
+  await en(app, VIDEASTE, "SELECT app.repondre_proposition($1,true,$2)",
+    [sienne.id, "Disponible."]);
+  v("5. Il accepte la proposition",
+    (await verite.query("SELECT statut FROM propositions WHERE id=$1", [sienne.id]))
+      .rows[0].statut === "acceptee");
+
+  /* 6. Il accède au dossier — et pas aux coordonnées, pas encore. */
+  const sesDossiersYvann = await en(app, VIDEASTE, "SELECT * FROM app.mes_dossiers($1)", [VD]);
+  const sonDossierYvann = sesDossiersYvann.rows.find(
+    (d) => d.date_mariage === `${annee}-09-19`);
+  v("6. Le dossier apparaît dans son administration", !!sonDossierYvann);
+  v("⚠️ …sans les coordonnées du couple tant qu'elles ne sont pas partagées",
+    !!sonDossierYvann && sonDossierYvann.coordonnees_partagees === false
+      && sonDossierYvann.contact_email === null);
+  const eEcrireSansPartage = await refuse(app, VIDEASTE,
+    "SELECT app.ouvrir_conversation_dossier($1,$2,$3)",
+    [sonDossierYvann.dossier_id, "Essai", "jetonessaiyvann0001"]);
+  v("⚠️ …et il ne peut pas encore écrire au couple",
+    !!eEcrireSansPartage && /partagé/.test(eEcrireSansPartage.message),
+    eEcrireSansPartage?.message);
+
+  /* John partage les coordonnées, explicitement. */
+  await en(app, PROPRIO, "SELECT app.partager_coordonnees($1,$2,true)",
+    [depotYvann.demandeId, VD]);
+
+  /* 7. Il écrit au couple, depuis SA messagerie. */
+  const convYvann = (await en(app, VIDEASTE,
+    "SELECT app.ouvrir_conversation_dossier($1,$2,$3) AS id",
+    [sonDossierYvann.dossier_id, "Votre film de mariage", "jetonyvann00000000001"]))
+    .rows[0].id;
+  v("7. Il ouvre une conversation avec le couple", !!convYvann);
+  const rappel = await en(app, VIDEASTE,
+    "SELECT app.ouvrir_conversation_dossier($1,$2,$3) AS id",
+    [sonDossierYvann.dossier_id, "Encore", "jetonyvann00000000002"]);
+  v("…et un second clic ne crée pas une deuxième conversation",
+    rappel.rows[0].id === convYvann);
+
+  const eCompose = await refuse(app, VIDEASTE,
+    "SELECT app.composer_message($1,'sortant',$2,NULL,NULL,$3,$4::citext,$5)",
+    [convYvann, "Bonjour, ravi de filmer votre mariage.", "yvann-1",
+     "contact@jokswed.com", "Yvann Cretinoir — Vidéaste"]);
+  v("…et compose son message", !eCompose, eCompose?.message);
+  viderBoiteDeTest();
+  await drainer(50);
+  const mailClient = boiteDeTest().find((m) => m.destinataire === "camille.noe@exemple.invalid");
+  v("…et son message part au couple", !!mailClient,
+    boiteDeTest().map((m) => m.destinataire).join(", "));
+  v("⚠️ …signé de SON nom, pas de celui de John",
+    !!mailClient && /Yvann Cretinoir/.test(mailClient.texte)
+      && !/John/.test(mailClient.texte), (mailClient?.texte ?? "").slice(-80));
+  v("…depuis l'expéditeur vérifié unique",
+    mailClient?.expediteurEmail === "contact@jokswed.com", mailClient?.expediteurEmail);
+  const jetonYvann = (await verite.query(
+    "SELECT jeton_reponse FROM conversations WHERE id=$1", [convYvann])).rows[0].jeton_reponse;
+  v("⚠️ …avec un Reply-To qui revient DANS la conversation, pas vers Gmail",
+    mailClient?.repondreA === adresseReponse(jetonYvann)
+      && !/gmail/.test(mailClient?.repondreA ?? ""), mailClient?.repondreA);
+
+  /* 8. La réponse du couple revient dans SA conversation. */
+  const reponseCouple = await (await poster({
+    items: [{
+      MessageId: "<reponse-couple-yvann@client.test>",
+      From: { Address: "camille.noe@exemple.invalid", Name: "Camille" },
+      To: [{ Address: adresseReponse(jetonYvann) }],
+      Recipients: [{ Address: adresseReponse(jetonYvann) }],
+      Subject: "Re: Votre film de mariage",
+      ExtractedMarkdownMessage: "Avec plaisir, à très vite !",
+      Headers: { "Delivered-To": adresseReponse(jetonYvann) },
+      Attachments: [],
+    }],
+  })).json();
+  v("8. La réponse du couple est acceptée", reponseCouple.rattaches === 1,
+    JSON.stringify(reponseCouple));
+  const filYvann = await en(app, VIDEASTE, "SELECT * FROM app.fil_conversation($1)", [convYvann]);
+  v("⚠️ …et arrive dans LA conversation d'Yvann",
+    filYvann.rows.some((m) => m.sens === "entrant" && /à très vite/i.test(m.corps_texte)),
+    filYvann.rows.map((m) => m.sens).join(","));
+  const filJohnChezYvann = await en(app, PROPRIO,
+    "SELECT count(*)::int n FROM app.fil_conversation($1)", [convYvann]);
+  v("⚠️ …et John, qui n'y participe pas, n'en voit rien",
+    filJohnChezYvann.rows[0].n === 0, `${filJohnChezYvann.rows[0].n}`);
+
+  /* La notification du message reçu ne va qu'aux participants. */
+  const notifMsgYvann = await verite.query(
+    `SELECT count(*)::int n FROM notifications
+      WHERE destinataire_id = $1 AND type = 'message.recu'`, [VIDEASTE]);
+  v("…Yvann est notifié de la réponse", notifMsgYvann.rows[0].n >= 1);
+  const notifMsgJohn = await verite.query(
+    `SELECT count(*)::int n FROM notifications
+      WHERE destinataire_id = $1 AND type = 'message.recu'
+        AND lien = '/admin/messagerie/' || $2`, [PROPRIO, convYvann]);
+  v("⚠️ …et John ne l'est pas, pour une conversation qui ne le concerne pas",
+    notifMsgJohn.rows[0].n === 0);
+
+  /* 9. Rien d'autre ne lui est accessible. */
+  const autresDemandes = await en(app, VIDEASTE,
+    "SELECT count(*)::int n FROM demandes");
+  v("9. ⚠️ Il ne voit AUCUNE demande de JoksWed", autresDemandes.rows[0].n === 0,
+    `${autresDemandes.rows[0].n}`);
+  /* ⚠️ ASSERTION PRÉCISÉE : il PARTICIPE à une conversation ouverte par
+     JoksWed (la commune, plus haut). Ce qui doit être vrai, c'est qu'il ne
+     voit QUE celles où il participe — pas qu'il n'en voit aucune. */
+  const convJkVues = await en(app, VIDEASTE,
+    "SELECT id FROM conversations WHERE entreprise_id = $1", [JK]);
+  const convJkTotal = await verite.query(
+    "SELECT count(*)::int n FROM conversations WHERE entreprise_id = $1", [JK]);
+  const participe = await verite.query(
+    `SELECT count(*)::int n FROM conversation_participants
+      WHERE entreprise_id = $1 AND retire_le IS NULL
+        AND conversation_id = ANY($2::uuid[])`,
+    [VD, convJkVues.rows.map((r) => r.id)]);
+  v("⚠️ …et des conversations de JoksWed, il ne voit QUE celles où il participe",
+    convJkVues.rows.length < convJkTotal.rows[0].n
+      && participe.rows[0].n === convJkVues.rows.length,
+    `${convJkVues.rows.length} vue(s) sur ${convJkTotal.rows[0].n}, ${participe.rows[0].n} participation(s)`);
+  const autresDocs = await en(app, VIDEASTE,
+    "SELECT count(*)::int n FROM documents WHERE entreprise_id = $1", [JK]);
+  v("⚠️ …ni ses documents", autresDocs.rows[0].n === 0);
+  const autresPaiements = await en(app, VIDEASTE,
+    "SELECT count(*)::int n FROM paiements WHERE entreprise_id = $1", [JK]);
+  v("⚠️ …ni ses paiements", autresPaiements.rows[0].n === 0);
+
+  /* ⚠️ UNE NOTIFICATION ADRESSÉE À YVANN NE DOIT PAS CRÉER DE CONVERSATION.
+     S'il répond à un e-mail de notification, cette réponse arrive sur la
+     boîte de réponse — pas sur l'endpoint entrant — et ne peut donc ni
+     ouvrir un fil, ni boucler. On le vérifie en rejouant une réponse à
+     l'adresse de repli : elle part en quarantaine. */
+  const convAvant = await verite.query("SELECT count(*)::int n FROM conversations");
+  const bouclePossible = await (await poster({
+    items: [{
+      MessageId: "<reponse-a-notification@gmail.test>",
+      From: { Address: "videaste@exemple.invalid", Name: "Yvann" },
+      To: [{ Address: "jokswed@gmail.com" }],
+      Recipients: [{ Address: "jokswed@gmail.com" }],
+      Subject: "Re: Nouvelle proposition",
+      ExtractedMarkdownMessage: "Ok pour moi",
+      Headers: {}, Attachments: [],
+    }],
+  })).json();
+  const convApres = await verite.query("SELECT count(*)::int n FROM conversations");
+  v("⚠️ Répondre à une notification ne crée aucune conversation",
+    bouclePossible.quarantaine === 1 && convApres.rows[0].n === convAvant.rows[0].n,
+    JSON.stringify(bouclePossible));
+
   /* ═══════════ CLOISONNEMENT PAR URL ═══════════ */
   const eConvAutrui = await en(app, VIDEASTE,
     "SELECT count(*)::int n FROM app.mes_conversations($1)", [JK]).catch(() => null);

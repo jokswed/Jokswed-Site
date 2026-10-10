@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
+import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
+import { engendrerJetonConversation } from "@/lib/messagerie/adresses";
 import { formaterDateSql } from "@/lib/dates";
 import {
   genererDevisDepuisDossier, genererContratDepuisDevis,
@@ -132,6 +134,24 @@ export default async function MesDossiers({ searchParams }) {
     revalidatePath("/admin/dossiers");
   }
 
+  /* ⚠️ IL ÉCRIT À SES CLIENTS, PAS AUX MIENS.
+     La conversation est ouverte sur SON dossier, avec SON identité, et la
+     base refuse si les coordonnées du couple ne lui ont pas été partagées. */
+  async function ecrireAuCouple(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["message.envoyer"]);
+    const dossier = String(formulaire.get("dossier"));
+    const conv = await a.executer(async (q) => {
+      const { rows } = await q("SELECT app.ouvrir_conversation_dossier($1,$2,$3) AS id",
+        [dossier, String(formulaire.get("sujet") ?? "Votre prestation vidéo"),
+         engendrerJetonConversation()]);
+      return rows[0]?.id ?? null;
+    });
+    if (conv) redirect(`/admin/messagerie/${conv}`);
+    revalidatePath("/admin/dossiers");
+  }
+
   async function confirmerPaiement(formulaire) {
     "use server";
     const { entreprise: e } = await contexteAdmin();
@@ -223,6 +243,27 @@ export default async function MesDossiers({ searchParams }) {
                     </p>
                   ) : (
                     <>
+                      {/* ── Écrire au couple ── */}
+                      {peutEcrire && acces.permissions.has("message.envoyer") ? (
+                        d.coordonnees_partagees ? (
+                          <form action={ecrireAuCouple} className="admin-ligne-actions"
+                            style={{ marginTop: "0.8rem" }}>
+                            <input type="hidden" name="dossier" value={d.dossier_id} />
+                            <input type="text" name="sujet"
+                              defaultValue={`Votre prestation ${d.prestation}`}
+                              aria-label="Sujet de la conversation" />
+                            <button type="submit" className="btn btn--fantome">
+                              Écrire au couple
+                            </button>
+                          </form>
+                        ) : (
+                          <p className="recap__note" style={{ marginTop: "0.8rem" }}>
+                            Pour écrire au couple, demandez le partage de ses
+                            coordonnées au photographe.
+                          </p>
+                        )
+                      ) : null}
+
                       {/* ── Documents ── */}
                       <div className="admin-paiement__actions" style={{ marginTop: "0.8rem" }}>
                         {docs.map((x) => (

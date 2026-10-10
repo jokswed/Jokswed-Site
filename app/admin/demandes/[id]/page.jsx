@@ -244,15 +244,20 @@ export default async function FicheDemande({ params }) {
   }
 
   /* ── Collaboration ── */
+  /* ⚠️ UN SEUL GESTE : CRÉER, TRANSMETTRE, ET DIRE CE QU'ON PARTAGE.
+     Un couple demande parfois un vidéaste des jours après sa demande
+     initiale. Trois boutons successifs — proposer, transmettre, partager —
+     laissaient le dossier à mi-chemin dès qu'on en oubliait un. */
   async function proposerPrestation(formulaire) {
     "use server";
     const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["collaboration.proposer"]);
     const destinataire = String(formulaire.get("partenaire") ?? "");
     if (!destinataire) return;
-    await a.executer((q) => q("SELECT app.proposer_prestation($1,$2,$3,$4)",
+    const categories = formulaire.getAll("partage").map(String).filter(Boolean);
+    await a.executer((q) => q("SELECT app.transmettre_a_partenaire($1,$2,$3,$4,$5::text[])",
       [id, destinataire, String(formulaire.get("prestation") ?? "video"),
-       String(formulaire.get("message") ?? "").trim() || null]));
+       String(formulaire.get("message") ?? "").trim() || null, categories]));
     revalidatePath(`/admin/demandes/${id}`);
   }
 
@@ -603,8 +608,37 @@ export default async function FicheDemande({ params }) {
                     <input id="message-collab" name="message" type="text" />
                   </div>
                 </div>
-                <button type="submit" className="btn btn--fantome">
-                  Préparer une proposition
+
+                {/* ⚠️ ON CHOISIT CE QU'ON PARTAGE, CASE PAR CASE.
+                    Transmettre une prestation n'est pas ouvrir le dossier :
+                    la date et le lieu suffisent à décider. Les coordonnées
+                    du couple sont un geste à part — et la base les refuse
+                    si le couple n'a pas consenti au partage, quelle que
+                    soit la case cochée ici. */}
+                <fieldset className="champ">
+                  <legend>Informations à partager</legend>
+                  <label className="admin-case">
+                    <input type="checkbox" name="partage" value="planning" defaultChecked />
+                    Planning du mariage
+                  </label>
+                  <label className="admin-case">
+                    <input type="checkbox" name="partage" value="lieux" defaultChecked />
+                    Lieux
+                  </label>
+                  <label className="admin-case">
+                    <input type="checkbox" name="partage" value="coordonnees_clients"
+                      disabled={!consentement("partage_partenaire_video")} />
+                    Coordonnées du couple
+                    {!consentement("partage_partenaire_video") ? (
+                      <span className="recap__note">
+                        {" "}— le couple n&apos;y a pas consenti
+                      </span>
+                    ) : null}
+                  </label>
+                </fieldset>
+
+                <button type="submit" className="btn btn--bloc">
+                  Transmettre au partenaire
                 </button>
               </form>
             ) : null}

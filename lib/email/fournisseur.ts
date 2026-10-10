@@ -59,12 +59,35 @@ export interface ResultatEnvoi {
   erreur?: string | null;
 }
 
-/** Expéditeur de JoksWed, distinct de celui d'EyesofJoks. */
+/**
+ * Expéditeur de JoksWed, distinct de celui d'EyesofJoks.
+ *
+ * ⚠️ UNE SEULE ADRESSE D'EXPÉDITION, ET ELLE EST VÉRIFIÉE CHEZ BREVO.
+ * `contact@jokswed.com`. Brevo refuse tout expéditeur qu'il ne connaît pas,
+ * et un message refusé est un message perdu.
+ */
 export function expediteur(): { email: string; nom: string } {
   return {
     email: process.env.JOKSWED_EMAIL_EXPEDITEUR ?? "contact@jokswed.com",
     nom: process.env.JOKSWED_EMAIL_NOM ?? "JoksWed",
   };
+}
+
+/**
+ * Où les réponses doivent arriver.
+ *
+ * ⚠️ `contact@jokswed.com` EST UN EXPÉDITEUR, PAS UNE BOÎTE AUX LETTRES.
+ *
+ * Laisser un client répondre à cette adresse enverrait sa réponse nulle
+ * part : personne ne la lirait, et rien ne le signalerait. Les e-mails
+ * transactionnels pointent donc vers une boîte qui existe réellement.
+ *
+ * Les CONVERSATIONS de la messagerie, elles, ne passent pas par ici : leur
+ * `Reply-To` porte le jeton de la conversation, pour que la réponse revienne
+ * dans le fil. Les mélanger ferait sortir la conversation de la plateforme.
+ */
+export function adresseDeReponse(): string {
+  return process.env.JOKSWED_EMAIL_REPONSE ?? "jokswed@gmail.com";
 }
 
 /**
