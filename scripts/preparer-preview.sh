@@ -74,7 +74,7 @@ echo "  fichiers sous jokswed/ : $(git ls-tree -r --name-only HEAD jokswed | wc 
 SECRETS=$(git ls-tree -r --name-only HEAD \
   | grep -E '(^|/)\.env($|\.)' \
   | grep -vE '\.env\.(example|sample|template)$' \
-  | wc -l | tr -d ' ')
+  | wc -l | tr -d ' ' || true)
 if [ "${SECRETS:-0}" != "0" ]; then
   echo "  ✗ un fichier .env est suivi — NE PAS POUSSER"
   git ls-tree -r --name-only HEAD | grep -E '(^|/)\.env($|\.)' \
@@ -82,7 +82,7 @@ if [ "${SECRETS:-0}" != "0" ]; then
   exit 1
 fi
 SUSPECTS=0
-for f in $(git ls-tree -r --name-only HEAD | grep -E '\.env\.(example|sample|template)$'); do
+for f in $(git ls-tree -r --name-only HEAD | grep -E '\.env\.(example|sample|template)$' || true); do
   # Une clé Resend ou Brevo complète, ou une chaîne pointant un vrai hôte
   # Neon : dans un gabarit, ce ne peut être qu'un oubli.
   if git show "HEAD:$f" | grep -qE 're_[A-Za-z0-9]{12,}|xkeysib-[A-Za-z0-9]{12,}|postgres(ql)?://[^@[:space:]]*@[^/[:space:]]*neon\.tech'; then
