@@ -48,7 +48,7 @@ Services déjà créés par John : projet **Neon** `jokswed` (branches
 | # | Action | Qui |
 | --- | --- | --- |
 | 1 | Chaîne du propriétaire de la branche Neon **preview** | **John** |
-| 2 | `npm run neon:preparer` → rôles + 49 migrations + contrôles | Claude |
+| 2 | ~~`npm run neon:preparer`~~ → 4 rôles + 56 paliers + 10 contrôles | **fait** : 14/14 épreuves de fumée sur la branche `preview`, avec les vrais rôles |
 | 3 | `npm run preparer:preview` puis `git push -u origin preview` | Claude prépare, **John pousse** |
 | 4 | Variables Preview dans Vercel + protection du déploiement | **John** |
 | 5 | `npm run verifier:prod -- <url-preview>` | Claude |

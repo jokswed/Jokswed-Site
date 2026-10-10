@@ -81,10 +81,22 @@ palier déjà appliqué en production.
 
 ## 5. Sécurité
 
-- **RLS `ENABLE` + `FORCE`** sur toutes les tables métier. Exceptions
-  justifiées : `membres` et les 4 tables d'authentification (FORCE casserait
-  les fonctions `SECURITY DEFINER` dont elles dépendent) ; `permissions`,
-  `taux_tva`, `types_notification` sont des catalogues sans donnée personnelle.
+- **RLS `ENABLE` sur toutes les tables métier**, et `FORCE` sur AUCUNE
+  (palier 056). `FORCE` ne contraint que le *propriétaire* des tables,
+  `jokswed_migrateur` — qui possède aussi toutes les fonctions `SECURITY
+  DEFINER` de l'accès contrôlé : il les soumettait aux politiques qu'elles
+  arbitrent, et elles échouaient ou rendaient un résultat vide. En local le
+  migrateur est superutilisateur, le défaut était invisible.
+  La garantie repose sur un autre invariant, vérifié par le banc : **les rôles
+  applicatifs (`jokswed_app`, `jokswed_public`, `jokswed_auth`) ne possèdent
+  aucune table**, la RLS leur est donc opposée en toutes circonstances.
+  `permissions`, `taux_tva`, `types_notification` restent sans RLS : catalogues
+  sans donnée personnelle.
+- **`INSERT … RETURNING` est soumis à la politique `SELECT`** (palier 055) :
+  l'amorçage du propriétaire butait là, avec le message d'erreur d'un
+  `WITH CHECK` refusé. Trois prédicats auto-refermants
+  (`entreprise_sans_membre`, `entreprise_sans_role`, `base_un_seul_membre`)
+  ouvrent la création du tout premier compte et se referment ensuite.
 - **Politiques restrictives par permission** (palier 034) : l'appartenance à
   l'entreprise ne suffit plus, il faut porter le verbe.
 - **Aucune écriture directe** sur `invitations`, `membres_*`, `documents`,
