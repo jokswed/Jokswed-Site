@@ -60,18 +60,38 @@ Contenu de la branche $SOURCE du dépôt de travail, placé à l'emplacement
 attendu par Vercel (Root Directory = jokswed).
 
 Ne touche pas à main : le site en production reste celui de main."
-  echo "✓ Branche `preview` prête : $(git rev-parse --short HEAD)"
+  echo "✓ Branche preview prête : $(git rev-parse --short HEAD)"
 fi
 
 echo
 echo "Vérifications :"
 echo "  fichiers sous jokswed/ : $(git ls-tree -r --name-only HEAD jokswed | wc -l | tr -d ' ')"
-SECRETS=$(git ls-tree -r --name-only HEAD | grep -cE '(^|/)\.env($|\.)' || true)
+# ⚠️ `.env.example` EST UN GABARIT, ET IL DOIT ÊTRE SUIVI : c'est lui qui
+#    documente les variables attendues. Le motif précédent l'attrapait et
+#    refusait toute poussée. On écarte donc les exemples par leur nom, et on
+#    relit malgré tout leur contenu : un gabarit où quelqu'un aurait collé une
+#    vraie valeur serait un secret publié.
+SECRETS=$(git ls-tree -r --name-only HEAD \
+  | grep -E '(^|/)\.env($|\.)' \
+  | grep -vE '\.env\.(example|sample|template)$' \
+  | wc -l | tr -d ' ')
 if [ "${SECRETS:-0}" != "0" ]; then
   echo "  ✗ un fichier .env est suivi — NE PAS POUSSER"
+  git ls-tree -r --name-only HEAD | grep -E '(^|/)\.env($|\.)' \
+    | grep -vE '\.env\.(example|sample|template)$' | sed 's/^/     /'
   exit 1
 fi
-echo "  ✓ aucun fichier .env suivi"
+SUSPECTS=0
+for f in $(git ls-tree -r --name-only HEAD | grep -E '\.env\.(example|sample|template)$'); do
+  # Une clé Resend ou Brevo complète, ou une chaîne pointant un vrai hôte
+  # Neon : dans un gabarit, ce ne peut être qu'un oubli.
+  if git show "HEAD:$f" | grep -qE 're_[A-Za-z0-9]{12,}|xkeysib-[A-Za-z0-9]{12,}|postgres(ql)?://[^@[:space:]]*@[^/[:space:]]*neon\.tech'; then
+    echo "  ✗ $f semble contenir une vraie valeur — NE PAS POUSSER"
+    SUSPECTS=1
+  fi
+done
+[ "$SUSPECTS" = "0" ] || exit 1
+echo "  ✓ aucun fichier .env suivi (hors gabarits, relus et sans valeur réelle)"
 
 cat <<'FIN'
 
