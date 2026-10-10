@@ -57,6 +57,80 @@ export default async function Collaborateurs() {
     return { membres, invitations, roles, journal };
   });
 
+
+  /* Entreprise partenaire distincte de JoksWed.
+     L'invitation est préparée, jamais envoyée automatiquement. */
+  async function creerPartenaire(formulaire) {
+    "use server";
+
+    const { entreprise: source } = await contexteAdmin();
+    const a = await accesPage(source.id, [
+      "membre.inviter", "collaboration.proposer",
+    ]);
+
+    const nom = String(formulaire.get("nom_commercial") ?? "").trim();
+    const slug = String(formulaire.get("slug") ?? "").trim().toLowerCase();
+    const email = String(formulaire.get("email") ?? "").trim().toLowerCase();
+    const prenom = String(formulaire.get("prenom") ?? "").trim();
+    const nomContact = String(formulaire.get("nom") ?? "").trim();
+
+    if (nom.length < 2 || nom.length > 120) {
+      throw new Error("Nom du partenaire invalide");
+    }
+    if (
+      slug.length < 3 || slug.length > 60 ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) ||
+      slug === "jokswed"
+    ) {
+      throw new Error("Identifiant du partenaire invalide");
+    }
+    if (
+      email.length > 254 ||
+      !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)
+    ) {
+      throw new Error("Adresse e-mail du partenaire invalide");
+    }
+
+    await a.executer(async (q) => {
+      const { rows: entreprises } = await q(
+        "SELECT app.creer_entreprise_partenaire($1,$2,$3,$4::citext) AS id",
+        [source.id, slug, nom, email],
+      );
+      const entrepriseId = entreprises[0]?.id;
+      if (!entrepriseId) throw new Error("Création impossible");
+
+      const { rows: roles } = await q(
+        "SELECT id FROM roles WHERE entreprise_id = $1 AND cle = 'proprietaire'",
+        [entrepriseId],
+      );
+      if (!roles[0]) throw new Error("Rôle propriétaire indisponible");
+
+      const { rows: invitations } = await q(
+        `SELECT id FROM invitations
+          WHERE entreprise_id = $1 AND email = $2::citext
+            AND utilisee_le IS NULL AND revoquee_le IS NULL
+          LIMIT 1`,
+        [entrepriseId, email],
+      );
+
+      if (!invitations.length) {
+        const jeton = engendrerJeton();
+
+        await q(
+          `SELECT app.admin_creer_invitation(
+            $1,$2::citext,$3,$4,$5,ARRAY[$6]::uuid[],$7,$8
+          )`,
+          [
+            entrepriseId, email, prenom || null, nomContact || null,
+            hacherJeton(jeton), roles[0].id, 7, chiffrer(jeton),
+          ],
+        );
+      }
+    });
+
+    revalidatePath("/admin/collaborateurs");
+  }
+
   async function preparerInvitation(formulaire) {
     "use server";
     const { session: s, entreprise: e } = await contexteAdmin();
@@ -245,6 +319,65 @@ export default async function Collaborateurs() {
             </li>
           ))}
         </ul>
+      </section>
+
+
+      <section id="nouveau-partenaire" style={{ marginTop: "2.5rem" }}>
+        <h2 className="display t-carte">Créer une entreprise partenaire</h2>
+        <p className="recap__note">
+          Ajoutez un vidéaste, photographe ou autre prestataire indépendant.
+          Il disposera de son propre espace, sans accès aux finances de JoksWed.
+          Son invitation sera préparée, mais aucun e-mail ne sera envoyé automatiquement.
+        </p>
+
+        <form action={creerPartenaire} className="formulaire"
+          style={{ marginTop: "1.2rem" }}>
+
+          <div className="champ">
+            <label htmlFor="partenaire-commercial">Nom commercial</label>
+            <input id="partenaire-commercial" name="nom_commercial"
+              placeholder="Ex. DON YC" maxLength={120} required />
+          </div>
+
+          <div className="champ">
+            <label htmlFor="partenaire-slug">Identifiant unique</label>
+            <input id="partenaire-slug" name="slug"
+              placeholder="Ex. yvann-cretinoir" maxLength={60}
+              pattern="[a-z0-9]+(-[a-z0-9]+)*" required />
+            <p className="recap__note">
+              Pour DON YC, utilisez yvann-cretinoir afin de correspondre
+              au routage vidéo actuel.
+            </p>
+          </div>
+
+          <div className="formulaire__deux">
+            <div className="champ">
+              <label htmlFor="partenaire-prenom">Prénom du contact</label>
+              <input id="partenaire-prenom" name="prenom" maxLength={100} />
+            </div>
+            <div className="champ">
+              <label htmlFor="partenaire-nom">Nom du contact</label>
+              <input id="partenaire-nom" name="nom" maxLength={100} />
+            </div>
+          </div>
+
+          <div className="champ">
+            <label htmlFor="partenaire-email">E-mail du partenaire</label>
+            <input id="partenaire-email" name="email"
+              type="email" maxLength={254} required />
+          </div>
+
+          <button type="submit" className="btn">
+            Créer le partenaire et préparer son invitation
+          </button>
+        </form>
+
+        <p className="recap__note" style={{ marginTop: "0.8rem" }}>
+          Ensuite, sélectionnez son entreprise dans le menu
+          « Entreprise active » pour gérer son invitation.
+          Le partenaire devra accepter son accès avant de recevoir
+          automatiquement de nouvelles propositions.
+        </p>
       </section>
 
       <section style={{ marginTop: "2.5rem" }}>

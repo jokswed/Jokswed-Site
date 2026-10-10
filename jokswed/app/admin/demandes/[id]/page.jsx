@@ -633,6 +633,26 @@ export default async function FicheDemande({ params, searchParams }) {
                 téléphone du couple — seulement la date, le lieu et la
                 prestation. Les coordonnées demandent un second geste, après
                 acceptation. */}
+
+            {acces.permissions.has("collaboration.proposer")
+              && partenaires.length === 0 ? (
+              <div className="admin-alerte" style={{ marginTop: "1rem" }}>
+                <p>
+                  Aucun partenaire disponible pour le moment.
+                  Vous pouvez créer une entreprise partenaire indépendante,
+                  puis lui transmettre cette prestation.
+                </p>
+                <Link href="/admin/collaborateurs#nouveau-partenaire"
+                  className="btn btn--fantome">
+                  Créer un partenaire
+                </Link>
+                <p className="recap__note" style={{ marginTop: "0.7rem" }}>
+                  Les coordonnées du couple restent protégées :
+                  leur partage nécessite une autorisation.
+                </p>
+              </div>
+            ) : null}
+
             {acces.permissions.has("collaboration.proposer") && partenaires.length > 0 ? (
               <form action={proposerPrestation} className="formulaire"
                 style={{ marginTop: "1.2rem" }}>
