@@ -26,7 +26,17 @@ const COOKIE =
 export function middleware(requete: NextRequest) {
   const { pathname } = requete.nextUrl;
 
-  if (pathname === "/admin/connexion" || pathname.startsWith("/admin/invitation")) {
+  /* ⚠️ LES CHEMINS QUI PRÉCÈDENT LA SESSION DOIVENT PASSER.
+     Rediriger `/admin/amorcage` vers la connexion rendrait la création du
+     premier compte impossible : il n'y a pas encore de compte avec lequel
+     se connecter. Même chose pour l'acceptation d'une invitation.
+     `/admin/second-facteur`, lui, A un cookie — mais une session qui n'a pas
+     franchi le second facteur ; le laisser ici éviterait une boucle si le
+     cookie venait à manquer, et la page vérifie elle-même. */
+  const AVANT_SESSION = [
+    "/admin/connexion", "/admin/amorcage", "/admin/second-facteur",
+  ];
+  if (AVANT_SESSION.includes(pathname) || pathname.startsWith("/admin/invitation")) {
     return NextResponse.next();
   }
 

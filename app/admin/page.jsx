@@ -132,6 +132,10 @@ export default async function TableauDeBord({ searchParams }) {
           <Link href="/admin/messagerie" className="btn btn--fantome">Messagerie</Link>
         ) : null}
         <Link href="/admin/notifications" className="btn btn--fantome">Notifications</Link>
+        <Link href="/admin/parametres/compte" className="btn btn--fantome">Mon compte</Link>
+        {peut("message.envoyer") ? (
+          <Link href="/admin/parametres/messagerie" className="btn btn--fantome">Messagerie — réglages</Link>
+        ) : null}
         {peut("membre.inviter") ? (
           <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>
         ) : null}

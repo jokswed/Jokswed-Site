@@ -1,7 +1,7 @@
 # JoksWed — état du projet
 
 > Document de référence. Il doit suffire à reprendre le travail sans
-> réanalyser le code. Mis à jour au commit `b776646` (V7).
+> réanalyser le code. Mis à jour à la phase de stabilisation (après V7).
 
 ## 1. Architecture
 
@@ -39,6 +39,7 @@ sous le rôle `jokswed_app` réel, jamais sous le propriétaire.
 | V6 | Finances, saison des mariages, collaborateurs, transmission vidéo | fait |
 | V6.1 | Transmission auto, paliers d'engagement, montants masqués, durcissement RLS | fait |
 | V7 | Messagerie : conversations, envoi, réception, modèles, pièces jointes | fait (réception à configurer) |
+| Stab. | Amorçage du propriétaire, second facteur, mon compte, en-têtes, scripts Neon et de vérification | fait |
 
 ## 3. Décisions techniques structurantes
 
@@ -71,6 +72,7 @@ sous le rôle `jokswed_app` réel, jamais sous le propriétaire.
 | 022–033 | finances, tableau, saison, collaborateurs, notifications et vidéo, invitations envoyables, partenaires, dossiers de collaborateur, parrainage |
 | 034–039 | **RLS par permission (034)**, transmission auto, paliers d'engagement, montants masqués, garde-fous du parrain, engagé par dossier |
 | 040–046 | messagerie : tables, RLS, fonctions, réception, modèles, participants |
+| 047–048 | **amorçage du propriétaire, mot de passe, MFA, sessions (047)** ; **rôles modèles en migration (048)** |
 
 Appliquer : `npm run db:migrer` (dev) ou `DATABASE_URL_MIGRATEUR=… npx tsx scripts/migrer.mjs`.
 La table `schema_migrations` est la source de vérité ; les migrations sont
@@ -201,7 +203,7 @@ Aucune valeur secrète n'est versionnée. `.env.example` les liste toutes.
 ## 12. Tests de référence
 
 ```bash
-npm run suite        # 591 vérifications, échoue à la première qui casse
+npm run suite        # 619 vérifications, échoue à la première qui casse
 ```
 
 | Étape | Nb | Objet |
@@ -216,9 +218,48 @@ npm run suite        # 591 vérifications, échoue à la première qui casse
 | `test:v6` | 149 | finances, collaborateurs, vidéo, 2 entreprises |
 | `test:v7` | 56 | messagerie, réception sur vrai serveur HTTP |
 | `test:admin` | 130 | parcours complets, cloisonnement |
+| `test:amorcage` | 22 | création du premier propriétaire **sur base vide**, sans fixtures |
 | `test:neon` | 9 | compatibilité du schéma |
 
+Et, contre un déploiement :
+```bash
+npm run verifier:prod -- https://<url>     # 28 contrôles externes, non destructifs
+```
+
 Chaque banc part d'une base vierge. Aucun e-mail réel n'est envoyé.
+
+## 12 bis. Compte propriétaire — procédure
+
+**Création initiale, une seule fois :**
+
+1. Poser `JOKSWED_AMORCAGE=<openssl rand -hex 24>` dans l'environnement Vercel.
+2. Ouvrir `https://<url>/admin/amorcage?cle=<cette valeur>`.
+3. Saisir son e-mail et **choisir son mot de passe** (12 caractères minimum,
+   idéalement généré par un gestionnaire). Rien n'est affiché ni journalisé.
+4. **Retirer `JOKSWED_AMORCAGE`** et redéployer.
+
+Trois verrous : le secret d'URL (404 sinon), l'absence totale de compte en
+base, et une revérification côté PostgreSQL. La page refuse d'elle-même dès
+le premier compte créé — mais le secret doit quand même être retiré.
+
+**Ensuite, depuis `/admin/parametres/compte` :** changer son mot de passe
+(l'ancien est exigé ; les autres sessions tombent), activer le second
+facteur TOTP, lister et révoquer ses sessions, consulter son activité.
+
+**Accès perdu.** Il n'y a **pas** de réinitialisation par e-mail : elle ferait
+de la boîte Gmail le maillon faible de toute la plateforme. La procédure de
+secours exige un accès à la base :
+```sql
+-- 1. retirer le second facteur
+DELETE FROM facteurs_mfa WHERE utilisateur_id =
+  (SELECT id FROM utilisateurs WHERE email = 'votre@adresse');
+-- 2. poser une empreinte scrypt produite par `hacherMotDePasse()`
+UPDATE identifiants SET secret_hache = '<empreinte>'
+ WHERE utilisateur_id = (SELECT id FROM utilisateurs WHERE email = 'votre@adresse')
+   AND type = 'mot_de_passe';
+-- 3. couper toutes les sessions
+UPDATE sessions SET revoquee_le = now() WHERE revoquee_le IS NULL;
+```
 
 ## 13. Risques connus
 
@@ -230,6 +271,8 @@ Chaque banc part d'une base vierge. Aucun e-mail réel n'est envoyé.
 | Cron Vercel indisponible en plan Hobby | déclencheur externe avec `CRON_SECRET` |
 | Webhook entrant non signé par Brevo | secret d'URL + jeton de conversation + expéditeur participant |
 | Confusion de projet Vercel | projets et dépôts séparés ; vérifier la racine avant tout déploiement |
+| `JOKSWED_AMORCAGE` oublié après usage | la page refuse déjà, mais le retirer et redéployer |
+| Base neuve sans rôles modèles | corrigé au palier 048 ; éprouvé par `test:amorcage` |
 
 ## 14. Procédure de déploiement
 

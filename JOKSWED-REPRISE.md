@@ -6,8 +6,9 @@
 ## Où l'on en est
 
 JoksWed est fonctionnellement **complet de la V1 à la V7** et gelé : plus de
-nouvelles fonctionnalités, on stabilise et on déploie. Dernier commit :
-`b776646`. `npm run suite` = **591 vérifications vertes**.
+nouvelles fonctionnalités, on stabilise et on déploie. `npm run suite` =
+**619 vérifications vertes**. La phase en cours est la mise en service :
+amorçage du compte propriétaire, Neon, Vercel Preview, puis production.
 
 ## Les trois règles qui ne se négocient pas
 
@@ -46,7 +47,7 @@ nom dans le mauvais dépôt. Lancer le serveur JoksWed par
 | 4 | Déclarer les variables Preview, déployer, protéger | **John** + Claude |
 | 5 | `npm run verifier:prod -- <url>` et vérifications manuelles | Claude |
 | 6 | Vérifier l'expéditeur Brevo `contact@jokswed.com` | **John** |
-| 7 | Initialiser le compte propriétaire via `/admin/amorcage` | **John** |
+| 7 | Initialiser le compte propriétaire via `/admin/amorcage?cle=…`, puis **retirer le secret** | **John** |
 | 8 | Valider la bascule sur `jokswed.com` | **John** |
 | 9 | Inviter Yvann depuis `/admin/collaborateurs` | **John** |
 
@@ -68,6 +69,11 @@ Neon, Vercel et Brevo. Il n'y a pas de CLI Vercel installée ni de jeton.
   lignes : sa politique ne rend que les siennes. Passer par une fonction.
 - Un **déclencheur différé** ne voit pas l'état final : relire la ligne.
 - `preview_start` peut ouvrir le mauvais dépôt.
+- Les **rôles modèles** n'étaient créés que par les fixtures : une base de
+  production neuve n'en avait aucun et l'amorçage échouait. D'où
+  `test:amorcage`, qui tourne sur une base **vide**.
+- Le **middleware** redirige tout `/admin/*` : les chemins qui précèdent la
+  session (amorçage, invitation, second facteur) doivent y être exemptés.
 
 ## Conventions
 

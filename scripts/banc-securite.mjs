@@ -254,6 +254,13 @@ try {
        qu'au palier 029 : la politique de `entreprises` ne rend que les
        siennes, et seule la raison commerciale est exposée. */
     "participants_conversation","partenaires_invitables",
+    /* V8 (stabilisation) — compte propriétaire. `auth_amorcer_proprietaire`
+       crée un compte SANS session : elle est réservée à `jokswed_auth`, et
+       refuse dès qu'un utilisateur existe. Les autres s'appuient sur
+       `app.acteur()` et n'agissent que sur l'appelant lui-même. */
+    "auth_amorcage_possible","auth_amorcer_proprietaire","auth_mfa_de_session",
+    "changer_mot_de_passe","mfa_preparer","mfa_en_attente","mfa_confirmer",
+    "mfa_retirer","mes_sessions","revoquer_mes_sessions","mes_connexions",
     /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
@@ -438,6 +445,62 @@ try {
   const sessionsAutrui = await en(app, videaste,
     "SELECT count(*)::int n FROM sessions WHERE utilisateur_id <> $1", [videaste]);
   verifier("Personne ne lit les sessions d'autrui", sessionsAutrui.rows[0].n === 0);
+
+  /* ═══════════ 9 bis. COMPTE PROPRIÉTAIRE ═══════════ */
+  /* ⚠️ L'AMORÇAGE DOIT ÊTRE DÉFINITIVEMENT FERMÉ.
+     La base a des comptes : la fonction doit refuser, quel que soit
+     l'appelant et quel que soit le secret d'environnement. */
+  const amorcagePossible = await verite.query("SELECT app.auth_amorcage_possible() AS x");
+  verifier("L'amorçage est fermé dès qu'un compte existe",
+    amorcagePossible.rows[0].x === false);
+  let refusAmorcage = "aucune erreur";
+  const authAmorcage = new pg.Client({ connectionString: urlAuth(base) });
+  authAmorcage.on("error", () => {});
+  await authAmorcage.connect();
+  try {
+    await authAmorcage.query(
+      "SELECT app.auth_amorcer_proprietaire($1::citext,$2,$3,$4,$5,$6)",
+      ["pirate@exemple.invalid", "P", "I", "empreinte", "pirate", "Pirate"]);
+  } catch (e) { refusAmorcage = e.message; }
+  await authAmorcage.end();
+  verifier("…et la fonction refuse même avec le bon chemin",
+    /existent déjà/.test(refusAmorcage), refusAmorcage);
+
+  /* ⚠️ LE RÔLE MÉTIER NE PEUT PAS AMORCER. */
+  let refusAppAmorcage = "aucune erreur";
+  try {
+    await app.query("SELECT app.auth_amorcer_proprietaire($1::citext,$2,$3,$4,$5,$6)",
+      ["x@exemple.invalid", "X", "Y", "e", "x", "X"]);
+  } catch (e) { refusAppAmorcage = e.message; }
+  verifier("Le rôle métier n'a pas accès au chemin d'amorçage",
+    /permission/i.test(refusAppAmorcage), refusAppAmorcage);
+
+  /* Mot de passe, MFA, sessions : chacun les siens, et rien d'autre. */
+  const mesSessions = await en(app, videaste, "SELECT * FROM app.mes_sessions()");
+  verifier("Chacun ne voit que SES sessions",
+    mesSessions.rows.length >= 1
+      && (await verite.query(
+          "SELECT utilisateur_id FROM sessions WHERE id = $1", [mesSessions.rows[0].id]))
+         .rows[0].utilisateur_id === videaste,
+    `${mesSessions.rows.length}`);
+
+  const sessionsAvant = await verite.query(
+    "SELECT count(*)::int n FROM sessions WHERE utilisateur_id = $1 AND revoquee_le IS NULL",
+    [videaste]);
+  await verite.query(
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+     VALUES ($1,'banc-autre-appareil', now() + interval '1 day', true)`, [videaste]);
+  await en(app, videaste, "SELECT app.revoquer_mes_sessions(true)");
+  const resteCourante = await en(app, videaste, "SELECT * FROM app.mes_sessions()");
+  verifier("⚠️ « Déconnecter partout » garde la session COURANTE",
+    resteCourante.rows.length === 1 && resteCourante.rows[0].courante === true,
+    `${resteCourante.rows.length} session(s), avant ${sessionsAvant.rows[0].n}`);
+
+  /* ⚠️ ON NE RÉVOQUE PAS LES SESSIONS D'AUTRUI. */
+  const sessionsProprio = await verite.query(
+    "SELECT count(*)::int n FROM sessions WHERE utilisateur_id = $1 AND revoquee_le IS NULL",
+    [proprietaire]);
+  verifier("…et celles des autres ne bougent pas", sessionsProprio.rows[0].n >= 1);
 
   /* ═══════════ 10. RÉVOCATION IMMÉDIATE ═══════════ */
   /* ⚠️ RE-POINTÉ AU PALIER 034. On vient de retirer `dossier.lire` à

@@ -11,7 +11,7 @@
     "verifier:sitemap": "node scripts/verifier-sitemap.mjs",
     "verifier:coherence": "node scripts/verifier-coherence.mjs",
     "banc": "node scripts/banc-v1.mjs",
-    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc && npm run test:secrets && npm run test:pdf && npm run test:securite && npm run test:v6 && npm run test:v7 && npm run test:admin && npm run test:neon",
+    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc && npm run test:secrets && npm run test:pdf && npm run test:securite && npm run test:amorcage && npm run test:v6 && npm run test:v7 && npm run test:admin && npm run test:neon",
     "db:migrer": "tsx scripts/migrer.mjs",
     "db:semer": "tsx scripts/semer.mjs",
     "test:secrets": "tsx scripts/test-secrets.mts",
@@ -22,7 +22,10 @@
     "test:pdf": "tsx scripts/test-pdf.mts",
     "test:v6": "tsx scripts/banc-v6.mjs",
     "preparer:videaste": "tsx scripts/preparer-videaste.mjs",
-    "test:v7": "tsx scripts/banc-v7.mjs"
+    "test:v7": "tsx scripts/banc-v7.mjs",
+    "neon:preparer": "tsx scripts/neon-preparer.mjs",
+    "verifier:prod": "tsx scripts/verifier-prod.mjs",
+    "test:amorcage": "tsx scripts/banc-amorcage.mjs"
   },
   "dependencies": {
     "next": "^16.4.0",
