@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+.env*.local
+.vercel
+*.tsbuildinfo
+.DS_Store
+.pgdev/
+
+# Scripts jetables d'investigation : jamais versionnés.
+.scratch/

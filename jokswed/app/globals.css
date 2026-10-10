@@ -1484,3 +1484,918 @@ button:hover .photo img {
 
   z-index:10001;
 }
+
+/* =============================================================================
+   V2 — ACCUEIL : BANDE PHOTOGRAPHIQUE, CONFIGURATEUR, FAQ
+   ============================================================================= */
+
+/* --- 1. BANDE PHOTOGRAPHIQUE -------------------------------------------------
+   ⚠️ POURQUOI UNE ANIMATION CSS ET PAS DU JAVASCRIPT.
+
+   Un défilement piloté en JS recalcule une position à chaque image : sur
+   Safari iOS, cela sort l'animation du compositeur et provoque exactement les
+   saccades qu'on veut éviter. Ici, une seule `transform` animée par mot-clé :
+   le compositeur s'en charge, le fil principal reste libre, et la bande
+   continue de défiler même pendant l'hydratation de React.
+
+   ⚠️ LA BOUCLE EST SANS RACCORD, ET VOICI LA CONDITION EXACTE.
+
+   La piste contient la liste des photos EXACTEMENT DEUX FOIS. L'animation la
+   translate de 0 à -50 % de SA PROPRE largeur, donc d'un nombre entier de
+   photos. À la fin du cycle, la seconde copie occupe précisément la place
+   qu'occupait la première : le retour à 0 est invisible. Dupliquer trois fois,
+   ou traduire d'une valeur en pixels, casserait le raccord.
+   --------------------------------------------------------------------------- */
+.bande {
+  /* Pleine largeur réelle. PAS `100vw` : sur desktop, 100vw inclut la largeur
+     de la barre de défilement et provoque un débordement horizontal du
+     document — exactement le défaut qu'on s'interdit. */
+  width: 100%;
+  overflow: hidden;
+  background: var(--brume);
+  /* Le défilement vertical de la page ne doit jamais être capturé ici. */
+  touch-action: pan-y;
+}
+
+.bande__piste {
+  display: flex;
+  width: max-content;
+  /* Aucun espace entre les photos : ni gap, ni marge, ni espace entre
+     éléments en ligne (les items sont `flex`, donc le problème des espaces
+     d'inline-block ne se pose pas). */
+  gap: 0;
+  animation: bande-defile var(--bande-duree, 70s) linear infinite;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+@keyframes bande-defile {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-50%, 0, 0); }
+}
+
+/* Pause au survol — uniquement là où un vrai survol existe. Sur un écran
+   tactile, `:hover` reste collé après un appui et figerait la bande. */
+@media (hover: hover) and (pointer: fine) {
+  .bande:hover .bande__piste { animation-play-state: paused; }
+}
+
+.bande__photo {
+  position: relative;
+  flex: 0 0 auto;
+  /* Carrés strictement identiques, du 320 px au grand écran. */
+  inline-size: var(--carre);
+  block-size: var(--carre);
+  overflow: hidden;
+}
+
+.bande {
+  --carre: clamp(150px, 30vw, 250px);
+}
+
+.bande__photo img {
+  display: block;        /* supprime l'espace sous l'image en ligne */
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Recadrage ajustable par photo, pour ne pas couper les visages. */
+  object-position: var(--cadrage, 50% 50%);
+}
+
+/* Accessibilité : on ne force personne à subir un mouvement perpétuel.
+   La bande devient alors une galerie que l'on fait défiler soi-même. */
+@media (prefers-reduced-motion: reduce) {
+  .bande__piste { animation: none; }
+  .bande {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --- 2. CONFIGURATEUR : CARTES DE FORMULE ------------------------------------ */
+.formule__choix { margin-top: auto; padding-top: 1.2rem; }
+
+.formule--choisie {
+  border-color: var(--encre);
+  box-shadow: 0 0 0 1px var(--encre);
+}
+
+.formule__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--encre);
+}
+
+.btn--bloc { width: 100%; justify-content: center; }
+
+.btn--fantome {
+  background: transparent;
+  color: var(--encre);
+  border: 1px solid var(--ligne);
+}
+.btn--fantome:hover { background: var(--papier); border-color: var(--encre); }
+
+/* --- 3. SUPPLÉMENTS ---------------------------------------------------------- */
+.supplements {
+  display: grid;
+  gap: clamp(0.9rem, 2vw, 1.2rem);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) { .supplements { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1000px) { .supplements { grid-template-columns: repeat(3, 1fr); } }
+
+.supplement {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  /* ⚠️ Zone tactile confortable : ces cartes SONT les boutons de sélection.
+     Un supplément qu'on rate du pouce est un supplément qu'on ne vend pas. */
+  min-height: 7.5rem;
+  padding: 1.3rem 1.4rem;
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.3s var(--ease), background 0.3s var(--ease),
+              transform 0.3s var(--ease);
+}
+.supplement:hover { border-color: var(--encre-douce); }
+.supplement:active { transform: scale(0.995); }
+.supplement:focus-visible { outline: 2px solid var(--encre); outline-offset: 3px; }
+
+.supplement[aria-pressed="true"] {
+  border-color: var(--encre);
+  background: var(--papier);
+  box-shadow: inset 0 0 0 1px var(--encre);
+}
+
+.supplement__titre {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  font-family: var(--font-display), serif;
+  font-size: 1.12rem;
+}
+
+.supplement__prix {
+  flex-shrink: 0;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gris);
+}
+
+.supplement__texte { font-size: 0.9rem; color: var(--encre-douce); line-height: 1.55; }
+
+/* Un supplément déjà compris dans la formule : montré, jamais facturé. */
+.supplement--inclus {
+  cursor: default;
+  background: var(--brume);
+  border-style: dashed;
+}
+.supplement--inclus:hover { border-color: var(--ligne); }
+
+.etiquette-incluse {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--encre);
+}
+
+/* --- 4. CARTE VIDÉASTE -------------------------------------------------------- */
+.videaste {
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  padding: clamp(1.6rem, 4vw, 2.6rem);
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+}
+@media (min-width: 900px) { .videaste { grid-template-columns: 1fr 1fr; align-items: center; } }
+
+.videaste__texte { display: grid; gap: 1rem; align-content: start; }
+.videaste__texte p { font-size: 0.95rem; line-height: 1.7; color: var(--encre-douce); }
+
+.videaste__media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--brume);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 1.5rem;
+}
+.videaste__media video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.videaste__attente {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--gris);
+  line-height: 1.8;
+}
+
+/* --- 5. RÉCAPITULATIF --------------------------------------------------------- */
+.recap {
+  display: grid;
+  gap: 0.75rem;
+  padding: clamp(1.3rem, 3vw, 1.8rem);
+  background: var(--papier);
+  border: 1px solid var(--ligne);
+}
+.recap__ligne {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.92rem;
+  color: var(--encre-douce);
+}
+.recap__ligne--total {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ligne);
+  color: var(--encre);
+  font-size: 1.05rem;
+}
+.recap__note { font-size: 0.82rem; color: var(--gris); line-height: 1.6; }
+
+/* --- 6. FORMULAIRE : CONFORT iPHONE -------------------------------------------
+   ⚠️ 16 px MINIMUM SUR LES CHAMPS.
+
+   En dessous, Safari iOS ZOOME automatiquement à la mise au point : la page
+   saute, l'utilisateur perd le fil et doit repincer pour revenir. Les champs
+   héritaient de `font: inherit`, donc d'une taille inférieure selon le
+   contexte. On fixe un plancher sans toucher au reste de la typographie.
+   --------------------------------------------------------------------------- */
+.formulaire input,
+.formulaire textarea,
+.formulaire select {
+  font-size: max(16px, 1rem);
+}
+
+.formulaire input[type="date"] {
+  /* Safari iOS rend les champs date en hauteur minuscule sans ceci. */
+  min-height: 2.9rem;
+  appearance: none;
+}
+
+/* --- 7. ANCRE DE SECTION ------------------------------------------------------
+   L'en-tête est fixe : sans décalage, un `scrollIntoView` place le titre de la
+   section SOUS la barre. `scroll-margin-top` réserve la hauteur de l'en-tête. */
+[id] { scroll-margin-top: clamp(5rem, 12vw, 7rem); }
+
+/* --- 8. CIBLES TACTILES DU PIED DE PAGE ---------------------------------------
+   ⚠️ 22 px DE HAUT, MESURÉS À L'ÉCRAN.
+
+   Les liens du pied de page tombaient juste sous le minimum de 24 × 24 px du
+   critère WCAG 2.2 « Target Size (Minimum) », niveau AA. L'écart est minime
+   mais il est réel, et sur un pouce il se traduit par des liens qu'on rate.
+   Un peu de remplissage vertical suffit : la mise en page ne bouge pas, la
+   cible passe au-dessus du seuil.
+   --------------------------------------------------------------------------- */
+.pied a {
+  display: inline-block;
+  padding-block: 0.15rem;
+  min-height: 24px;
+}
+
+/* =============================================================================
+   V3 — ADMINISTRATION
+   -----------------------------------------------------------------------------
+   Même système de design que le site public — mêmes variables, mêmes polices,
+   mêmes boutons — mais une densité plus forte : on y travaille, on ne s'y
+   promène pas. Mobile d'abord : l'essentiel des consultations se fera depuis
+   un iPhone, entre deux prestations.
+   ============================================================================= */
+
+.admin { min-height: 100dvh; background: var(--papier); }
+
+.admin-page {
+  width: min(100% - 2 * var(--gouttiere), 72rem);
+  margin-inline: auto;
+  padding-block: clamp(1.5rem, 5vw, 3rem);
+  display: grid;
+  /* ⚠️ `minmax(0, 1fr)` ET PAS LA COLONNE IMPLICITE.
+     Une colonne de grille implicite se dimensionne sur `max-content` : la
+     page faisait 350 px de large, sa colonne 1 700, et tout le contenu
+     débordait vers la droite sur iPhone. On ne le voyait pas parce que
+     chaque bloc, pris isolément, semblait correct — c'est la colonne qui
+     refusait de se réduire. Une colonne explicite borne la résolution, ici
+     et dans toutes les grilles imbriquées. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 2.5rem);
+  align-content: start;
+}
+
+.admin-entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.2rem;
+  border-bottom: 1px solid var(--ligne);
+}
+
+/* --- Connexion ---------------------------------------------------------------
+   `100dvh` et non `100vh` : sur Safari iOS, `vh` ignore la barre d'adresse
+   rétractable et la carte se retrouve coupée en bas. */
+.admin-connexion {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gouttiere);
+  background: var(--papier);
+}
+.admin-connexion__carte {
+  width: min(100%, 26rem);
+  padding: clamp(1.8rem, 6vw, 2.8rem);
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+
+.admin-alerte {
+  margin-top: 1.2rem;
+  padding: 0.85rem 1rem;
+  background: #fdf3f3;
+  border-left: 3px solid #9b2c2c;
+  color: #7a2222;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* --- Indicateurs -------------------------------------------------------------
+   `auto-fit` plutôt qu'un nombre de colonnes figé : de 1 colonne à 320 px
+   jusqu'à 4 sur grand écran, sans point de rupture à maintenir. */
+.admin-chiffres {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+}
+.admin-chiffre {
+  padding: 1.3rem 1.4rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+.admin-chiffre__valeur {
+  font-family: var(--font-display), serif;
+  font-size: clamp(2rem, 6vw, 2.6rem);
+  line-height: 1;
+  margin-bottom: 0.5rem;
+}
+
+/* --- Listes ------------------------------------------------------------------
+   En pile sur mobile, en ligne dès qu'il y a la place. Chaque entrée fait au
+   moins 3 rem de haut : on la touche du pouce sans viser. */
+.admin-liste { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: 0.6rem; }
+.admin-liste li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.1rem;
+  min-height: 3rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+  font-size: 0.92rem;
+}
+.admin-liste li strong { font-family: var(--font-display), serif; font-size: 1.05rem; }
+.admin-liste li span { color: var(--gris); }
+.admin-liste li form { margin-left: auto; }
+
+.btn--petit { padding: 0.55rem 1rem; font-size: 0.74rem; }
+
+.admin-nav { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+
+.admin select {
+  font: inherit;
+  font-size: max(16px, 1rem);
+  padding: 0.65rem 0;
+  border: 0;
+  border-bottom: 1px solid var(--ligne);
+  background: transparent;
+  border-radius: 0;
+}
+
+/* =============================================================================
+   V4 — DEMANDES
+   ============================================================================= */
+
+/* Filtres : une barre défilante sur mobile, en ligne dès qu'il y a la place.
+   `-webkit-overflow-scrolling` garde l'inertie de Safari iOS. */
+.admin-filtres {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.admin-filtres::-webkit-scrollbar { display: none; }
+
+.admin-filtre {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.6rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--ligne);
+  background: var(--blanc);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--encre-douce);
+  text-decoration: none;
+}
+.admin-filtre span {
+  min-width: 1.5rem;
+  padding: 0.1rem 0.4rem;
+  background: var(--brume);
+  text-align: center;
+}
+.admin-filtre.est-actif {
+  background: var(--encre);
+  color: var(--blanc);
+  border-color: var(--encre);
+}
+.admin-filtre.est-actif span { background: rgba(255, 255, 255, 0.18); }
+
+/* Cartes de demande : toute la carte est cliquable — sur un pouce, une
+   petite zone de lien au milieu d'un bloc se rate. */
+.admin-cartes { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.8rem; }
+@media (min-width: 900px) {
+  .admin-cartes { grid-template-columns: repeat(auto-fill, minmax(21rem, 1fr)); }
+}
+
+.admin-carte {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1.1rem 1.2rem;
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.3s var(--ease), transform 0.3s var(--ease);
+}
+.admin-carte:hover { border-color: var(--encre-douce); transform: translateY(-2px); }
+.admin-carte:focus-visible { outline: 2px solid var(--encre); outline-offset: 3px; }
+
+.admin-carte__haut {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+.admin-carte__haut strong { font-family: var(--font-display), serif; font-size: 1.1rem; }
+.admin-carte__ligne { font-size: 0.86rem; color: var(--gris); }
+.admin-carte__bas { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.admin-pastille {
+  flex-shrink: 0;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--ligne);
+  color: var(--gris);
+  white-space: nowrap;
+}
+.admin-pastille--non_lue { background: var(--encre); color: var(--blanc); border-color: var(--encre); }
+.admin-pastille--confirmee { border-color: #2f6b45; color: #2f6b45; }
+.admin-pastille--refusee, .admin-pastille--archivee { opacity: 0.55; }
+
+.admin-jeton {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 0.22rem 0.5rem;
+  background: var(--brume);
+  color: var(--encre-douce);
+}
+.admin-jeton--vif { background: var(--encre); color: var(--blanc); }
+
+/* Fiche : une colonne sur mobile, deux dès 1000 px. Le panneau d'actions
+   passe EN PREMIER sur mobile — changer un statut depuis un téléphone ne
+   doit pas demander de faire défiler toute la fiche. */
+.admin-colonnes { display: grid; gap: clamp(1rem, 3vw, 1.8rem); }
+@media (min-width: 1000px) {
+  .admin-colonnes { grid-template-columns: 1.6fr 1fr; align-items: start; }
+}
+.admin-colonne { display: grid; gap: clamp(1rem, 3vw, 1.8rem); align-content: start; }
+@media (max-width: 999px) {
+  .admin-colonnes > .admin-colonne:last-child { order: -1; }
+}
+
+.admin-bloc {
+  padding: clamp(1.2rem, 3vw, 1.7rem);
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+}
+.admin-bloc > h2 { margin-bottom: 1rem; }
+
+.admin-dl { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem 1.2rem; margin: 0; }
+.admin-dl dt {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gris);
+  padding-top: 0.15rem;
+}
+.admin-dl dd { margin: 0; font-size: 0.95rem; overflow-wrap: anywhere; }
+
+/* --- V5 : actions documentaires --------------------------------------------
+   En pile sur iPhone, alignées dès qu'il y a la place. Chaque bouton garde
+   une hauteur confortable : on génère un devis depuis un téléphone, entre
+   deux rendez-vous. */
+.admin-actions { display: grid; gap: 0.7rem; }
+.admin-ligne-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+}
+.admin-ligne-actions select,
+.admin-ligne-actions input[type="search"],
+.admin-ligne-actions input[type="text"] { flex: 1 1 11rem; min-height: 2.9rem; }
+/* Les champs de l'administration héritent du style des formulaires publics,
+   qui n'ont pas de bordure complète : dans une barre d'outils, il en faut
+   une, sinon le champ se confond avec le fond. */
+.admin-ligne-actions input[type="search"],
+.admin-ligne-actions input[type="text"] {
+  border: 1px solid var(--ligne); border-radius: 2px; background: var(--blanc);
+  padding: 0 0.8rem; font: inherit; font-size: 0.9rem; color: var(--encre);
+}
+.admin-ligne-actions input:focus-visible { outline: 2px solid var(--encre); outline-offset: 1px; }
+.admin-ligne-actions label { align-self: center; }
+.admin-ligne-actions button { flex: 0 0 auto; }
+
+/* Sur iPhone, le menu déroulant prend toute la largeur et le bouton passe
+   dessous : un « Générer » étroit, coincé à gauche sous un champ pleine
+   largeur, rompt l'alignement de la colonne. */
+@media (max-width: 560px) {
+  .admin-ligne-actions { flex-direction: column; align-items: stretch; }
+  .admin-ligne-actions select,
+  .admin-ligne-actions button { flex: 1 1 auto; width: 100%; }
+  .admin-ligne-actions button { justify-content: center; text-align: center; }
+}
+.admin-pastille--emis { border-color: #2f6b45; color: #2f6b45; }
+
+/* =============================================================================
+   V6 — FINANCES, SAISON, COLLABORATEURS
+   -----------------------------------------------------------------------------
+   Priorité au téléphone : on consulte son chiffre d'affaires entre deux
+   rendez-vous, pas devant un écran 27 pouces. Les tableaux financiers
+   deviennent des cartes en dessous de 720 px — aucun défilement horizontal,
+   aucune colonne tronquée.
+   ============================================================================= */
+
+/* --- Cartes de synthèse ---------------------------------------------------- */
+.admin-cartes-fin {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  margin-top: 1.5rem;
+}
+.admin-carte-fin {
+  background: var(--blanc);
+  border: 1px solid var(--ligne);
+  border-radius: 2px;
+  padding: 1.1rem 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+}
+.admin-carte-fin--fort { background: var(--encre); border-color: var(--encre); }
+.admin-carte-fin--fort .label,
+.admin-carte-fin--fort .admin-carte-fin__valeur { color: var(--blanc); }
+.admin-carte-fin--fort .admin-carte-fin__note { color: rgba(255, 255, 255, 0.62); }
+.admin-carte-fin--alerte { border-color: #9a4b32; }
+.admin-carte-fin--alerte .admin-carte-fin__valeur { color: #9a4b32; }
+.admin-carte-fin__valeur {
+  font-family: var(--font-display), serif;
+  font-size: clamp(1.5rem, 4.5vw, 1.9rem);
+  line-height: 1.1;
+  color: var(--encre);
+  font-variant-numeric: tabular-nums;
+}
+.admin-carte-fin__note { font-size: 0.76rem; color: var(--gris); line-height: 1.45; }
+
+/* --- Graphique mensuel, en CSS pur ----------------------------------------- */
+.admin-graph {
+  list-style: none;
+  margin: 1.2rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 0.25rem;
+  align-items: end;
+  min-height: 11rem;
+}
+.admin-graph__col { display: grid; gap: 0.3rem; justify-items: center; }
+.admin-graph__barres {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 8rem;
+  width: 100%;
+  justify-content: center;
+}
+.admin-graph__barre { width: 32%; min-height: 0; border-radius: 1px 1px 0 0; }
+.admin-graph__barre--encaisse { background: var(--encre); }
+.admin-graph__barre--facture  { background: var(--gris); }
+.admin-graph__barre--prevu    { background: var(--ligne); border: 1px solid var(--gris); }
+.admin-graph__mois { font-size: 0.65rem; color: var(--gris); letter-spacing: 0.04em; }
+.admin-graph__valeur {
+  font-size: 0.6rem; color: var(--encre-douce); font-variant-numeric: tabular-nums;
+}
+.admin-legende {
+  display: flex; flex-wrap: wrap; gap: 0.4rem 1rem;
+  margin-top: 0.9rem; font-size: 0.76rem; color: var(--gris);
+  align-items: center;
+}
+.admin-legende__puce { width: 0.7rem; height: 0.7rem; display: inline-block; margin-right: 0.3rem; }
+.admin-legende__puce--encaisse { background: var(--encre); }
+.admin-legende__puce--facture  { background: var(--gris); }
+.admin-legende__puce--prevu    { background: var(--ligne); border: 1px solid var(--gris); }
+
+/* --- Tableau financier ------------------------------------------------------ */
+.admin-tableau-enroule { margin-top: 1rem; }
+.admin-tableau { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.admin-tableau__legende {
+  caption-side: top; text-align: left; font-size: 0.78rem;
+  color: var(--gris); padding-bottom: 0.8rem; line-height: 1.5;
+}
+.admin-tableau th, .admin-tableau td {
+  padding: 0.65rem 0.6rem; border-bottom: 1px solid var(--ligne); text-align: left;
+  vertical-align: top;
+}
+.admin-tableau thead th {
+  font-family: var(--font-sans), sans-serif; font-size: 0.68rem;
+  text-transform: uppercase; letter-spacing: 0.16em; color: var(--gris);
+  font-weight: 400; border-bottom-color: var(--encre-douce);
+}
+.admin-tableau .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-tableau .num--du { color: #9a4b32; }
+.admin-tableau__sous { display: block; font-size: 0.72rem; color: var(--gris); }
+
+/* ⚠️ EN DESSOUS DE 720 px, LE TABLEAU DEVIENT DES CARTES.
+   Un tableau à six colonnes sur un iPhone, c'est soit un défilement
+   horizontal, soit des chiffres coupés. Chaque cellule reprend ici son
+   intitulé via `data-libelle`. */
+@media (max-width: 720px) {
+  .admin-tableau, .admin-tableau tbody, .admin-tableau tr, .admin-tableau td,
+  .admin-tableau th { display: block; }
+  /* ⚠️ LA LÉGENDE AUSSI. Restée en `table-caption`, elle se calait sur la
+     largeur du tableau devenu bloc et sortait en colonne d'un mot. */
+  .admin-tableau__legende { display: block; width: 100%; }
+  .admin-tableau thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .admin-tableau tr {
+    background: var(--blanc); border: 1px solid var(--ligne);
+    border-radius: 2px; padding: 0.9rem 1rem; margin-bottom: 0.7rem;
+  }
+  .admin-tableau th, .admin-tableau td { border-bottom: 0; padding: 0.22rem 0; }
+  .admin-tableau td::before {
+    content: attr(data-libelle) " ";
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--gris); margin-right: 0.5rem;
+  }
+  .admin-tableau td {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 1rem;
+  }
+  .admin-tableau .num { text-align: right; }
+  .admin-graph { grid-template-columns: repeat(6, 1fr); row-gap: 1.2rem; }
+}
+
+/* --- Puces de filtre -------------------------------------------------------- */
+.admin-puce {
+  display: inline-block; padding: 0.42rem 0.85rem;
+  border: 1px solid var(--ligne); border-radius: 999px;
+  font-size: 0.78rem; color: var(--encre-douce); text-decoration: none;
+  white-space: nowrap; background: var(--blanc);
+}
+.admin-puce:hover { border-color: var(--encre-douce); }
+.admin-puce--active { background: var(--encre); color: var(--blanc); border-color: var(--encre); }
+
+/* --- Calendrier de saison --------------------------------------------------- */
+.admin-calendrier {
+  display: grid; gap: 1.2rem; margin-top: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+}
+.admin-mois {
+  background: var(--blanc); border: 1px solid var(--ligne);
+  border-radius: 2px; padding: 1rem;
+}
+.admin-mois__titre {
+  font-family: var(--font-display), serif; font-size: 1.05rem;
+  margin: 0 0 0.7rem; color: var(--encre);
+}
+.admin-mois__grille { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.admin-mois__entete {
+  font-size: 0.6rem; color: var(--gris); text-align: center; padding-bottom: 0.2rem;
+}
+.admin-mois__vide { min-height: 2rem; }
+.admin-mois__jour {
+  min-height: 2rem; padding: 0.15rem; border: 1px solid transparent;
+  display: block; font-size: 0.68rem; color: var(--gris);
+}
+.admin-mois__jour--pris {
+  background: var(--brume); border-color: var(--ligne); border-radius: 2px;
+}
+.admin-mois__num { display: block; text-align: right; }
+.admin-mois__event {
+  display: block; font-size: 0.56rem; line-height: 1.2; color: var(--encre);
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; border-top: 1px solid var(--ligne); padding-top: 0.1rem;
+}
+.admin-mois__event:hover { text-decoration: underline; }
+
+/* --- Liste de saison --------------------------------------------------------- */
+.admin-saison {
+  list-style: none; margin: 1rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.7rem;
+}
+.admin-saison__item {
+  display: grid; gap: 0.6rem 1rem; align-items: start;
+  grid-template-columns: 3.4rem 1fr;
+  background: var(--blanc); border: 1px solid var(--ligne);
+  border-radius: 2px; padding: 0.9rem 1rem;
+}
+.admin-saison__date {
+  display: grid; justify-items: center; align-content: start;
+  background: var(--brume); border-radius: 2px; padding: 0.4rem 0;
+}
+.admin-saison__jour { font-family: var(--font-display), serif; font-size: 1.4rem; line-height: 1; }
+.admin-saison__mois { font-size: 0.62rem; color: var(--gris); text-transform: lowercase; }
+.admin-saison__corps { min-width: 0; overflow-wrap: anywhere; }
+.admin-saison__nom {
+  font-family: var(--font-display), serif; font-size: 1.1rem;
+  color: var(--encre); text-decoration: none;
+}
+.admin-saison__nom:hover { text-decoration: underline; }
+.admin-saison__meta {
+  font-size: 0.8rem; color: var(--gris); margin: 0.25rem 0 0;
+  display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;
+}
+.admin-saison__argent {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.3rem 1.4rem;
+  margin: 0.4rem 0 0; padding-top: 0.6rem; border-top: 1px solid var(--ligne);
+}
+.admin-saison__argent div { display: flex; gap: 0.4rem; align-items: baseline; }
+.admin-saison__argent dt {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--gris);
+}
+.admin-saison__argent dd {
+  margin: 0; font-variant-numeric: tabular-nums; font-size: 0.9rem; color: var(--encre);
+}
+.admin-saison__annonce { font-size: 0.68rem; color: var(--gris); }
+
+@media (min-width: 860px) {
+  .admin-saison__item { grid-template-columns: 3.4rem 1fr auto; }
+  .admin-saison__argent {
+    grid-column: auto; border-top: 0; padding-top: 0; margin: 0;
+    flex-direction: column; gap: 0.3rem; text-align: right; align-items: flex-end;
+  }
+}
+
+/* --- Paiements -------------------------------------------------------------- */
+.admin-paiements {
+  list-style: none; margin: 0.8rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
+.admin-paiement {
+  border: 1px solid var(--ligne); border-radius: 2px; padding: 0.7rem 0.85rem;
+  display: grid; gap: 0.3rem; background: var(--blanc);
+}
+.admin-paiement--declare { border-style: dashed; }
+.admin-paiement--remboursement { border-color: #9a4b32; }
+.admin-paiement--annule { opacity: 0.5; }
+.admin-paiement__haut {
+  display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline;
+  justify-content: space-between;
+}
+.admin-paiement__montant { font-variant-numeric: tabular-nums; font-size: 1rem; }
+.admin-paiement__meta { font-size: 0.74rem; color: var(--gris); }
+.admin-paiement__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.admin-paiement__actions form { display: contents; }
+
+.admin-grille-champs { display: grid; gap: 0.7rem; grid-template-columns: 1fr 1fr; }
+.admin-grille-champs > .pleine { grid-column: 1 / -1; }
+@media (max-width: 560px) { .admin-grille-champs { grid-template-columns: 1fr; } }
+
+/* --- Notifications ----------------------------------------------------------- */
+.admin-notifs {
+  list-style: none; margin: 1rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
+.admin-notif {
+  border: 1px solid var(--ligne); border-left-width: 3px; border-radius: 2px;
+  padding: 0.75rem 0.9rem; background: var(--blanc); display: grid; gap: 0.2rem;
+}
+.admin-notif--neuve { border-left-color: var(--encre); background: var(--brume); }
+.admin-notif__titre { font-size: 0.95rem; color: var(--encre); }
+.admin-notif__meta { font-size: 0.72rem; color: var(--gris); }
+
+/* =============================================================================
+   V7 — MESSAGERIE
+   -----------------------------------------------------------------------------
+   Le fil doit se lire d'un pouce. Les trois natures de message se
+   distinguent sans couleur criarde : un entrant à gauche, un sortant à
+   droite, une note interne encadrée et teintée — visuellement, elle ne
+   ressemble à rien de ce qui part.
+   ============================================================================= */
+.admin-conversations {
+  list-style: none; margin: 1.2rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
+.admin-conv { min-width: 0; overflow-wrap: anywhere; }
+.admin-conv {
+  display: grid; gap: 0.25rem; padding: 0.9rem 1rem; text-decoration: none;
+  background: var(--blanc); border: 1px solid var(--ligne); border-radius: 2px;
+  border-left-width: 3px; border-left-color: var(--ligne); color: var(--encre-douce);
+}
+.admin-conv:hover { border-color: var(--encre-douce); }
+.admin-conv--neuve { border-left-color: var(--encre); background: var(--brume); }
+.admin-conv__haut { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+.admin-conv__nom { font-family: var(--font-display), serif; font-size: 1.05rem; color: var(--encre); }
+.admin-conv__quand { font-size: 0.72rem; color: var(--gris); white-space: nowrap; }
+.admin-conv__sujet { font-size: 0.9rem; color: var(--encre); }
+.admin-conv__apercu {
+  font-size: 0.8rem; color: var(--gris); overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.admin-conv__bas { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+.admin-pastille--client { border-color: #2f6b45; color: #2f6b45; }
+.admin-pastille--partagee { border-color: #4a5a7a; color: #4a5a7a; }
+.admin-pastille--interne { border-color: #9a4b32; color: #9a4b32; }
+
+/* ⚠️ `minmax(0, 1fr)` ET PAS LA COLONNE IMPLICITE.
+   Une colonne de grille implicite se dimensionne sur `max-content` : la
+   bulle demandait `max-width: 100%`, ce 100% se résolvait contre une colonne
+   elle-même dictée par le texte, et la page partait à 1 700 px de large sur
+   un iPhone de 390. Une colonne explicite borne la résolution. */
+.admin-fil {
+  list-style: none; margin: 1.2rem 0 2rem; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem;
+}
+.admin-bulle {
+  background: var(--blanc); border: 1px solid var(--ligne); border-radius: 2px;
+  padding: 0.9rem 1rem; max-width: min(100%, 44rem); min-width: 0;
+  /* Une adresse ou une URL collée par un client n'a pas d'espace où se
+     couper : sans cela, elle déborde seule. */
+  overflow-wrap: anywhere;
+}
+.admin-bulle--entrant { justify-self: start; border-left: 3px solid var(--encre); }
+.admin-bulle--sortant { justify-self: end; background: var(--brume); }
+/* ⚠️ UNE NOTE INTERNE NE DOIT PAS RESSEMBLER À UN MESSAGE ENVOYÉ. */
+.admin-bulle--interne {
+  justify-self: stretch; border-style: dashed; border-color: #9a4b32;
+  background: #fdf8f6;
+}
+.admin-bulle--neuve { box-shadow: inset 3px 0 0 var(--encre); }
+.admin-bulle__entete {
+  font-size: 0.78rem; color: var(--gris); display: flex; flex-wrap: wrap;
+  gap: 0.4rem; align-items: baseline; margin-bottom: 0.5rem;
+}
+.admin-bulle__entete strong { color: var(--encre); font-size: 0.86rem; }
+.admin-bulle__quand { margin-left: auto; }
+.admin-bulle__corps p { margin: 0 0 0.5rem; line-height: 1.55; font-size: 0.92rem; }
+.admin-bulle__corps p:last-child { margin-bottom: 0; }
+.admin-bulle__pieces, .admin-bulle__pied {
+  display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.6rem 0 0;
+}
+.admin-bulle__erreur { font-size: 0.75rem; color: #9a4b32; }
+
+.admin-case {
+  display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.86rem;
+  padding: 0.25rem 0;
+}
+.admin-etapes { margin: 1rem 0 0 1.1rem; padding: 0; display: grid; gap: 0.6rem; }
+.admin-etapes li { font-size: 0.86rem; line-height: 1.55; color: var(--encre-douce); }
+.admin-alerte--neutre { border-color: var(--ligne); background: var(--brume); color: var(--encre-douce); }
+.admin code {
+  font-size: 0.85em; background: var(--brume); padding: 0.1em 0.35em;
+  border-radius: 2px; word-break: break-all;
+}
+
+@media (max-width: 560px) {
+  .admin-bulle { max-width: 100%; }
+  .admin-bulle--entrant, .admin-bulle--sortant { justify-self: stretch; }
+}
