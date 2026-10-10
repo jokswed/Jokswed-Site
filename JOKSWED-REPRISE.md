@@ -54,7 +54,7 @@ Services déjà créés par John : projet **Neon** `jokswed` (branches
 | 5 | `npm run verifier:prod -- <url-preview>` | Claude |
 | 6 | Parcours manuel : accueil, formulaire, /admin, demande, document, finances, messagerie, iPhone | Claude |
 | 7 | `/admin/amorcage?cle=…`, puis **retirer le secret** | **John** |
-| 8 | Même chose sur la branche Neon `production` | Claude + John |
+| 8 | ~~Branche Neon `production`~~ | **fait** : 56 paliers, 10/10 contrôles de préparation, 8/8 contrôles en lecture seule, base vide de toute donnée |
 | 9 | Validation explicite, puis fusion `preview` → `main` | **John** décide |
 | 10 | Inviter Yvann depuis `/admin/collaborateurs` | **John** |
 
@@ -90,3 +90,31 @@ environnement.
 - Chaque correction de défaut s'accompagne d'une assertion de banc qui
   échouerait sans elle.
 - Les migrations ne se réécrivent jamais une fois appliquées en production.
+
+## État au 10 octobre 2026
+
+| | |
+|---|---|
+| Preview | opérationnelle. Compte propriétaire `jokswed@gmail.com` créé, MFA activé, invitation d'Yvann préparée **non envoyée**. Rôle modèle `parrain` reposé après un `TRUNCATE` malheureux. |
+| Neon `production` | prête. 56 paliers, 64 politiques, 4 rôles aux mots de passe distincts de Preview, **0 utilisateur, 0 demande, 0 document** — aucune donnée fictive. |
+| Variables | `~/.config/jokswed/vercel-production.env` (droits 600, 12 variables, `EMAIL_DRY_RUN=1`). Manque `BREVO_API_KEY`. |
+| `jokswed.com` | **inchangé** : toujours l'ancienne version, servie depuis `main`. |
+| EyesofJoks | jamais touché. |
+
+### Ce qui reste, et qui n'appartient qu'à John
+
+1. Coller les 12 variables + `BREVO_API_KEY` dans Vercel, environnement **Production uniquement**.
+2. **Autoriser** la fusion `preview` → `main` — c'est le remplacement du site.
+3. `JOKSWED_AMORCAGE` en Production, créer le compte, **retirer la clé**.
+4. Retirer `EMAIL_DRY_RUN` : c'est l'activation réelle de Brevo.
+5. Inviter Yvann depuis `/admin/collaborateurs`.
+
+### Commandes utiles
+
+```bash
+npm run neon:production       # prépare la branche production (idempotent, refuse d'écraser)
+npm run vercel:production     # (re)compose les variables Production
+npm run verifier:neon-prod    # 8 contrôles, lecture seule, aucune écriture
+npm run verifier:prod -- URL  # 28 contrôles externes sur une URL déployée
+npm run preparer:preview      # reconstruit la branche `preview` depuis la branche de travail
+```
