@@ -128,7 +128,9 @@ export async function deposerDemande(charge: ChargeDemande): Promise<ResultatDep
   const chargeUtile = {
     cle_idempotence: charge.cleIdempotence,
     entreprise_slug: "jokswed",
-    partenaire_video_slug: "videaste-partenaire",
+    // Slug configurable sans modifier le code. Le script partenaire crée "yvann-cretinoir".
+    // Les autres métiers restent affectables manuellement dans la fiche demande.
+    partenaire_video_slug: process.env.JOKSWED_PARTENAIRE_VIDEO_SLUG || "yvann-cretinoir",
     origine: charge.origine ?? "formulaire_public",
     contact_nom: charge.contactNom,
     contact_email: charge.contactEmail,

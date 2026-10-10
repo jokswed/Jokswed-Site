@@ -313,3 +313,82 @@ export function invitationCollaborateur(donnees: {
     ].join("\n"),
   };
 }
+
+
+/* ───────────────────── TARIFS SUR DEMANDE ─────────────────────
+   Bouton explicite de la fiche : aucun envoi automatique de tarifs.
+   Le partenaire facture séparément ; l'adresse de réponse de l'expéditeur
+   technique est celle de JoksWed jusqu'à ce que le routage e-mail soit validé.
+   Données tarifaires vidéo : devis DON YC communiqué le 10 octobre 2026.
+   Les tarifs photo sont ceux du catalogue public en vigueur. */
+import { formules, formaterPrix, tarifsDonYC } from "@/content/offres";
+
+function ligneTarif(nom: string, prix: string, detail: string): string {
+  return `<tr><td style="padding:15px 0;border-bottom:1px solid ${LIGNE};vertical-align:top">
+    <strong style="display:block;font-family:Georgia,serif;font-size:19px;font-weight:400;color:${ENCRE}">${echapper(nom)}</strong>
+    <span style="display:block;font-family:Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:${GRIS}">${echapper(detail)}</span>
+    </td><td style="padding:15px 0 15px 16px;border-bottom:1px solid ${LIGNE};vertical-align:top;text-align:right;white-space:nowrap;font-family:Georgia,serif;font-size:19px;color:${ENCRE}">${echapper(prix)}</td></tr>`;
+}
+
+export function tarifsSurDemande(donnees: {
+  nom: string;
+  reference: string;
+  nature: "photo" | "video";
+}): Gabarit {
+  const video = donnees.nature === "video";
+  const titre = video ? "Votre reportage vidéo" : "Votre reportage photo";
+  const introduction = video
+    ? "Notre vidéaste partenaire DON YC (Yvann) vous présente sa prestation, facturée séparément de la photographie."
+    : "Voici les trois formules JoksWed pour immortaliser votre mariage.";
+  const lignes = video ? [
+    ligneTarif("Film de mariage · 12 h", `Dès ${formaterPrix(tarifsDonYC.reportageCents)}`, "Un film de 3 à 5 min et un film cinématique de 45 s à 1 min 30, en Full HD ou 4K Ultra HD."),
+    ligneTarif("Heure supplémentaire", `+${formaterPrix(tarifsDonYC.heureSupplementaireCents)}`, "Possible jusqu'à 2 h du matin."),
+    ligneTarif("Déplacement hors Île-de-France", `+${formaterPrix(tarifsDonYC.deplacementHorsIdfCents)}`, "Une heure de présence offerte, soit 13 h au total."),
+    ligneTarif("Déplacement au-delà de 150 km", `+${formaterPrix(tarifsDonYC.deplacementLongueDistanceCents)}`, "Trois heures de présence offertes, soit 15 h au total."),
+    ligneTarif("Rushes stabilisés et étalonnés", `+${formaterPrix(tarifsDonYC.rushesCents)}`, "Stabilisation, correction des couleurs et livraison des fichiers."),
+  ] : formules.filter((f) => f.visible).map((f) =>
+    ligneTarif(`${f.nom} · ${f.dureeTexte}`, formaterPrix(f.prixCents), f.inclus.join(" · ")));
+  const tableau = `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:12px 0 20px">${lignes.join("")}</table>`;
+  const complement = video
+    ? paragraphe("Les frais de déplacement ne se cumulent pas : seul le tarif correspondant à la distance la plus élevée s'applique.")
+      + paragraphe('Découvrez le travail de DON YC sur <a style="color:#141312" href="https://www.instagram.com/_don_yc_/">Instagram @_don_yc_</a>.')
+    : paragraphe("Les déplacements en France métropolitaine sont inclus. Les options complémentaires restent à chiffrer sur devis.");
+  const texte = video ? [
+    "DON YC — Vidéaste partenaire JoksWed",
+    `Film 12 h, 3–5 min + film cinématique 45 s–1 min 30, Full HD ou 4K : dès ${formaterPrix(tarifsDonYC.reportageCents)}.`,
+    `Heure supplémentaire : +${formaterPrix(tarifsDonYC.heureSupplementaireCents)}/h (jusqu'à 2 h du matin).`,
+    `Hors Île-de-France : +${formaterPrix(tarifsDonYC.deplacementHorsIdfCents)}, 1 h offerte (13 h).`,
+    `Au-delà de 150 km : +${formaterPrix(tarifsDonYC.deplacementLongueDistanceCents)}, 3 h offertes (15 h).`,
+    "Déplacements non cumulables : la distance la plus élevée détermine le tarif.",
+    `Rushes stabilisés et corrigés : +${formaterPrix(tarifsDonYC.rushesCents)}.`,
+    "Instagram : https://www.instagram.com/_don_yc_/",
+  ] : formules.filter((f) => f.visible).map((f) =>
+    `${f.nom} — ${formaterPrix(f.prixCents)} — ${f.dureeTexte} : ${f.inclus.join(" ; ")}`);
+  return {
+    sujet: `${video ? "DON YC · Tarifs vidéo" : "JoksWed · Tarifs photo"} — votre mariage`,
+    html: enveloppe({
+      preEntete: `Tarifs ${video ? "vidéo" : "photo"} pour votre mariage — référence ${donnees.reference}`,
+      titre,
+      corps: [
+        paragraphe(`Bonjour ${echapper(donnees.nom)},`),
+        paragraphe(introduction),
+        tableau,
+        complement,
+        paragraphe("Ces tarifs sont indicatifs : disponibilité et prestation seront confirmées par un devis personnalisé. Votre date n'est pas encore réservée."),
+        paragraphe(video
+          ? "Au plaisir d'échanger avec vous,<br>Yvann — DON YC"
+          : "Au plaisir d'échanger avec vous,<br>John — JoksWed"),
+      ].join(""),
+      bouton: { libelle: "Découvrir JoksWed", lien: "https://jokswed.com/tarifs" },
+      pied: video
+        ? "Tarifs de DON YC, vidéaste indépendant partenaire de JoksWed. La prestation vidéo et la facturation sont séparées. Pour répondre, utilisez votre messagerie habituelle."
+        : "JoksWed — photographie de mariage. Pour répondre, utilisez votre messagerie habituelle.",
+    }),
+    texte: [
+      `Bonjour ${donnees.nom},`, "", introduction, "", ...texte,
+      "", "Disponibilité et prestation à confirmer sur devis. La date n'est pas réservée.",
+      `Référence de votre demande : ${donnees.reference}`,
+      "", video ? "Yvann — DON YC" : "John — JoksWed",
+    ].join("\n"),
+  };
+}

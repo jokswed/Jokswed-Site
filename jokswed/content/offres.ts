@@ -335,6 +335,15 @@ export const videastePartenaire = {
   apercuMiniature: null as string | null,
 } as const;
 
+/* Tarifs DON YC / Yvann : source centrale, à partir de son PDF fourni. */
+export const tarifsDonYC = {
+  reportageCents: 100_000,
+  heureSupplementaireCents: 10_000,
+  deplacementHorsIdfCents: 10_000,
+  deplacementLongueDistanceCents: 30_000,
+  rushesCents: 30_000,
+} as const;
+
 /* ──────────────────────────────── UTILITAIRES ─────────────────────────────── */
 
 /** « 1 300 € » — format public, sans décimales quand le montant est rond. */

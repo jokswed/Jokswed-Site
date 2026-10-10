@@ -90,6 +90,7 @@ try {
   await migrer(urlMigrateur(base), { silencieux: true });
   fixtures = await semer(urlMigrateur(base), { silencieux: true });
 
+  process.env.JOKSWED_PARTENAIRE_VIDEO_SLUG = "videaste-partenaire";
   serveur = spawn("npx", ["next", "start", "--port", String(PORT)], {
     cwd: new URL("..", import.meta.url).pathname,
     env: {

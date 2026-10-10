@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
 import { formaterDateSql } from "@/lib/dates";
 import { formaterPrix } from "@/content/offres";
+import { tarifsSurDemande } from "@/lib/email/gabarits";
+import { envoyer, adresseDeReponse } from "@/lib/email/fournisseur";
 import {
   genererDevisDepuisDemande, genererContratDepuisDevis,
   genererFactureDepuisDevis, genererAvoir, rendrePdf,
@@ -19,8 +21,9 @@ const STATUTS = [
   "en_cours_devis", "devis_envoye", "confirmee", "refusee", "archivee",
 ];
 
-export default async function FicheDemande({ params }) {
+export default async function FicheDemande({ params, searchParams }) {
   const { id } = await params;
+  const retourEnvoi = (await searchParams)?.tarifs;
   const { session, entreprise } = await contexteAdmin();
   const acces = await accesPage(entreprise.id, ["dossier.lire"]);
 
@@ -181,6 +184,53 @@ export default async function FicheDemande({ params }) {
       q(`INSERT INTO notes_internes (entreprise_id, demande_id, auteur_id, corps)
          VALUES ($1,$2,$3,$4)`, [e.id, id, s.utilisateurId, corps.slice(0, 5000)]));
     revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Envoi explicite des tarifs, jamais automatique ──
+     La permission et la propriété de la demande sont revérifiées AU CLIC.
+     Aucun contact client n'est transmis au navigateur pour cette opération.
+     En mode dry run, la réponse "inhibe" est affichée sans envoyer d'e-mail. */
+  async function envoyerTarifs(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const nature = String(formulaire.get("nature") ?? "");
+    if (nature !== "photo" && nature !== "video") throw new Error("Type de tarifs invalide");
+    const cible = await a.executer(async (q) => {
+      const { rows } = await q(
+        `SELECT d.contact_nom, d.contact_email, d.reference, d.video_demandee
+           FROM demandes d WHERE d.id = $1 AND d.entreprise_destinataire_id = $2`,
+        [id, e.id]);
+      if (!rows[0]) return null;
+      const { rows: consentements } = await q(
+        `SELECT 1 FROM consentements WHERE demande_id = $1
+           AND finalite = 'reponse_demande' AND accorde = true`, [id]);
+      if (!consentements.length) return null;
+      if (nature === "video" && !rows[0].video_demandee) return null;
+      return rows[0];
+    });
+    if (!cible) throw new Error("Demande, prestation ou consentement non autorisé");
+    const modele = tarifsSurDemande({
+      nom: cible.contact_nom, reference: cible.reference, nature,
+    });
+    const reponseVideo = process.env.JOKSWED_EMAIL_VIDEASTE_REPONSE?.trim();
+    if (nature === "video" && (!reponseVideo || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reponseVideo))) {
+      throw new Error("Adresse de réponse du vidéaste non configurée : JOKSWED_EMAIL_VIDEASTE_REPONSE");
+    }
+    const resultat = await envoyer({
+      destinataire: cible.contact_email,
+      destinataireNom: cible.contact_nom,
+      sujet: modele.sujet,
+      html: modele.html,
+      texte: modele.texte,
+      repondreA: nature === "video" ? reponseVideo : adresseDeReponse(),
+      etiquettes: ["jokswed", `tarifs-${nature}`],
+    });
+    await a.executer((q) => tracer(q, s.utilisateurId, e.id,
+      "tarifs.envoi", "demande", id, null,
+      { nature, statut: resultat.statut, fournisseur: resultat.fournisseur }));
+    if (resultat.statut === "echoue") throw new Error("L'envoi Brevo a échoué ; aucun tarif n'a été confirmé au client.");
+    redirect(`/admin/demandes/${id}?tarifs=${resultat.statut}`);
   }
 
   /* ── Confirmation : la demande devient un mariage et un dossier ── */
@@ -697,6 +747,33 @@ export default async function FicheDemande({ params }) {
               </ul>
             ) : null}
           </section>
+
+          {peutEcrire ? (
+            <section className="admin-bloc">
+              <h2 className="display t-carte">Envoyer les tarifs</h2>
+              <p className="recap__note">
+                E-mail HTML JoksWed, avec réponse dirigée vers la boîte de contact actuelle.
+                Les tarifs vidéo de DON YC sont présentés à part ; le vidéaste facture sa prestation.
+              </p>
+              {retourEnvoi === "inhibe" ? (
+                <p className="admin-alerte">Simulation effectuée : EMAIL_DRY_RUN est actif, aucun e-mail n'est parti.</p>
+              ) : retourEnvoi === "envoye" ? (
+                <p className="admin-pastille admin-pastille--emis">E-mail accepté par le fournisseur (livraison non garantie).</p>
+              ) : null}
+              <div className="admin-actions" style={{ marginTop: "1rem" }}>
+                <form action={envoyerTarifs}>
+                  <input type="hidden" name="nature" value="photo" />
+                  <button type="submit" className="btn btn--fantome">Envoyer les tarifs photo</button>
+                </form>
+                {demande.video_demandee ? (
+                  <form action={envoyerTarifs}>
+                    <input type="hidden" name="nature" value="video" />
+                    <button type="submit" className="btn btn--fantome">Envoyer les tarifs de DON YC</button>
+                  </form>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
 
           <section className="admin-bloc">
             <h2 className="display t-carte">Documents</h2>

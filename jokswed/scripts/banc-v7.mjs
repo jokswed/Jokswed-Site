@@ -77,6 +77,7 @@ try {
   const ASSISTANT = f.utilisateurs.assistant;
 
   process.env.DATABASE_URL_APP = urlMigrateur(base);
+  process.env.JOKSWED_PARTENAIRE_VIDEO_SLUG = "videaste-partenaire";
   process.env.JOKSWED_CHIFFREMENT_CLE ??= Buffer.alloc(32, 7).toString("base64");
   process.env.JOKSWED_DOMAINE_REPONSE = DOMAINE_REPONSE;
   process.env.EMAIL_FOURNISSEUR = "simule";

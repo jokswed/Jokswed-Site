@@ -87,6 +87,7 @@ try {
      1. TROIS MARIAGES, DÉPOSÉS PAR LA VRAIE CHAÎNE
      ═══════════════════════════════════════════════════════════════════════ */
   process.env.DATABASE_URL_APP = urlMigrateur(base);
+  process.env.JOKSWED_PARTENAIRE_VIDEO_SLUG = "videaste-partenaire";
   process.env.JOKSWED_CHIFFREMENT_CLE ??= Buffer.alloc(32, 7).toString("base64");
   const { deposerDemande } = await import("../lib/demandes/depot.ts");
   const gen = await import("../lib/documents/generer.ts");
