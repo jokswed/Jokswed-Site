@@ -86,7 +86,7 @@ export default async function Collaborateurs() {
     }
     if (
       email.length > 254 ||
-      !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     ) {
       throw new Error("Adresse e-mail du partenaire invalide");
     }
