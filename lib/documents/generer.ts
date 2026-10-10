@@ -210,9 +210,22 @@ export async function genererContratDepuisDevis(
   const source = devis[0];
   const inst = source.instantane as InstantaneCommercial;
 
-  const { rows: demandes } = await q(
-    "SELECT * FROM demandes WHERE id = $1", [source.demande_id]);
-  const demande = demandes[0];
+  /* ⚠️ UN DEVIS N'A PAS FORCÉMENT DE DEMANDE DERRIÈRE LUI.
+     Celui d'un collaborateur pend à SON dossier : il n'a jamais reçu de
+     soumission du formulaire public. On retombe alors sur l'instantané du
+     devis, qui porte déjà tout ce dont le contrat a besoin. */
+  const { rows: demandes } = source.demande_id
+    ? await q("SELECT * FROM demandes WHERE id = $1", [source.demande_id])
+    : { rows: [] };
+  const demande = demandes[0] ?? {
+    contact_nom: inst.client?.nom ?? "Les clients",
+    contact_email: inst.client?.email ?? null,
+    contact_telephone: inst.client?.telephone ?? null,
+    date_mariage: null,
+    lieu: inst.lignes?.[0]?.lieu ?? null,
+    ville: null,
+    instantane: null,
+  };
 
   const { rows: entreprises } = await q(
     "SELECT * FROM entreprises WHERE id = $1", [entrepriseId]);
@@ -262,11 +275,11 @@ export async function genererContratDepuisDevis(
   };
 
   const { rows: cree } = await q(
-    `INSERT INTO documents (entreprise_id, demande_id, type, statut, devis_source_id,
+    `INSERT INTO documents (entreprise_id, demande_id, dossier_id, type, statut, devis_source_id,
                             total_ht_cents, total_tva_cents, total_ttc_cents,
                             instantane, cree_par)
-     VALUES ($1,$2,'contrat','brouillon',$3,$4,$5,$6,$7::jsonb,$8) RETURNING id`,
-    [entrepriseId, source.demande_id, devisId, source.total_ht_cents,
+     VALUES ($1,$2,$3,'contrat','brouillon',$4,$5,$6,$7,$8::jsonb,$9) RETURNING id`,
+    [entrepriseId, source.demande_id, source.dossier_id, devisId, source.total_ht_cents,
      source.total_tva_cents, source.total_ttc_cents,
      JSON.stringify(instantaneContrat), acteurId]);
 
@@ -303,10 +316,14 @@ export async function genererFactureDepuisDevis(
 
   const { rows: echeances } = await q(
     "SELECT * FROM echeances WHERE document_id = $1 ORDER BY ordre", [devisId]);
+  /* ⚠️ LA SITUATION PART DU DEVIS, PAS DE LA DEMANDE.
+     `situation_devis` suit l'ancrage du document — demande ou dossier — et
+     rend les mêmes quatre mesures des deux côtés. */
   const { rows: situation } = await q(
-    "SELECT * FROM app.situation_financiere($1)", [source.demande_id]);
-  const { rows: demandes } = await q(
-    "SELECT date_mariage FROM demandes WHERE id = $1", [source.demande_id]);
+    "SELECT * FROM app.situation_devis($1)", [devisId]);
+  const { rows: demandes } = source.demande_id
+    ? await q("SELECT date_mariage FROM demandes WHERE id = $1", [source.demande_id])
+    : { rows: [] };
 
   /* ⚠️ LE MONTANT DÉPEND DU RÔLE, ET DU DÉJÀ-FACTURÉ.
      Facturer l'acompte puis le total reviendrait à réclamer deux fois la
@@ -355,11 +372,11 @@ TTC`,
   };
 
   const { rows: cree } = await q(
-    `INSERT INTO documents (entreprise_id, demande_id, type, role_facture, statut,
+    `INSERT INTO documents (entreprise_id, demande_id, dossier_id, type, role_facture, statut,
                             devis_source_id, total_ht_cents, total_tva_cents,
                             total_ttc_cents, instantane, cree_par)
-     VALUES ($1,$2,'facture',$3,'brouillon',$4,$5,$6,$7,$8::jsonb,$9) RETURNING id`,
-    [entrepriseId, source.demande_id, role, devisId,
+     VALUES ($1,$2,$3,'facture',$4,'brouillon',$5,$6,$7,$8,$9::jsonb,$10) RETURNING id`,
+    [entrepriseId, source.demande_id, source.dossier_id, role, devisId,
      montant - tva, tva, montant, JSON.stringify(instantaneFacture), acteurId]);
 
   return { documentId: cree[0].id, montantCents: montant };
@@ -409,11 +426,12 @@ TTC`,
   };
 
   const { rows: cree } = await q(
-    `INSERT INTO documents (entreprise_id, demande_id, type, statut,
+    `INSERT INTO documents (entreprise_id, demande_id, dossier_id, type, statut,
                             document_origine_id, total_ht_cents, total_tva_cents,
                             total_ttc_cents, instantane, cree_par)
-     VALUES ($1,$2,'avoir','brouillon',$3,$4,$5,$6,$7::jsonb,$8) RETURNING id`,
-    [entrepriseId, facture.demande_id, factureId, montant - tva, tva, montant,
+     VALUES ($1,$2,$3,'avoir','brouillon',$4,$5,$6,$7,$8::jsonb,$9) RETURNING id`,
+    [entrepriseId, facture.demande_id, facture.dossier_id, factureId,
+     montant - tva, tva, montant,
      JSON.stringify(instantaneAvoir), acteurId]);
 
   return { documentId: cree[0].id };
@@ -434,4 +452,159 @@ export function rendrePdf(
     ? dessinerContrat({ ...instantane, brouillon } as never)
     : dessinerCommercial({ ...instantane, brouillon } as never);
   return { pdf, empreinte: createHash("sha256").update(pdf).digest("hex") };
+}
+
+/* =============================================================================
+   DEVIS D'UN COLLABORATEUR, DEPUIS SON PROPRE DOSSIER
+   -----------------------------------------------------------------------------
+   ⚠️ CE N'EST PAS LE DEVIS DE JOKSWED AVEC UN AUTRE EN-TÊTE.
+
+   Le vidéaste ne reçoit aucune soumission du formulaire public : il n'a pas
+   de demande, il a un DOSSIER, créé quand il a accepté une proposition. Son
+   devis part donc de ses propres lignes, à ses propres prix, sous son propre
+   régime de TVA, avec sa propre numérotation. Rien n'est repris du
+   catalogue de JoksWed — pas même les délais de livraison, qui ne sont pas
+   les siens.
+
+   ⚠️ ET IL NE VOIT LE COUPLE QUE SI ON LE LUI A PARTAGÉ.
+   `app.contexte_dossier()` rend des coordonnées nulles tant que le pilote du
+   mariage n'a pas accordé le partage. Le devis porte alors la référence du
+   dossier à la place du nom — un document incomplet, mais jamais un document
+   qui aurait récupéré par la bande ce que la règle refuse.
+   ============================================================================= */
+export interface LigneSaisie {
+  libelle: string;
+  prixCents: number;
+}
+
+export async function genererDevisDepuisDossier(
+  q: Requete,
+  dossierId: string,
+  entrepriseId: string,
+  acteurId: string,
+  saisie: {
+    lignes: LigneSaisie[];
+    inclusions?: string[];
+    nombreEcheances?: number;
+    conditions?: string;
+    validite?: string;
+  },
+): Promise<ResultatGeneration> {
+  const lignes = saisie.lignes.filter((l) => l.libelle.trim());
+  if (lignes.length === 0) throw new Error("un devis sans ligne n'est pas un devis");
+
+  const { rows: contextes } = await q(
+    "SELECT * FROM app.contexte_dossier($1)", [dossierId]);
+  if (contextes.length === 0) throw new Error("dossier introuvable");
+  const ctx = contextes[0];
+  if (ctx.entreprise_id !== entrepriseId) {
+    throw new Error("ce dossier n'appartient pas à cette entreprise");
+  }
+
+  const { rows: entreprises } = await q(
+    "SELECT * FROM entreprises WHERE id = $1", [entrepriseId]);
+  const entreprise = entreprises[0];
+
+  const { rows: regimes } = await q(
+    `SELECT * FROM regimes_tva
+      WHERE entreprise_id = $1 AND debut_le <= current_date
+        AND (fin_le IS NULL OR fin_le > current_date)`, [entrepriseId]);
+  const regime = regimes[0] ?? null;
+  const tauxBp = regime?.regime === "assujetti" ? 2000 : 0;
+
+  const totalTtc = lignes.reduce((s, l) => s + Math.max(0, Math.round(l.prixCents)), 0);
+  const totalTva = tauxBp === 0 ? 0 : Math.round((totalTtc * tauxBp) / (10000 + tauxBp));
+  const totalHt = totalTtc - totalTva;
+  const nombreEcheances = Math.max(1, Math.min(saisie.nombreEcheances ?? 2, 12));
+
+  const instantane: InstantaneCommercial = {
+    titre: "DEVIS",
+    numero: null,
+    dateEmission: new Date().toLocaleDateString("fr-FR"),
+    validite: saisie.validite ?? "30 jours",
+    prestataire: {
+      nomCommercial: entreprise.nom_commercial,
+      responsable: entreprise.raison_sociale,
+      adresse: entreprise.adresse_ligne1,
+      codePostal: entreprise.code_postal,
+      ville: entreprise.ville,
+      telephone: entreprise.telephone,
+      email: entreprise.email,
+      siret: entreprise.siret,
+      codeApe: entreprise.code_ape,
+      tvaNumero: regime?.tva_numero ?? null,
+      mentionTva: regime?.mention_legale ?? null,
+    },
+    client: {
+      /* Sans partage, on nomme le dossier — pas le couple. */
+      nom: ctx.contact_nom ?? `Dossier ${ctx.reference}`,
+      email: ctx.contact_email ?? null,
+      telephone: ctx.contact_telephone ?? null,
+    },
+    formuleNom: `Prestation ${ctx.prestation}`,
+    lignes: lignes.map((l) => ({
+      description: l.libelle,
+      livraison: null,
+      lieu: ctx.lieu ?? ctx.ville ?? null,
+      prix: `${euros(Math.round(l.prixCents))}\nTTC`,
+      quantite: null,
+      duree: null,
+      date: ctx.date_mariage ? formaterDateSql(ctx.date_mariage) : "à confirmer",
+    })),
+    inclusions: saisie.inclusions ?? [],
+    totalHtCents: totalHt,
+    totalTvaCents: totalTva,
+    totalTtcCents: totalTtc,
+    tauxTvaBp: tauxBp,
+    echeances: repartir(totalTtc, nombreEcheances).map((montant, i, tableau) => ({
+      libelle:
+        tableau.length === 1
+          ? "Paiement à la signature"
+          : i === 0
+            ? "1er versement / acompte, à la signature"
+            : i === tableau.length - 1
+              ? "Solde, avant livraison"
+              : `${i + 1}e versement, à une échéance convenue par écrit`,
+      montantCents: montant,
+    })),
+    conditions: saisie.conditions
+      ?? "Le premier versement est expressément qualifié d'acompte et matérialise "
+       + "l'engagement ferme des parties. Le solde est exigible avant livraison. "
+       + "Les autres conditions figurent au contrat de prestation et aux CGV.",
+    mentionFin: "Merci de votre confiance",
+    mentionsLegales: regime?.mention_legale ? [regime.mention_legale] : [],
+    brouillon: true,
+  };
+
+  const { rows: cree } = await q(
+    `INSERT INTO documents (entreprise_id, dossier_id, type, statut, total_ht_cents,
+                            total_tva_cents, total_ttc_cents, instantane, cree_par)
+     VALUES ($1,$2,'devis','brouillon',$3,$4,$5,$6::jsonb,$7) RETURNING id`,
+    [entrepriseId, dossierId, totalHt, totalTva, totalTtc,
+     JSON.stringify(instantane), acteurId]);
+  const documentId = cree[0].id;
+
+  for (const [i, ligne] of lignes.entries()) {
+    const prix = Math.max(0, Math.round(ligne.prixCents));
+    const tva = tauxBp === 0 ? 0 : Math.round((prix * tauxBp) / (10000 + tauxBp));
+    await q(
+      `INSERT INTO document_lignes (document_id, entreprise_id, ordre, designation,
+                                    prix_unitaire_cents, tva_taux_bp,
+                                    total_ht_cents, total_tva_cents, origine_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuel')`,
+      [documentId, entrepriseId, i, ligne.libelle, prix, tauxBp, prix - tva, tva]);
+  }
+
+  for (const [i, e] of instantane.echeances.entries()) {
+    await q(
+      `INSERT INTO echeances (entreprise_id, document_id, ordre, libelle,
+                              montant_cents, nature)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [entrepriseId, documentId, i, e.libelle, e.montantCents,
+       instantane.echeances.length === 1 ? "unique"
+         : i === 0 ? "acompte"
+         : i === instantane.echeances.length - 1 ? "solde" : "intermediaire"]);
+  }
+
+  return { documentId, lignesAChiffrer: [] };
 }

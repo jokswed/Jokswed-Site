@@ -1,7 +1,11 @@
 import "server-only";
 import { sansIdentite, type Requete } from "@/lib/db/client";
 import { envoyer, expediteur, type ResultatEnvoi } from "@/lib/email/fournisseur";
-import { accuseReception, alerteAdministrateur } from "@/lib/email/gabarits";
+import {
+  accuseReception, alerteAdministrateur, invitationCollaborateur,
+  propositionCollaborateur,
+} from "@/lib/email/gabarits";
+import { dechiffrer } from "@/lib/auth/secrets";
 import { formaterDateSql } from "@/lib/dates";
 
 /* =============================================================================
@@ -62,7 +66,11 @@ async function notifierEquipe(
 async function journaliser(
   q: Requete,
   evenementId: string,
-  demandeId: string,
+  /* ⚠️ NULLABLE : une invitation n'appartient à aucune demande.
+     `envois_email.demande_id` l'autorise déjà ; le type, lui, ne le disait
+     pas — et une invitation journalisée sous une demande inventée serait
+     pire qu'un champ vide. */
+  demandeId: string | null,
   entrepriseId: string,
   gabarit: string,
   destinataire: string,
@@ -177,6 +185,84 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
              opérationnelles. La proposition est enregistrée, `envoyee_le`
              reste nul, et aucune coordonnée ne sort. Le gabarit existe
              (`propositionCollaborateur`) pour le jour où tu l'autoriseras. */
+        }
+
+        /* ── INVITATION D'UN COLLABORATEUR ──
+           ⚠️ LE LIEN NE PEUT ÊTRE COMPOSÉ QU'ICI, UNE SEULE FOIS.
+           Le jeton est chiffré au repos ; on le déchiffre pour l'e-mail, et
+           on l'efface aussitôt. Si l'envoi échoue, on n'efface rien et la
+           reprise réessaiera avec le même lien. */
+        if (evenement.type === "invitation.envoyer") {
+          const { invitation_id, entreprise_id } = evenement.charge_utile;
+          const { rows } = await q(
+            "SELECT * FROM app.invitation_pour_envoi($1)", [invitation_id]);
+          const inv = rows[0];
+          if (inv?.jeton_chiffre) {
+            const site = process.env.SITE_URL ?? "https://jokswed.com";
+            const jeton = dechiffrer(Buffer.from(inv.jeton_chiffre));
+            const gabarit = invitationCollaborateur({
+              prenom: inv.prenom,
+              entreprise: inv.entreprise,
+              lien: `${site}/admin/invitation/${jeton}`,
+              expireLe: formaterDateSql(
+                new Date(inv.expire_le).toISOString().slice(0, 10)),
+            });
+            const r = await envoyer({
+              destinataire: inv.email,
+              destinataireNom: inv.prenom ?? inv.email,
+              sujet: gabarit.sujet,
+              html: gabarit.html,
+              texte: gabarit.texte,
+              etiquettes: ["jokswed", "invitation"],
+            });
+            await journaliser(q, evenement.id, null, entreprise_id,
+              "invitation", inv.email, gabarit.sujet, r, `invitation:${invitation_id}`);
+            if (r.statut === "envoye") bilan.envoyes += 1;
+            else if (r.statut === "inhibe") bilan.inhibes += 1;
+            else throw new Error(`invitation : ${r.erreur}`);
+            /* Envoyé (ou volontairement inhibé) : le secret disparaît. */
+            await q("SELECT app.invitation_jeton_efface($1)", [invitation_id]);
+          }
+        }
+
+        /* ── PROPOSITION TRANSMISE À UN COLLABORATEUR ──
+           ⚠️ AUCUNE COORDONNÉE DE CLIENT DANS CET E-MAIL.
+           Date, lieu, prestation : de quoi décider. Le reste se consulte
+           dans l'espace authentifié, et seulement après acceptation. */
+        if (evenement.type === "collaboration.proposee") {
+          const { proposition_id, entreprise_id } = evenement.charge_utile;
+          const { rows } = await q(
+            "SELECT * FROM app.proposition_pour_envoi($1)", [proposition_id]);
+          const p = rows[0];
+          if (p) {
+            const site = process.env.SITE_URL ?? "https://jokswed.com";
+            const { rows: equipe } = await q(
+              "SELECT * FROM app.membres_avec($1,'collaboration.repondre')",
+              [entreprise_id]);
+            for (const membre of equipe) {
+              const gabarit = propositionCollaborateur({
+                prenom: membre.prenom,
+                dateMariage: p.date_mariage ? formaterDateSql(p.date_mariage) : null,
+                ville: p.ville,
+                prestation: p.prestation,
+                lien: `${site}/admin/propositions`,
+              });
+              const r = await envoyer({
+                destinataire: membre.email,
+                destinataireNom: membre.prenom,
+                sujet: gabarit.sujet,
+                html: gabarit.html,
+                texte: gabarit.texte,
+                etiquettes: ["jokswed", "proposition"],
+              });
+              await journaliser(q, evenement.id, null, entreprise_id,
+                "proposition_collaborateur", membre.email, gabarit.sujet, r,
+                `proposition:${proposition_id}:${membre.utilisateur_id}`);
+              if (r.statut === "envoye") bilan.envoyes += 1;
+              else if (r.statut === "inhibe") bilan.inhibes += 1;
+              else throw new Error(`proposition : ${r.erreur}`);
+            }
+          }
         }
 
         await q("SELECT app.evenement_traite($1)", [evenement.id]);

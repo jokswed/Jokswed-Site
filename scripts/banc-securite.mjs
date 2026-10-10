@@ -116,7 +116,12 @@ try {
       JOIN pg_namespace ns ON ns.oid = c.relnamespace
      WHERE ns.nspname = 'public' AND c.relkind = 'r'
        AND NOT c.relrowsecurity
-       AND c.relname NOT IN ('schema_migrations','permissions','taux_tva')
+       -- Catalogues de référence, identiques pour toutes les entreprises et
+       -- sans la moindre donnée personnelle : les cloisonner n'aurait rien à
+       -- cloisonner. types_notification rejoint permissions pour la même
+       -- raison : c'est la liste des types possibles, pas des notifications.
+       AND c.relname NOT IN ('schema_migrations','permissions','taux_tva',
+                             'types_notification')
      ORDER BY 1`);
   verifier("Toute table métier a RLS activé", sansRls.rowCount === 0,
     sansRls.rows.map((r) => r.relname).join(", "));
@@ -171,6 +176,50 @@ try {
        tables ; elle ne rend que des TOTAUX, jamais une ligne de détail, et
        l'appelant doit déjà connaître l'identifiant de la demande. */
     "situation_financiere","enregistrer_paiement","confirmer_paiement",
+    /* V6 — paiements : modification avant confirmation, abandon d'une saisie
+       erronée. Toutes deux exigent `finance.saisir_paiement` et refusent de
+       toucher un mouvement confirmé. */
+    "modifier_paiement","annuler_paiement",
+    /* V6 — agrégats financiers. `_finances_par_demande` CALCULE sans
+       contrôler, et n'est accordée à AUCUN rôle : seules les fonctions du
+       schéma `app` l'atteignent, après avoir vérifié `finance.lire`. */
+    "_finances_par_demande","finances_par_demande","finances_resume",
+    "finances_mensuelles",
+    /* V6 — carnet. `saison_mariages` exige `dossier.lire` et dégrade les
+       colonnes financières à zéro sans `finance.lire`. */
+    "confirmer_demande","saison_mariages",
+    /* V6 — collaborateurs. Suspension, envoi et révocation d'invitation
+       exigent une permission ET refusent de s'appliquer à soi-même. */
+    "admin_suspendre_membre","admin_envoyer_invitation","admin_revoquer_invitation",
+    "invitation_pour_envoi","invitation_jeton_efface",
+    /* V6 — chemin d'activation, réservé à `jokswed_auth` : il crée un
+       utilisateur et une adhésion, ce que le rôle métier ne doit pas pouvoir
+       faire. Vérifié plus bas par une épreuve dédiée. */
+    "auth_invitation","auth_accepter_invitation",
+    /* V6 — collaboration. `propositions_recues` est la plus sensible : c'est
+       elle qui décide que les coordonnées du couple ne sortent qu'après
+       acceptation ET partage explicite. */
+    "proposer_prestation","transmettre_proposition","repondre_proposition",
+    "propositions_recues","partager_coordonnees","proposition_pour_envoi",
+    /* V6 — la RAISON COMMERCIALE d'un partenaire, et rien d'autre. La
+       politique de `entreprises` ne rend que les siennes ; sans ces deux
+       fonctions, la fiche perdait silencieusement ses propositions. Elles
+       n'exposent ni e-mail, ni SIRET, ni adresse, ni aucun montant. */
+    "partenaires_disponibles","propositions_emises",
+    /* V6 — notifications. `notifier` doit lire les permissions du
+       DESTINATAIRE, qui n'est pas l'acteur courant. */
+    "notification_voulue","mes_notifications",
+    /* V6 — le commercial d'un collaborateur, ancré à SON dossier.
+       `contexte_dossier` et `mes_dossiers` décident que les coordonnées du
+       couple ne sortent qu'après partage explicite ; `_encours_entreprise`
+       calcule sans contrôler et n'est accordée à aucun rôle. */
+    "mes_dossiers","contexte_dossier","situation_devis",
+    "enregistrer_paiement_dossier","_encours_entreprise",
+    /* V6 — parrainage. Elle CRÉE une entreprise et une adhésion : c'est la
+       plus dangereuse du lot, et c'est pourquoi elle exige `membre.inviter`
+       sur une entreprise dont l'appelant est DÉJÀ membre, et n'accorde au
+       parrain qu'inviter et révoquer. */
+    "creer_entreprise_partenaire",
     /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */

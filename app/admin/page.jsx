@@ -53,11 +53,24 @@ export default async function TableauDeBord({ searchParams }) {
         </p>
       ) : null}
 
+      {/* ⚠️ UN SÉLECTEUR, PAS UNE PHRASE.
+          On est membre de plusieurs entreprises dès qu'on parraine un
+          partenaire. Sans ce choix, la deuxième était inatteignable : on
+          savait qu'elle existait, on ne pouvait rien y faire. */}
       {entreprises.length > 1 ? (
-        <p className="recap__note">
-          Vous êtes membre de {entreprises.length} entreprises :{" "}
-          {entreprises.map((e) => e.nom_commercial).join(", ")}.
-        </p>
+        <form method="post" action="/api/admin/entreprise-active"
+          className="admin-ligne-actions" style={{ marginBottom: "1.5rem" }}>
+          <input type="hidden" name="suite" value="/admin" />
+          <label htmlFor="entreprise-active" className="label label--nu">
+            Entreprise active
+          </label>
+          <select id="entreprise-active" name="entreprise" defaultValue={entreprise.id}>
+            {entreprises.map((e) => (
+              <option key={e.id} value={e.id}>{e.nom_commercial}</option>
+            ))}
+          </select>
+          <button type="submit" className="btn btn--fantome">Changer</button>
+        </form>
       ) : null}
 
       <section className="admin-chiffres">
@@ -100,11 +113,24 @@ export default async function TableauDeBord({ searchParams }) {
         {peut("dossier.lire") ? (
           <Link href="/admin/demandes" className="btn">Demandes</Link>
         ) : null}
-        {peut("membre.inviter") ? (
-          <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>
+        {peut("dossier.lire") ? (
+          <Link href="/admin/saison" className="btn btn--fantome">Saison</Link>
+        ) : null}
+        {peut("finance.lire") ? (
+          <Link href="/admin/finances" className="btn btn--fantome">Finances</Link>
+        ) : null}
+        {peut("collaboration.repondre") ? (
+          <Link href="/admin/propositions" className="btn btn--fantome">Propositions</Link>
+        ) : null}
+        {peut("document.rediger") ? (
+          <Link href="/admin/dossiers" className="btn btn--fantome">Mes dossiers</Link>
         ) : null}
         {peut("entreprise.reglages") ? (
           <Link href="/admin/entreprise" className="btn btn--fantome">Mon entreprise</Link>
+        ) : null}
+        <Link href="/admin/notifications" className="btn btn--fantome">Notifications</Link>
+        {peut("membre.inviter") ? (
+          <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>
         ) : null}
       </nav>
 

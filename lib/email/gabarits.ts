@@ -267,3 +267,49 @@ export function propositionCollaborateur(donnees: {
     ].join("\n"),
   };
 }
+
+/**
+ * Invitation d'un collaborateur.
+ *
+ * ⚠️ LE LIEN EST LE SECRET. Il n'est stocké nulle part — seule son empreinte
+ * l'est — et il expire. On n'y joint donc aucun mot de passe, aucune
+ * coordonnée de client, et aucune information sur les dossiers : la personne
+ * n'est pas encore membre quand elle lit ce message.
+ */
+export function invitationCollaborateur(donnees: {
+  prenom?: string | null;
+  entreprise: string;
+  lien: string;
+  expireLe: string;
+}): Gabarit {
+  const salutation = donnees.prenom ? `Bonjour ${echapper(donnees.prenom)},` : "Bonjour,";
+  return {
+    sujet: `Votre accès à l'espace ${donnees.entreprise}`,
+    html: enveloppe({
+      preEntete: "Créez votre accès à l'espace collaborateur.",
+      titre: "Votre accès collaborateur",
+      corps: [
+        paragraphe(salutation),
+        paragraphe(
+          `${echapper(donnees.entreprise)} vous invite à rejoindre son espace ` +
+            "collaborateur. Vous y choisirez vous-même votre mot de passe : " +
+            "personne, ici, ne le connaîtra.",
+        ),
+        paragraphe(`Ce lien est personnel et expire le ${echapper(donnees.expireLe)}.`),
+      ].join(""),
+      bouton: { libelle: "Créer mon accès", lien: donnees.lien },
+      pied: "Si vous n'attendiez pas cette invitation, ignorez ce message.",
+    }),
+    texte: [
+      salutation.replace(/&[a-z]+;/g, ""),
+      "",
+      `${donnees.entreprise} vous invite à rejoindre son espace collaborateur.`,
+      "Vous choisirez vous-même votre mot de passe.",
+      "",
+      `Lien personnel (expire le ${donnees.expireLe}) :`,
+      donnees.lien,
+      "",
+      "Si vous n'attendiez pas cette invitation, ignorez ce message.",
+    ].join("\n"),
+  };
+}

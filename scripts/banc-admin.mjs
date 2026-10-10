@@ -407,9 +407,14 @@ try {
     htmlFiche.includes("Formule 3") && htmlFiche.replace(/[  ]/g, " ").includes("1 600 €"));
   v("La fiche signale la séance engagement comme incluse et non facturée",
     htmlFiche.includes("Incluse dans la formule"));
+  /* ⚠️ RE-POINTÉ EN V6. Le libellé est passé en minuscules dans une pastille,
+     et un bouton « Transmettre » existe désormais. L'invariant n'a pas changé
+     — rien n'est parti — mais la formulation, si : on vérifie l'ÉTAT affiché
+     et l'existence du geste explicite, pas une chaîne figée. */
   v("La fiche signale que rien n'a été transmis au vidéaste",
-    htmlFiche.includes("Préparée — non transmise")
-      || htmlFiche.includes("Pr&#x27;éparée") || htmlFiche.includes("non transmise"));
+    /non transmise/i.test(htmlFiche));
+  v("…et propose un geste EXPLICITE pour le faire",
+    /Transmettre/.test(htmlFiche));
   /* ⚠️ RE-POINTÉ EN V5. Le devis a désormais un moteur : son bouton est
      légitime. Ce qui reste interdit, c'est un bouton CONTRAT ou FACTURE,
      dont le moteur n'existe pas encore. */
@@ -804,6 +809,88 @@ try {
     pdfVole.status === 404 || pdfVole.status === 403, `HTTP ${pdfVole.status}`);
 
   /* ── Aucune donnée personnelle dans les journaux ── */
+  /* ═══════════ ROUTES V6 : FINANCES, SAISON, PROPOSITIONS ═══════════
+     ⚠️ ON ÉPROUVE LES PAGES, PAS SEULEMENT LES FONCTIONS SQL.
+     Une fonction correcte derrière une page qui appelle mal ne protège
+     personne — c'est exactement ce que la jointure sur `entreprises` a
+     montré plus haut. */
+  const pagesProprio = {
+    "/admin/finances": "Finances",
+    "/admin/saison": "Saison",
+    "/admin/entreprise": "Mon entreprise",
+    "/admin/notifications": "Notifications",
+  };
+  for (const [route, attendu] of Object.entries(pagesProprio)) {
+    const r = await proprio.fetch(route);
+    const h = await r.text();
+    v(`Le propriétaire ouvre ${route}`,
+      r.status === 200 && h.includes(attendu), `HTTP ${r.status}`);
+  }
+
+  /* Le tableau financier affiche les quatre mesures, nommées. */
+  const htmlFin = await (await proprio.fetch("/admin/finances")).text();
+  v("Le tableau financier distingue encaissé, facturé, attendu et prévisionnel",
+    /Encaiss/.test(htmlFin) && /Factur/.test(htmlFin)
+      && /attendus|Paiements attendus/.test(htmlFin) && /prévisionnel/i.test(htmlFin));
+  v("…et avertit qu'une facture émise n'encaisse rien",
+    /n&#x27;encaisse rien|n'encaisse rien/.test(htmlFin));
+
+  /* ⚠️ LE PHOTOGRAPHE A `dossier.lire` MAIS PAS `finance.lire`.
+     (On n'utilise pas l'assistant : son adhésion a été révoquée plus haut,
+     et sa connexion échouerait pour une raison étrangère à ce qu'on teste.) */
+  const assistant2 = navigateur();
+  await seConnecter(assistant2, "photographe@exemple.invalid", fixtures.motDePasse);
+  v("Le photographe ouvre une session",
+    assistant2.cookies.has(NOM_SESSION), [...assistant2.cookies.keys()].join(","));
+  const finAssistant = await assistant2.fetch("/admin/finances");
+  v("Le photographe est REFUSÉ sur /admin/finances",
+    finAssistant.status === 200
+      && (finAssistant.url ?? "").includes("/admin?refus")
+      || finAssistant.status === 307 || finAssistant.status === 302,
+    `HTTP ${finAssistant.status} → ${finAssistant.url}`);
+  const saisonAssistant = await assistant2.fetch("/admin/saison");
+  const htmlSaisonAss = await saisonAssistant.text();
+  v("…mais il accède à la saison",
+    saisonAssistant.status === 200 && /Saison/.test(htmlSaisonAss),
+    `HTTP ${saisonAssistant.status} → ${saisonAssistant.url}`);
+  v("…sans aucun montant",
+    !/\d\s?\d{3}\s?€/.test(htmlSaisonAss) || /ne vous sont pas accessibles/.test(htmlSaisonAss),
+    "un montant apparaît dans la saison de l'assistant");
+
+  /* ⚠️ LE VIDÉASTE NE VOIT NI LA SAISON NI LES FINANCES DE JOKSWED. */
+  const finVideo = await video2.fetch("/admin/finances");
+  const htmlFinVideo = await finVideo.text();
+  v("Le vidéaste n'obtient AUCUN chiffre de JoksWed",
+    !htmlFinVideo.includes("1 600") && !htmlFinVideo.includes("Camille"),
+    "des données de JoksWed apparaissent chez le vidéaste");
+  const propVideo = await video2.fetch("/admin/propositions");
+  v("Le vidéaste ouvre son espace propositions", propVideo.status === 200,
+    `HTTP ${propVideo.status}`);
+  const htmlPropVideo = await propVideo.text();
+  v("…sans coordonnée de couple",
+    !htmlPropVideo.includes("couple@exemple.invalid")
+      && !htmlPropVideo.includes("06 11 22 33 44"));
+
+  /* La page d'activation d'invitation est publique, mais muette. */
+  const invitationBidon = await fetch(`${BASE}/admin/invitation/jeton-inexistant-0000`);
+  const htmlInvitation = await invitationBidon.text();
+  /* ⚠️ LA PAGE NE DOIT PAS DIRE *POURQUOI* LE LIEN EST MORT.
+     Expiré, révoqué, déjà utilisé, jamais émis : même message. Distinguer
+     ces cas ferait de la page un oracle permettant d'énumérer les
+     invitations. Énoncer les quatre possibilités ensemble, en revanche,
+     n'apprend rien — et évite un message creux. On vérifie donc qu'aucune
+     donnée d'invitation réelle ne transparaît. */
+  v("Un lien d'invitation inconnu ne révèle rien",
+    invitationBidon.status === 200
+      && /non valable/.test(htmlInvitation)
+      /* Ni adresse invitée, ni formulaire d'activation : la page est un
+         cul-de-sac, pas une étape. */
+      && !/exemple\.invalid/.test(htmlInvitation)
+      /* Pas de champ mot de passe : le titre de l'onglet dit « Créer mon
+         accès », mais la page, elle, n'offre rien à remplir. */
+      && !/type="password"/.test(htmlInvitation),
+    htmlInvitation.slice(0, 200));
+
   v("Les journaux ne contiennent pas l'adresse du couple",
     !journal.includes("couple@exemple.invalid"));
   v("Les journaux ne contiennent pas le message du client",

@@ -70,6 +70,23 @@ export default async function FicheDemande({ params }) {
       "SELECT * FROM app.verdict_emission($1,'contrat')", [entreprise.id]);
     const situation = await q(
       "SELECT * FROM app.situation_financiere($1)", [id]);
+    /* Les mouvements financiers du dossier, saisies non confirmées comprises :
+       c'est le journal que l'on relit quand un chiffre surprend. */
+    const paiements = await q(
+      `SELECT p.id, p.montant_cents, p.montant_signe_cents, p.moyen, p.type_paiement,
+              p.statut, p.reference, p.recu_le, p.motif, p.corrige_id,
+              u.prenom AS saisi_prenom
+         FROM paiements p LEFT JOIN utilisateurs u ON u.id = p.saisi_par
+        WHERE p.demande_id = $1 ORDER BY p.recu_le DESC, p.saisi_le DESC`, [id]);
+    /* ⚠️ PAS DE `SELECT … FROM entreprises` ICI.
+       La politique `entreprise_membre` ne rend que SES propres entreprises :
+       la jointure supprimait la proposition et la fiche affichait « aucune
+       proposition » alors qu'il y en avait une. Deux fonctions contrôlées
+       rendent le SEUL champ utile — la raison commerciale du partenaire. */
+    const partenaires = acces.permissions.has("collaboration.proposer")
+      ? await q("SELECT * FROM app.partenaires_disponibles($1)", [entreprise.id])
+      : { rows: [] };
+    const propositions = await q("SELECT * FROM app.propositions_emises($1)", [id]);
 
     /* Première ouverture : on marque la demande lue et on la sort de « non
        lue ». C'est une lecture qui change l'état, donc on la trace. */
@@ -91,12 +108,16 @@ export default async function FicheDemande({ params }) {
       motifsBlocage: verdict.rows[0]?.motifs ?? [],
       motifsContrat: verdictContrat.rows[0]?.motifs ?? [],
       situation: situation.rows[0] ?? null,
+      paiements: paiements.rows,
+      partenaires: partenaires.rows,
+      propositions: propositions.rows,
     };
   });
 
   if (!vue) notFound();
   const { demande, lignes, consentements, notes, proposition, documents,
-          motifsBlocage, motifsContrat, situation } = vue;
+          motifsBlocage, motifsContrat, situation, paiements, partenaires,
+          propositions } = vue;
   const devisEmis = documents.find((d) => d.type === "devis" && d.statut !== "brouillon");
   const devisDisponible = devisEmis ?? documents.find((d) => d.type === "devis");
   const peutEcrire = acces.permissions.has("dossier.ecrire");
@@ -153,6 +174,98 @@ export default async function FicheDemande({ params }) {
     await a.executer((q) =>
       q(`INSERT INTO notes_internes (entreprise_id, demande_id, auteur_id, corps)
          VALUES ($1,$2,$3,$4)`, [e.id, id, s.utilisateurId, corps.slice(0, 5000)]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Confirmation : la demande devient un mariage et un dossier ── */
+  async function confirmerDemande() {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    await a.executer((q) => q("SELECT app.confirmer_demande($1)", [id]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Paiements ──
+     ⚠️ LA SAISIE ET LA CONFIRMATION SONT DEUX GESTES.
+     Un montant tapé dans un formulaire n'est pas un virement reçu. Tant qu'il
+     n'est pas confirmé, il n'entre dans aucun total. */
+  async function saisirPaiement(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const type = String(formulaire.get("type") ?? "partiel");
+    const a = await accesPage(e.id,
+      [type === "remboursement" ? "finance.rembourser" : "finance.saisir_paiement"]);
+
+    /* ⚠️ EN CENTIMES ENTIERS, DEPUIS UNE SAISIE HUMAINE.
+       « 433,33 » comme « 433.33 » doivent donner 43333, et jamais 43332,99…
+       On arrondit APRÈS multiplication, sur un nombre déjà en centimes. */
+    const brut = String(formulaire.get("montant") ?? "").replace(",", ".").trim();
+    const cents = Math.round(Number.parseFloat(brut) * 100);
+    if (!Number.isFinite(cents) || cents <= 0) return;
+
+    const motif = String(formulaire.get("motif") ?? "").trim() || null;
+    if (type === "remboursement" && !motif) return;
+
+    await a.executer((q) => q(
+      "SELECT app.enregistrer_paiement($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      [id, cents, String(formulaire.get("moyen") ?? "virement"), type,
+       String(formulaire.get("reference") ?? "").trim() || null,
+       String(formulaire.get("recu_le") ?? "") || null,
+       /* Clé d'idempotence : un double-clic ne crée pas deux versements. */
+       `saisie:${id}:${cents}:${String(formulaire.get("recu_le") ?? "")}:${type}`,
+       motif,
+       String(formulaire.get("corrige") ?? "") || null]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function confirmerPaiement(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["finance.confirmer_paiement"]);
+    await a.executer((q) =>
+      q("SELECT app.confirmer_paiement($1)", [String(formulaire.get("paiement"))]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function annulerPaiement(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["finance.saisir_paiement"]);
+    await a.executer((q) => q("SELECT app.annuler_paiement($1,$2)",
+      [String(formulaire.get("paiement")), "Saisie erronée"]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Collaboration ── */
+  async function proposerPrestation(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["collaboration.proposer"]);
+    const destinataire = String(formulaire.get("partenaire") ?? "");
+    if (!destinataire) return;
+    await a.executer((q) => q("SELECT app.proposer_prestation($1,$2,$3,$4)",
+      [id, destinataire, String(formulaire.get("prestation") ?? "video"),
+       String(formulaire.get("message") ?? "").trim() || null]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function transmettreProposition(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["collaboration.proposer"]);
+    await a.executer((q) => q("SELECT app.transmettre_proposition($1)",
+      [String(formulaire.get("proposition"))]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function basculerPartage(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["collaboration.proposer", "client.coordonnees.lire"]);
+    await a.executer((q) => q("SELECT app.partager_coordonnees($1,$2,$3)",
+      [id, String(formulaire.get("beneficiaire")),
+       formulaire.get("partager") === "1"]));
     revalidatePath(`/admin/demandes/${id}`);
   }
 
@@ -355,34 +468,126 @@ export default async function FicheDemande({ params }) {
                 </div>
                 <button type="submit" className="btn btn--bloc">Mettre à jour</button>
               </form>
+
+              {/* ⚠️ CONFIRMER N'EST PAS UN CHANGEMENT DE STATUT COMME UN AUTRE.
+                  C'est l'acte qui transforme une demande en MARIAGE : il crée
+                  l'objet commun, partageable avec un collaborateur, et le
+                  dossier commercial de JoksWed, qui ne l'est jamais. Il est
+                  idempotent — un double clic ne dédouble pas le carnet. */}
+              {!demande.mariage_id ? (
+                <form action={confirmerDemande} style={{ marginTop: "0.8rem" }}>
+                  <button type="submit" className="btn btn--fantome btn--bloc"
+                    disabled={!demande.date_mariage}>
+                    Confirmer et créer le mariage
+                  </button>
+                  {!demande.date_mariage ? (
+                    <p className="recap__note" style={{ marginTop: "0.5rem" }}>
+                      Une date est nécessaire pour inscrire le mariage au carnet.
+                    </p>
+                  ) : null}
+                </form>
+              ) : (
+                <p className="recap__note" style={{ marginTop: "0.8rem" }}>
+                  Mariage inscrit au carnet · <a href="/admin/saison">voir la saison</a>
+                </p>
+              )}
             </section>
           ) : null}
 
           <section className="admin-bloc">
-            <h2 className="display t-carte">Prestation vidéo</h2>
-            {!demande.video_demandee ? (
-              <p className="recap__note">Non demandée.</p>
-            ) : proposition ? (
-              <>
-                <p className="recap__note">
-                  Collaboration enregistrée pour <strong>{proposition.destinataire_nom ?? "le partenaire vidéo"}</strong>.
-                </p>
-                <p className="admin-jeton" style={{ marginTop: "0.7rem" }}>
-                  {proposition.envoyee_le ? "Transmise" : "Préparée — non transmise"}
-                </p>
-                {/* ⚠️ PAS DE BOUTON « TRANSMETTRE ».
-                    Son compte n'est pas activé et ses permissions ne sont pas
-                    opérationnelles : afficher un bouton qui ne ferait rien, ou
-                    pire qui enverrait des coordonnées clients hors de tout
-                    cadre, serait une fausse fonctionnalité. */}
-                <p className="recap__note" style={{ marginTop: "0.8rem" }}>
-                  La transmission s&apos;activera une fois son compte configuré et ses
-                  permissions en place. Aucune coordonnée ne lui a été envoyée.
-                </p>
-              </>
+            <h2 className="display t-carte">Collaboration</h2>
+            {propositions.length === 0 ? (
+              <p className="recap__note">
+                {demande.video_demandee
+                  ? "Vidéo demandée, aucune proposition enregistrée."
+                  : "Aucune prestation confiée à un partenaire."}
+              </p>
             ) : (
-              <p className="recap__note">Vidéo demandée, aucun partenaire configuré.</p>
+              <ul className="admin-liste">
+                {propositions.map((pr) => (
+                  <li key={pr.id} style={{ flexWrap: "wrap" }}>
+                    <strong>{pr.destinataire}</strong>
+                    <span>{pr.prestation}</span>
+                    <span className={`admin-pastille${
+                      pr.statut === "acceptee" ? " admin-pastille--emis" : ""}`}>
+                      {pr.envoyee_le ? pr.statut : "préparée — non transmise"}
+                    </span>
+                    <span>{pr.origine === "manuelle" ? "manuelle" : "automatique"}</span>
+                    {pr.commentaire ? (
+                      <span style={{ flexBasis: "100%", color: "var(--encre-douce)" }}>
+                        « {pr.commentaire} »
+                      </span>
+                    ) : null}
+                    {!pr.envoyee_le && acces.permissions.has("collaboration.proposer") ? (
+                      <form action={transmettreProposition} style={{ marginLeft: "auto" }}>
+                        <input type="hidden" name="proposition" value={pr.id} />
+                        <button type="submit" className="btn btn--fantome">Transmettre</button>
+                      </form>
+                    ) : null}
+                    {pr.statut === "acceptee"
+                      && acces.permissions.has("collaboration.proposer")
+                      && acces.permissions.has("client.coordonnees.lire") ? (
+                      <form action={basculerPartage} style={{ marginLeft: "auto" }}>
+                        <input type="hidden" name="beneficiaire"
+                          value={pr.entreprise_destinataire_id} />
+                        <input type="hidden" name="partager"
+                          value={pr.coordonnees_partagees ? "0" : "1"} />
+                        <button type="submit" className="btn btn--fantome">
+                          {pr.coordonnees_partagees
+                            ? "Retirer les coordonnées"
+                            : "Partager les coordonnées"}
+                        </button>
+                      </form>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             )}
+
+            {/* ⚠️ TRANSMETTRE EST UN GESTE EXPLICITE.
+                Une proposition préparée reste invisible du partenaire tant
+                qu'on ne l'a pas transmise : aucune donnée ne part toute seule.
+                Et même transmise, elle ne porte ni nom, ni e-mail, ni
+                téléphone du couple — seulement la date, le lieu et la
+                prestation. Les coordonnées demandent un second geste, après
+                acceptation. */}
+            {acces.permissions.has("collaboration.proposer") && partenaires.length > 0 ? (
+              <form action={proposerPrestation} className="formulaire"
+                style={{ marginTop: "1.2rem" }}>
+                <div className="admin-grille-champs">
+                  <div className="champ">
+                    <label htmlFor="partenaire">Partenaire</label>
+                    <select id="partenaire" name="partenaire" required>
+                      {partenaires.map((p) => (
+                        <option key={p.id} value={p.id}>{p.nom_commercial}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="prestation">Prestation</label>
+                    <select id="prestation" name="prestation" defaultValue="video">
+                      <option value="video">Vidéo</option>
+                      <option value="photo">Photo</option>
+                      <option value="autre">Autre</option>
+                    </select>
+                  </div>
+                  <div className="champ pleine">
+                    <label htmlFor="message-collab">Message (facultatif)</label>
+                    <input id="message-collab" name="message" type="text" />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn--fantome">
+                  Préparer une proposition
+                </button>
+              </form>
+            ) : null}
+
+            {demande.video_demandee && !consentement("partage_partenaire_video") ? (
+              <p className="admin-alerte" style={{ marginTop: "0.9rem" }}>
+                Vidéo demandée sans consentement au partage : les coordonnées du
+                couple ne peuvent pas être transmises en l&apos;état.
+              </p>
+            ) : null}
           </section>
 
           <section className="admin-bloc">
@@ -543,6 +748,123 @@ export default async function FicheDemande({ params }) {
                 </p>
               </div>
             ) : null}
+
+          {/* ═══ PAIEMENTS ═══ */}
+          {acces.permissions.has("finance.lire") ? (
+            <section className="admin-bloc">
+              <h2 className="display t-carte">Paiements</h2>
+              <p className="recap__note">
+                Un montant saisi n&apos;est pas un montant reçu : il reste
+                <strong> déclaré</strong> jusqu&apos;à confirmation, et n&apos;entre
+                dans aucun total avant.
+              </p>
+
+              {paiements.length > 0 ? (
+                <ul className="admin-paiements">
+                  {paiements.map((p) => (
+                    <li key={p.id}
+                      className={`admin-paiement admin-paiement--${p.statut}${
+                        p.type_paiement === "remboursement" ? " admin-paiement--remboursement" : ""}`}>
+                      <div className="admin-paiement__haut">
+                        <span className="admin-paiement__montant">
+                          {p.type_paiement === "remboursement" ? "− " : null}
+                          {formaterPrix(p.montant_cents)}
+                        </span>
+                        <span className="admin-pastille">{p.type_paiement}</span>
+                        <span className={`admin-pastille${
+                          p.statut === "confirme" ? " admin-pastille--emis" : ""}`}>
+                          {p.statut}
+                        </span>
+                      </div>
+                      <p className="admin-paiement__meta">
+                        {formaterDateSql(p.recu_le)} · {p.moyen}
+                        {p.reference ? ` · ${p.reference}` : null}
+                        {p.saisi_prenom ? ` · saisi par ${p.saisi_prenom}` : null}
+                        {p.corrige_id ? " · régularisation" : null}
+                      </p>
+                      {p.motif ? (
+                        <p className="admin-paiement__meta">« {p.motif} »</p>
+                      ) : null}
+                      {p.statut === "declare" ? (
+                        <div className="admin-paiement__actions">
+                          {acces.permissions.has("finance.confirmer_paiement")
+                            || (p.type_paiement === "remboursement"
+                                && acces.permissions.has("finance.rembourser")) ? (
+                            <form action={confirmerPaiement}>
+                              <input type="hidden" name="paiement" value={p.id} />
+                              <button type="submit" className="btn">Confirmer</button>
+                            </form>
+                          ) : null}
+                          {acces.permissions.has("finance.saisir_paiement") ? (
+                            <form action={annulerPaiement}>
+                              <input type="hidden" name="paiement" value={p.id} />
+                              <button type="submit" className="btn btn--fantome">
+                                Abandonner la saisie
+                              </button>
+                            </form>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="recap__note">Aucun mouvement enregistré.</p>
+              )}
+
+              {/* ⚠️ ON NE SUPPRIME PAS UN MOUVEMENT CONFIRMÉ.
+                  Une erreur se corrige par un remboursement, qui désigne
+                  l&apos;opération d&apos;origine. Les deux restent au journal. */}
+              {acces.permissions.has("finance.saisir_paiement") ? (
+                <form action={saisirPaiement} className="formulaire" style={{ marginTop: "1.2rem" }}>
+                  <div className="admin-grille-champs">
+                    <div className="champ">
+                      <label htmlFor="montant">Montant (€)</label>
+                      <input id="montant" name="montant" type="text" inputMode="decimal"
+                        placeholder="433,33" required />
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="type-p">Nature</label>
+                      <select id="type-p" name="type" defaultValue="acompte">
+                        <option value="acompte">Acompte</option>
+                        <option value="versement">Deuxième versement</option>
+                        <option value="solde">Solde</option>
+                        <option value="partiel">Paiement partiel</option>
+                        {acces.permissions.has("finance.rembourser") ? (
+                          <option value="remboursement">Remboursement</option>
+                        ) : null}
+                      </select>
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="moyen">Mode</label>
+                      <select id="moyen" name="moyen" defaultValue="virement">
+                        <option value="virement">Virement</option>
+                        <option value="cheque">Chèque</option>
+                        <option value="especes">Espèces</option>
+                        <option value="carte">Carte</option>
+                        <option value="stripe">Stripe</option>
+                        <option value="autre">Autre</option>
+                      </select>
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="recu_le">Date de réception</label>
+                      <input id="recu_le" name="recu_le" type="date" />
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="reference">Référence</label>
+                      <input id="reference" name="reference" type="text" />
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="motif-p">Motif (obligatoire si remboursement)</label>
+                      <input id="motif-p" name="motif" type="text" />
+                    </div>
+                  </div>
+                  <button type="submit" className="btn btn--bloc">Enregistrer le mouvement</button>
+                </form>
+              ) : null}
+            </section>
+          ) : null}
+
           </section>
         </div>
       </div>

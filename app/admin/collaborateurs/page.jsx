@@ -1,17 +1,22 @@
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces, interdireAutoModification } from "@/lib/auth/acces";
-import { engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
+import { chiffrer, engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
 
 export const metadata = { title: "Collaborateurs" };
 export const dynamic = "force-dynamic";
 
-/* ⚠️ AUCUNE INVITATION N'EST ENVOYÉE PAR CETTE PAGE.
+/* ⚠️ PRÉPARER ET ENVOYER SONT DEUX GESTES DISTINCTS.
 
-   Le bouton CRÉE l'invitation en base (jeton haché, expiration) et s'arrête
-   là : `envoyee_le` reste nul. L'envoi effectif est une action distincte, qui
-   demandera une validation explicite — on ne déclenche pas un e-mail vers une
-   vraie personne depuis un écran en cours de construction. */
+   « Préparer » crée l'invitation en base — jeton haché, jeton chiffré au
+   repos, expiration — et s'arrête là : `envoyee_le` reste nul, rien ne part.
+   « Envoyer » met un événement en file ; le drain compose le lien, l'envoie,
+   puis EFFACE le jeton chiffré. Après cela, la base n'en garde qu'une
+   empreinte, et renvoyer le lien exige d'en régénérer un.
+
+   Cette séparation n'est pas de la prudence décorative : c'est elle qui
+   garantit qu'aucun e-mail ne part pour une transaction annulée, et qu'une
+   panne du fournisseur ne fait pas disparaître l'invitation. */
 const DUREE_INVITATION_JOURS = 7;
 
 export default async function Collaborateurs() {
@@ -20,9 +25,12 @@ export default async function Collaborateurs() {
 
   const donnees = await acces.executer(async (q) => {
     const { rows: membres } = await q(
-      `SELECT m.id, m.ajoute_le, m.retire_le, u.id AS utilisateur_id,
-              u.prenom, u.nom, u.email, u.desactive_le,
-              coalesce(string_agg(r.libelle, ', ' ORDER BY r.libelle), '—') AS roles
+      `SELECT m.id, m.ajoute_le, m.retire_le, m.suspendu_le, m.motif_suspension,
+              u.id AS utilisateur_id, u.prenom, u.nom, u.email, u.desactive_le,
+              coalesce(string_agg(DISTINCT r.libelle, ', '), '—') AS roles,
+              (SELECT count(*)::int FROM affectations a
+                WHERE a.utilisateur_id = u.id AND a.entreprise_id = m.entreprise_id
+                  AND a.retiree_le IS NULL) AS affectations
          FROM membres m
          JOIN utilisateurs u ON u.id = m.utilisateur_id
          LEFT JOIN membres_roles mr ON mr.membre_id = m.id
@@ -37,7 +45,15 @@ export default async function Collaborateurs() {
     const { rows: roles } = await q(
       "SELECT id, cle, libelle, description FROM roles WHERE entreprise_id = $1 ORDER BY libelle",
       [entreprise.id]);
-    return { membres, invitations, roles };
+    const { rows: journal } = await q(
+      `SELECT j.action, j.horodatage, j.ressource_type, u.prenom, u.nom
+         FROM journal_audit j LEFT JOIN utilisateurs u ON u.id = j.acteur_id
+        WHERE j.entreprise_id = $1
+          AND j.action IN ('invitation.creee','invitation.envoyee','invitation.revoquee',
+                           'invitation.acceptee','membre.suspendu','membre.reactive',
+                           'membre.revoque','membre.permissions','membre.roles')
+        ORDER BY j.horodatage DESC LIMIT 25`, [entreprise.id]);
+    return { membres, invitations, roles, journal };
   });
 
   async function preparerInvitation(formulaire) {
@@ -58,11 +74,15 @@ export default async function Collaborateurs() {
        `invitations` : la permission `membre.inviter` et l'appartenance à
        l'entreprise sont vérifiées EN BASE, et la trace d'audit est posée
        dans la même transaction que l'écriture. */
+    /* ⚠️ LE JETON EST CHIFFRÉ, PAS STOCKÉ EN CLAIR.
+       L'envoi se fera plus tard, depuis le drain, où le jeton n'existera
+       plus. On le conserve donc chiffré (AES-256-GCM, clé hors base) le temps
+       de l'envoi — après quoi le drain l'efface. */
     await a.executer((q) =>
-      q(`SELECT app.admin_creer_invitation($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7)`,
+      q(`SELECT app.admin_creer_invitation($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7,$8)`,
         [e.id, email, String(formulaire.get("prenom") ?? "") || null,
          String(formulaire.get("nom") ?? "") || null, hacherJeton(jeton), roleId,
-         DUREE_INVITATION_JOURS]));
+         DUREE_INVITATION_JOURS, chiffrer(jeton)]));
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -91,6 +111,48 @@ export default async function Collaborateurs() {
     revalidatePath("/admin/collaborateurs");
   }
 
+  async function envoyerInvitation(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["membre.inviter"]);
+    await a.executer((q) => q("SELECT app.admin_envoyer_invitation($1)",
+      [String(formulaire.get("invitation"))]));
+    revalidatePath("/admin/collaborateurs");
+  }
+
+  async function revoquerInvitation(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["membre.inviter"]);
+    await a.executer((q) => q("SELECT app.admin_revoquer_invitation($1)",
+      [String(formulaire.get("invitation"))]));
+    revalidatePath("/admin/collaborateurs");
+  }
+
+  async function suspendre(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["membre.revoquer"]);
+    await a.executer((q) => q("SELECT app.admin_suspendre_membre($1,$2,$3)",
+      [String(formulaire.get("membre")), formulaire.get("suspendre") === "1",
+       String(formulaire.get("motif") ?? "").trim() || null]));
+    revalidatePath("/admin/collaborateurs");
+  }
+
+  async function definirRoles(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["role.gerer"]);
+    const cible = String(formulaire.get("utilisateur") ?? "");
+    /* Double garde : applicative pour le message, et `app.exiger(…, cible)`
+       en base, hors de portée du code. */
+    interdireAutoModification(s.utilisateurId, cible);
+    const roles = formulaire.getAll("role").map(String).filter(Boolean);
+    await a.executer((q) => q("SELECT app.admin_definir_roles($1,$2::uuid[])",
+      [String(formulaire.get("membre")), roles]));
+    revalidatePath("/admin/collaborateurs");
+  }
+
   return (
     <main className="admin-page">
       <header className="admin-entete">
@@ -105,22 +167,66 @@ export default async function Collaborateurs() {
         <h2 className="display t-carte">Membres</h2>
         <ul className="admin-liste">
           {donnees.membres.map((m) => (
-            <li key={m.id} style={m.retire_le ? { opacity: 0.45 } : undefined}>
+            <li key={m.id} style={{ flexWrap: "wrap",
+              opacity: m.retire_le ? 0.45 : m.suspendu_le ? 0.7 : 1 }}>
               <strong>{m.prenom} {m.nom}</strong>
               <span>{m.email}</span>
               <span>{m.roles}</span>
-              <span>
-                {m.retire_le
-                  ? "Accès révoqué"
-                  : m.utilisateur_id === session.utilisateurId
-                    ? "Vous"
-                    : null}
+              <span className="admin-pastille">
+                {m.affectations} mariage(s) attribué(s)
               </span>
-              {!m.retire_le && m.utilisateur_id !== session.utilisateurId
-                && acces.permissions.has("membre.revoquer") ? (
-                <form action={revoquerMembre}>
+              <span className={`admin-pastille${m.retire_le || m.suspendu_le ? "" : " admin-pastille--emis"}`}>
+                {m.retire_le ? "révoqué"
+                  : m.suspendu_le ? "suspendu"
+                  : m.utilisateur_id === session.utilisateurId ? "vous" : "actif"}
+              </span>
+              {m.motif_suspension ? (
+                <span style={{ flexBasis: "100%" }}>Motif : {m.motif_suspension}</span>
+              ) : null}
+
+              {!m.retire_le && m.utilisateur_id !== session.utilisateurId ? (
+                <div className="admin-paiement__actions" style={{ marginLeft: "auto" }}>
+                  {acces.permissions.has("membre.revoquer") ? (
+                    <form action={suspendre}>
+                      <input type="hidden" name="membre" value={m.id} />
+                      <input type="hidden" name="suspendre" value={m.suspendu_le ? "0" : "1"} />
+                      <button type="submit" className="btn btn--fantome btn--petit">
+                        {m.suspendu_le ? "Réactiver" : "Suspendre"}
+                      </button>
+                    </form>
+                  ) : null}
+                  {acces.permissions.has("membre.revoquer") ? (
+                    <form action={revoquerMembre}>
+                      <input type="hidden" name="utilisateur" value={m.utilisateur_id} />
+                      <button type="submit" className="btn btn--fantome btn--petit">Révoquer</button>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* ⚠️ LES RÔLES SE MODIFIENT, MAIS JAMAIS LES SIENS.
+                  `interdireAutoModification` côté serveur ET `app.exiger(…,
+                  cible)` en base : la permission de gérer les rôles ne doit
+                  pas devenir la permission de s'accorder toutes les autres. */}
+              {!m.retire_le && acces.permissions.has("role.gerer")
+                && m.utilisateur_id !== session.utilisateurId ? (
+                <form action={definirRoles} style={{ flexBasis: "100%", marginTop: "0.6rem" }}>
+                  <input type="hidden" name="membre" value={m.id} />
                   <input type="hidden" name="utilisateur" value={m.utilisateur_id} />
-                  <button type="submit" className="btn btn--fantome btn--petit">Révoquer</button>
+                  <div className="admin-paiement__actions">
+                    {donnees.roles.map((r) => (
+                      <label key={r.id}
+                        style={{ display: "flex", gap: "0.35rem", alignItems: "center",
+                          fontSize: "0.8rem" }}>
+                        <input type="checkbox" name="role" value={r.id}
+                          defaultChecked={m.roles.includes(r.libelle)} />
+                        {r.libelle}
+                      </label>
+                    ))}
+                    <button type="submit" className="btn btn--fantome btn--petit">
+                      Appliquer les rôles
+                    </button>
+                  </div>
                 </form>
               ) : null}
             </li>
@@ -169,21 +275,63 @@ export default async function Collaborateurs() {
           <p className="recap__note">Aucune invitation préparée.</p>
         ) : (
           <ul className="admin-liste">
-            {donnees.invitations.map((i) => (
-              <li key={i.id}>
-                <strong>{i.email}</strong>
-                <span>
-                  {i.utilisee_le ? "Acceptée"
-                    : i.revoquee_le ? "Révoquée"
-                    : i.envoyee_le ? "Envoyée"
-                    : "Préparée — non envoyée"}
-                </span>
-                <span>expire le {new Date(i.expire_le).toLocaleDateString("fr-FR")}</span>
-              </li>
-            ))}
+            {donnees.invitations.map((i) => {
+              const encoreUtile = !i.utilisee_le && !i.revoquee_le
+                && new Date(i.expire_le) > new Date();
+              return (
+                <li key={i.id} style={{ flexWrap: "wrap" }}>
+                  <strong>{i.email}</strong>
+                  <span className={`admin-pastille${i.utilisee_le ? " admin-pastille--emis" : ""}`}>
+                    {i.utilisee_le ? "acceptée"
+                      : i.revoquee_le ? "révoquée"
+                      : new Date(i.expire_le) <= new Date() ? "expirée"
+                      : i.envoyee_le ? "envoyée"
+                      : "préparée — non envoyée"}
+                  </span>
+                  <span>expire le {new Date(i.expire_le).toLocaleDateString("fr-FR")}</span>
+                  {encoreUtile && acces.permissions.has("membre.inviter") ? (
+                    <div className="admin-paiement__actions" style={{ marginLeft: "auto" }}>
+                      {!i.envoyee_le ? (
+                        <form action={envoyerInvitation}>
+                          <input type="hidden" name="invitation" value={i.id} />
+                          <button type="submit" className="btn btn--petit">
+                            Envoyer l&apos;invitation
+                          </button>
+                        </form>
+                      ) : null}
+                      <form action={revoquerInvitation}>
+                        <input type="hidden" name="invitation" value={i.id} />
+                        <button type="submit" className="btn btn--fantome btn--petit">
+                          Révoquer
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
+
+      {/* ⚠️ LE JOURNAL N'EST PAS DÉCORATIF.
+          Qui a invité, qui a suspendu, qui a changé des rôles, et quand. Si
+          un accès a existé, il en reste une trace — c'est ce qui permet de
+          répondre à « depuis quand voyait-il ce dossier ? ». */}
+      {acces.permissions.has("audit.lire") && donnees.journal.length > 0 ? (
+        <section style={{ marginTop: "2.5rem" }}>
+          <h2 className="display t-carte">Journal des accès</h2>
+          <ul className="admin-liste">
+            {donnees.journal.map((j, i) => (
+              <li key={`${j.horodatage}-${i}`}>
+                <strong>{j.action.replace(/\./g, " · ")}</strong>
+                <span>{j.prenom ? `${j.prenom} ${j.nom ?? ""}` : "—"}</span>
+                <span>{new Date(j.horodatage).toLocaleString("fr-FR")}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </main>
   );
 }

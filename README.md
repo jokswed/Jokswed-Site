@@ -33,7 +33,7 @@ npm run dev                  # http://localhost:3000
 npm run suite
 ```
 
-Enchaîne neuf étapes, **362 vérifications**, et **échoue** à la première qui casse :
+Enchaîne dix étapes, **509 vérifications**, et **échoue** à la première qui casse :
 
 1. `verifier:sitemap` — chaque URL annoncée a sa page, chaque page publique est annoncée ;
 2. `verifier:coherence` — aucune formulation contradictoire, aucun lien mort, aucune image manquante, aucun prix en dur ;
@@ -42,8 +42,9 @@ Enchaîne neuf étapes, **362 vérifications**, et **échoue** à la première q
 5. `test:secrets` (24) — chiffrement, hachage, jetons ;
 6. `test:pdf` (90) — moteur documentaire : trois formules, tarifs, échéanciers, arrondis, clauses conditionnelles, pagination, libellés ;
 7. `test:securite` (79) — RLS et autorisations **sous le rôle applicatif réel** ;
-8. `test:admin` (108) — parcours complets et cloisonnement entre entreprises ;
-9. `test:neon` (9) — compatibilité du schéma avec Neon.
+8. `test:v6` (132) — finances, collaborateurs et transmission vidéo, avec **deux entreprises** et quatre collaborateurs ;
+9. `test:admin` (123) — parcours complets et cloisonnement entre entreprises ;
+10. `test:neon` (9) — compatibilité du schéma avec Neon.
 
 Le banc **n'envoie aucun e-mail** : la clé fournisseur qu'il utilise est volontairement invalide.
 
@@ -301,11 +302,160 @@ public, persistance PostgreSQL, génération, émission — sur une base jetable
 Les données sont fictives : aucune reprise des informations de Kimberly &
 Jérémy, aucune signature scannée.
 
+## Ce que la V6 a apporté
+
+**Un tableau de bord financier qui ne mélange rien.** Quatre mesures, nommées
+et séparées :
+
+| | ce que c'est |
+| --- | --- |
+| **Contractualisé** | ce à quoi le client s'est engagé — un devis émis |
+| **Facturé** | ce qui a fait l'objet d'une facture, moins les avoirs |
+| **Exigible** | ce qui est facturé *et* dont l'échéance est passée |
+| **Encaissé** | ce qui est réellement arrivé — paiements **confirmés**, remboursements déduits |
+
+Ton exemple, tel quel : prestation 1 300 €, facture d'acompte de 433,33 € non
+réglée → contractualisé restant **1 300 €**, facturé **433,33 €**, encaissé
+**0 €**. Les trois coexistent et ne s'additionnent pas. Un banc le vérifie
+ligne par ligne.
+
+Vue mensuelle et annuelle, graphique de comparaison mois par mois (en CSS pur,
+sans bibliothèque), et une vue par mariage : prix total, encaissé, solde.
+
+**Les paiements se saisissent, puis se confirment.** Deux gestes distincts : un
+montant tapé dans un formulaire n'est pas un virement reçu, et n'entre dans
+aucun total tant qu'il n'est pas confirmé. Acompte, deuxième versement, solde,
+paiement partiel, remboursement — chacun avec sa date, son mode, sa référence
+et son auteur.
+
+**Une erreur se corrige par une opération, jamais par une gomme.** Avant
+confirmation, la saisie se modifie ou s'abandonne — et les deux sont au
+journal. Après, le mouvement est gelé : un déclencheur refuse la modification
+*et* la suppression, même au propriétaire de la base. La correction passe par
+un remboursement qui **désigne** l'opération d'origine. Le signe n'est jamais
+saisi : `montant_signe_cents` est une colonne générée, de sorte qu'un
+remboursement ne puisse pas être compté en plus.
+
+**On n'encaisse pas plus que dû, et on ne rembourse pas plus que reçu.** Les
+deux plafonds sont vérifiés en base, à la confirmation.
+
+**Saison des mariages**, en calendrier et en liste, sur une période
+configurable (juin → septembre par défaut, année entière d'un clic). Date,
+noms, lieu, formule, montant, acompte, solde, état des documents, équipe
+affectée et vidéaste. Filtres par année, mois, statut et collaborateur.
+L'écran s'ouvre sur l'année du **prochain** mariage, pas sur l'année courante :
+un carnet se remplit un à deux ans à l'avance.
+
+**Une demande confirmée devient un mariage.** Jusqu'ici le modèle « mariage
+partagé / dossiers séparés » existait en base sans que rien ne le peuple. La
+confirmation crée le mariage (commun, partageable), le dossier pilote de
+JoksWed (jamais partagé) et les contacts du couple. L'opération est
+idempotente : un double clic ne dédouble pas le carnet.
+
+### Collaborateurs
+
+**Le parcours d'invitation est complet** : préparer → envoyer → activer.
+Préparer crée l'invitation (jeton haché, jeton chiffré au repos, expiration) et
+**n'envoie rien**. Envoyer dépose un événement ; le drain compose le lien, le
+déchiffre **une seule fois**, l'envoie, puis **efface** le jeton chiffré. La
+base ne garde alors qu'une empreinte, et renvoyer le lien exige d'en régénérer
+un. L'invité choisit son mot de passe lui-même, sur une page qui ne demande
+aucune session et ne dit jamais *pourquoi* un lien est mort.
+
+**Suspendre n'est pas révoquer.** Un collaborateur saisonnier se suspend entre
+deux saisons et retrouve ses affectations ensuite ; le révoquer puis le
+réinviter lui en ferait perdre l'historique. Les deux coupent l'accès
+**immédiatement**, session ouverte comprise : `entreprises_de_lacteur()` est la
+racine de toutes les politiques, et un suspendu n'y figure plus.
+
+**Parrainer une entreprise partenaire.** Une entreprise neuve n'a aucun membre,
+donc personne pour y créer l'invitation qui amènera le premier — l'œuf et la
+poule. Le rôle `parrain` le résout avec exactement deux permissions : inviter
+et révoquer. Ni les dossiers du partenaire, ni ses finances. Un sélecteur
+d'entreprise active permet de passer de l'une à l'autre ; le cookie ne fait que
+choisir parmi celles où la base a déjà établi l'adhésion.
+
+**Rien n'est codé en dur.** Ajouter un photographe ou un vidéaste, c'est créer
+une entreprise et envoyer une invitation — pas modifier un fichier.
+
+### Transmission des demandes vidéo
+
+Le formulaire enregistre la proposition ; **transmettre reste un geste
+explicite**. Tant que `envoyee_le` est nul, la proposition existe chez
+l'émetteur et reste invisible du destinataire.
+
+Une fois transmise, le vidéaste voit **la date, le lieu, la prestation** — et
+rien d'autre. Ni nom, ni e-mail, ni téléphone du couple, ni le prix de la
+photo. Les coordonnées demandent un **second** geste du pilote, après
+acceptation, et se retirent aussi facilement qu'elles s'accordent. L'e-mail qui
+part ne contient pas davantage : pas un nom, pas un montant.
+
+Son acceptation crée **son** dossier, chez lui, avec **sa** référence, et pose
+le partage opérationnel — planning et lieux, pas les coordonnées. La
+transmission manuelle existe pour les couples qui demandent la vidéo plus tard.
+
+### Son espace à lui
+
+Le vidéaste prépare **ses** devis depuis **son** dossier, à **ses** prix, sous
+**son** régime de TVA, avec **sa** numérotation — contrat et factures compris.
+Rien n'est repris du catalogue de JoksWed, pas même les délais de livraison,
+qui ne sont pas les siens. Tant que son entreprise n'est pas renseignée, la
+garde refuse l'émission avec **ses** motifs à lui.
+
+Ses encaissements n'entrent dans aucun total de JoksWed, et réciproquement.
+Les deux séries comptables sont indépendantes : chacune commence à 0001.
+
+### Notifications
+
+Nouvelle demande, proposition de collaboration, réponse du collaborateur,
+modification du dossier, paiement enregistré, échéance à venir. **Une
+permission manquante l'emporte sur une préférence** : une notification
+financière n'atteint pas quelqu'un qui ne voit pas les montants, quelle que
+soit la case cochée. Et les préférences sont personnelles — la politique n'a
+aucune clause par entreprise : nul ne règle celles d'un autre, ni ne sait ce
+qu'il a désactivé.
+
+### Cinq défauts trouvés par les bancs
+
+- **`ON CONFLICT` sans le prédicat de l'index partiel.** `enregistrer_paiement`
+  héritait du palier 019 un `ON CONFLICT (entreprise_id, cle_idempotence)` sans
+  le `WHERE … IS NOT NULL` de l'index : PostgreSQL ne reconnaissait aucune
+  contrainte. Le défaut dormait — aucun banc n'avait encore saisi deux fois la
+  même clé de paiement.
+- **Une surcharge au lieu d'un remplacement.** Ajouter un paramètre à défaut à
+  `admin_creer_invitation` a créé une *seconde* fonction ; l'appel devenait
+  ambigu. Il faut supprimer l'ancienne signature avant de créer la nouvelle.
+- **Une jointure sur `entreprises` qui supprimait la ligne.** La fiche d'une
+  demande nommait le partenaire en joignant `entreprises` — dont la politique
+  ne rend que les siennes. La proposition disparaissait **en silence** et la
+  fiche affichait « aucune proposition ». Le cloisonnement était juste ; c'est
+  la page qui demandait mal.
+- **`attendu` et `facturé non réglé` bloqués à zéro** pour toute entreprise
+  sans demandes — donc pour tout collaborateur. Le calcul partait des demandes
+  seules ; il couvre désormais les deux ancrages.
+- **Un brouillon compté comme un montant dû.** L'écran des dossiers prenait le
+  dernier devis quel que soit son statut : un simple brouillon affichait
+  2 000 € de reste à percevoir.
+
+### Préparer l'accès d'Yvann
+
+```bash
+npm run preparer:videaste
+```
+
+Crée son entreprise, ses rôles, et une invitation à `cretinoiry@gmail.com`
+valable 7 jours. **`envoyee_le` reste nul** : rien ne part. L'envoi est un
+bouton de `/admin/collaborateurs`, après avoir basculé sur son entreprise dans
+le sélecteur. Et même alors, aucun e-mail ne peut sortir tant que
+`BREVO_API_KEY` est absente et que `NODE_ENV` n'est pas « production ».
+
 ## Ce qui reste ouvert
 
 - **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
 - **Aucun webhook Brevo n'est branché** : un envoi reste au statut `envoye`, jamais `remis` ni `ouvert`.
 - **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
+- **Aucun rapprochement bancaire automatique** : les paiements se saisissent à la main. Aucun import de relevé, aucun lien Stripe.
+- **Aucune relance d'échéance automatique** : le type de notification `echeance.proche` existe et respecte les permissions, mais rien ne la déclenche encore — il faudra une tâche périodique.
 - **Aucune signature électronique.** La table `signatures` distingue déjà `case_acceptation` d'une signature qualifiée, et l'interface ne présentera jamais la première comme la seconde.
 - **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif — mais **pas** celle d'une facture.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.

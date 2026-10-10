@@ -1,4 +1,5 @@
 import "server-only";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { AccesRefuse, exigerAcces, exigerSession, mesEntreprises } from "@/lib/auth/acces";
 
@@ -24,7 +25,15 @@ export async function contexteAdmin() {
        d'un accès révoqué. On ne montre pas une administration vide. */
     redirect("/admin/connexion?erreur=desactive");
   }
-  return { session, entreprises, entreprise: entreprises[0] };
+
+  /* ⚠️ L'ENTREPRISE ACTIVE EST UNE PRÉFÉRENCE, PAS UNE AUTORISATION.
+     Le cookie ne fait que CHOISIR parmi les entreprises dont `mesEntreprises`
+     a déjà établi, en base, que l'acteur est membre actif. Un identifiant
+     forgé n'y figure pas : on retombe alors sur la première. Le cookie ne
+     donne donc aucun accès — il n'en ouvre aucun que la base n'ait accordé. */
+  const choix = (await cookies()).get("jokswed_entreprise")?.value;
+  const entreprise = entreprises.find((e) => e.id === choix) ?? entreprises[0];
+  return { session, entreprises, entreprise };
 }
 
 /**
