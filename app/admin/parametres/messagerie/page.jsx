@@ -200,8 +200,13 @@ export default async function ParametresMessagerie() {
             <div className="champ pleine">
               <label htmlFor="methode">Méthode</label>
               <select id="methode" name="methode" defaultValue="brevo_partage">
+                {/* ⚠️ `disabled`, PAS SEULEMENT UN LIBELLÉ.
+                    Une option qu'on peut choisir laisse croire qu'elle
+                    fonctionne ; on la laisse visible pour dire qu'elle
+                    existe, et insélectionnable pour dire qu'elle n'est pas
+                    prête. */}
                 {Object.entries(METHODES).map(([cle, m]) => (
-                  <option key={cle} value={cle}>
+                  <option key={cle} value={cle} disabled={!m.disponible}>
                     {m.libelle}{m.disponible ? "" : " — indisponible"}
                   </option>
                 ))}
