@@ -26,7 +26,9 @@
     "neon:preparer": "tsx scripts/neon-preparer.mjs",
     "verifier:prod": "tsx scripts/verifier-prod.mjs",
     "test:amorcage": "tsx scripts/banc-amorcage.mjs",
-    "preparer:preview": "bash scripts/preparer-preview.sh"
+    "preparer:preview": "bash scripts/preparer-preview.sh",
+    "neon:production": "tsx scripts/neon-production.mjs",
+    "vercel:production": "tsx scripts/variables-production.mjs"
   },
   "dependencies": {
     "next": "^16.4.0",
