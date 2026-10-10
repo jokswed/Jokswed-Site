@@ -6,6 +6,9 @@ import {
   propositionCollaborateur,
 } from "@/lib/email/gabarits";
 import { dechiffrer } from "@/lib/auth/secrets";
+import { adresseReponse } from "@/lib/messagerie/adresses";
+import { texteVersHtml } from "@/lib/messagerie/modeles";
+import { rendrePdf } from "@/lib/documents/generer";
 import { formaterDateSql } from "@/lib/dates";
 
 /* =============================================================================
@@ -264,6 +267,72 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               if (r.statut === "envoye") bilan.envoyes += 1;
               else if (r.statut === "inhibe") bilan.inhibes += 1;
               else throw new Error(`proposition : ${r.erreur}`);
+            }
+          }
+        }
+
+        /* ── MESSAGE DE LA MESSAGERIE ──
+           ⚠️ L'ADRESSE DE RÉPONSE EST CE QUI REND LE FIL POSSIBLE.
+           Sans `JOKSWED_DOMAINE_REPONSE`, on peut écrire au client mais sa
+           réponse n'arrivera nulle part. On envoie quand même — un message
+           parti vaut mieux qu'un message bloqué — et on le dit dans le
+           journal d'envoi, plutôt que de laisser croire au contraire. */
+        if (evenement.type === "message.envoyer") {
+          const { message_id } = evenement.charge_utile;
+          const { rows } = await q("SELECT * FROM app.message_pour_envoi($1)", [message_id]);
+          const msg = rows[0];
+          if (msg) {
+            const destinataires = msg.destinataires as { email: string; nom: string | null }[];
+            const repondreA = adresseReponse(msg.jeton_reponse);
+
+            /* ⚠️ LES PIÈCES SE RÉGÉNÈRENT, ELLES NE SE STOCKENT PAS.
+               Le PDF est rendu depuis l'instantané du document au moment de
+               l'envoi : impossible de joindre une version périmée, et le
+               brouillon a déjà été refusé au moment de l'attacher. */
+            const pieces: { nom: string; contenu: Buffer }[] = [];
+            for (const documentId of (msg.documents as string[]) ?? []) {
+              const { rows: docs } = await q(
+                "SELECT numero, type, statut, instantane FROM documents WHERE id = $1",
+                [documentId]);
+              const doc = docs[0];
+              if (!doc || doc.statut === "brouillon") continue;
+              const { pdf } = rendrePdf(doc.instantane, false);
+              pieces.push({ nom: `${doc.numero ?? doc.type}.pdf`, contenu: pdf });
+            }
+
+            let dernier: ResultatEnvoi | null = null;
+            for (const destinataire of destinataires) {
+              dernier = await envoyer({
+                destinataire: destinataire.email,
+                destinataireNom: destinataire.nom,
+                sujet: msg.sujet,
+                html: msg.corps_html ?? texteVersHtml(msg.corps_texte),
+                texte: msg.corps_texte,
+                repondreA,
+                expediteurEmail: msg.auteur_email,
+                expediteurNom: msg.auteur_nom ?? msg.entreprise_nom,
+                pieces,
+                etiquettes: ["jokswed", "messagerie"],
+              });
+              await journaliser(q, evenement.id, null, msg.entreprise_id,
+                "messagerie", destinataire.email, msg.sujet, dernier,
+                `messagerie:${message_id}:${destinataire.email}`);
+              if (dernier.statut === "envoye") bilan.envoyes += 1;
+              else if (dernier.statut === "inhibe") bilan.inhibes += 1;
+            }
+
+            if (destinataires.length === 0) {
+              await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
+                [message_id, "echoue", "aucun", null, null, "aucun destinataire"]);
+            } else if (dernier && dernier.statut === "echoue") {
+              await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
+                [message_id, "echoue", dernier.fournisseur, null, null,
+                 (dernier.erreur ?? "").slice(0, 200)]);
+              throw new Error(`messagerie : ${dernier.erreur}`);
+            } else {
+              await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
+                [message_id, "envoye", dernier?.fournisseur ?? "aucun",
+                 dernier?.messageId ?? null, dernier?.messageId ?? null, null]);
             }
           }
         }

@@ -8,3 +8,6 @@ out/
 *.tsbuildinfo
 .DS_Store
 .pgdev/
+
+# Scripts jetables d'investigation : jamais versionnés.
+.scratch/

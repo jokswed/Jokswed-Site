@@ -235,6 +235,25 @@ try {
        RÉDUIRE les droits de l'appelant : c'est la seule action qu'on
        s'applique légitimement à soi-même. */
     "entreprise_en_amorcage","quitter_entreprise",
+    /* V7 — messagerie. `conversations_de_lacteur` sert les POLITIQUES
+       elles-mêmes : elle doit lire `conversation_participants` sans être
+       filtrée par la politique qu'elle évalue. Les autres contrôlent la
+       participation ET la permission à l'entrée, et refusent par exception
+       plutôt que de rendre une liste vide. */
+    "conversations_de_lacteur","ouvrir_conversation","ajouter_participant",
+    "composer_message","joindre_document","archiver_conversation","marquer_lue",
+    "mes_conversations","fil_conversation","variables_conversation",
+    "installer_modeles",
+    /* V7 — réception. `recevoir_message` et `message_pour_envoi` sont
+       appelées par le webhook et le drain, qui n'ont AUCUN acteur : la RLS
+       leur rendrait zéro ligne et l'opération serait sautée en silence.
+       Elles portent leurs propres garde-fous — jeton de conversation,
+       expéditeur participant, nature de la conversation. */
+    "recevoir_message","joindre_piece_entrante","message_pour_envoi","message_envoye",
+    /* V7 — nommer un co-participant sans voir son entreprise. Même raison
+       qu'au palier 029 : la politique de `entreprises` ne rend que les
+       siennes, et seule la raison commerciale est exposée. */
+    "participants_conversation","partenaires_invitables",
     /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */

@@ -891,6 +891,40 @@ try {
       && !/type="password"/.test(htmlInvitation),
     htmlInvitation.slice(0, 200));
 
+  /* ═══════════ ROUTES V7 : MESSAGERIE ═══════════ */
+  const messagerie = await proprio.fetch("/admin/messagerie");
+  const htmlMessagerie = await messagerie.text();
+  v("Le propriétaire ouvre la messagerie",
+    messagerie.status === 200 && /Messagerie/.test(htmlMessagerie),
+    `HTTP ${messagerie.status}`);
+  /* ⚠️ ON DIT QUE LA RÉCEPTION N'EST PAS CONFIGURÉE.
+     Le banc ne pose pas `JOKSWED_DOMAINE_REPONSE` : l'écran doit l'annoncer
+     plutôt que de laisser attendre des réponses qui n'arriveront jamais. */
+  v("…et annonce que la réception n'est pas configurée",
+    /Réception non configurée/.test(htmlMessagerie));
+
+  const parametres = await proprio.fetch("/admin/parametres/messagerie");
+  const htmlParametres = await parametres.text();
+  v("Les paramètres de messagerie s'ouvrent", parametres.status === 200,
+    `HTTP ${parametres.status}`);
+  v("…et disent franchement que Gmail et Outlook ne sont pas disponibles",
+    /[Ii]ndisponible/.test(htmlParametres) && /OAuth/.test(htmlParametres));
+  v("…en listant les enregistrements MX à poser à la main",
+    /inbound1\.sendinblue\.com/.test(htmlParametres));
+
+  /* ⚠️ L'ENDPOINT DE RÉCEPTION N'EXISTE PAS SANS SECRET CONFIGURÉ. */
+  const entrantSansConfig = await fetch(`${BASE}/api/entrant/brevo/nimporte-quoi`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  v("⚠️ Sans secret configuré, la réception rend 404",
+    entrantSansConfig.status === 404, `HTTP ${entrantSansConfig.status}`);
+
+  /* Une conversation inexistante ne doit pas révéler qu'elle n'existe pas
+     d'une manière différente d'une conversation interdite. */
+  const convInventee = await proprio.fetch(
+    "/admin/messagerie/00000000-0000-0000-0000-000000000000");
+  v("Une conversation inconnue rend 404", convInventee.status === 404,
+    `HTTP ${convInventee.status}`);
+
   v("Les journaux ne contiennent pas l'adresse du couple",
     !journal.includes("couple@exemple.invalid"));
   v("Les journaux ne contiennent pas le message du client",

@@ -128,6 +128,9 @@ export default async function TableauDeBord({ searchParams }) {
         {peut("entreprise.reglages") ? (
           <Link href="/admin/entreprise" className="btn btn--fantome">Mon entreprise</Link>
         ) : null}
+        {peut("message.lire") ? (
+          <Link href="/admin/messagerie" className="btn btn--fantome">Messagerie</Link>
+        ) : null}
         <Link href="/admin/notifications" className="btn btn--fantome">Notifications</Link>
         {peut("membre.inviter") ? (
           <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>

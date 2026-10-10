@@ -1788,6 +1788,14 @@ button:hover .photo img {
   margin-inline: auto;
   padding-block: clamp(1.5rem, 5vw, 3rem);
   display: grid;
+  /* ⚠️ `minmax(0, 1fr)` ET PAS LA COLONNE IMPLICITE.
+     Une colonne de grille implicite se dimensionne sur `max-content` : la
+     page faisait 350 px de large, sa colonne 1 700, et tout le contenu
+     débordait vers la droite sur iPhone. On ne le voyait pas parce que
+     chaque bloc, pris isolément, semblait correct — c'est la colonne qui
+     refusait de se réduire. Une colonne explicite borne la résolution, ici
+     et dans toutes les grilles imbriquées. */
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(1.5rem, 4vw, 2.5rem);
   align-content: start;
 }
@@ -2024,7 +2032,19 @@ button:hover .photo img {
   gap: 0.6rem;
   align-items: end;
 }
-.admin-ligne-actions select { flex: 1 1 11rem; min-height: 2.9rem; }
+.admin-ligne-actions select,
+.admin-ligne-actions input[type="search"],
+.admin-ligne-actions input[type="text"] { flex: 1 1 11rem; min-height: 2.9rem; }
+/* Les champs de l'administration héritent du style des formulaires publics,
+   qui n'ont pas de bordure complète : dans une barre d'outils, il en faut
+   une, sinon le champ se confond avec le fond. */
+.admin-ligne-actions input[type="search"],
+.admin-ligne-actions input[type="text"] {
+  border: 1px solid var(--ligne); border-radius: 2px; background: var(--blanc);
+  padding: 0 0.8rem; font: inherit; font-size: 0.9rem; color: var(--encre);
+}
+.admin-ligne-actions input:focus-visible { outline: 2px solid var(--encre); outline-offset: 1px; }
+.admin-ligne-actions label { align-self: center; }
 .admin-ligne-actions button { flex: 0 0 auto; }
 
 /* Sur iPhone, le menu déroulant prend toute la largeur et le bouton passe
@@ -2208,7 +2228,10 @@ button:hover .photo img {
 .admin-mois__event:hover { text-decoration: underline; }
 
 /* --- Liste de saison --------------------------------------------------------- */
-.admin-saison { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.7rem; }
+.admin-saison {
+  list-style: none; margin: 1rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.7rem;
+}
 .admin-saison__item {
   display: grid; gap: 0.6rem 1rem; align-items: start;
   grid-template-columns: 3.4rem 1fr;
@@ -2221,6 +2244,7 @@ button:hover .photo img {
 }
 .admin-saison__jour { font-family: var(--font-display), serif; font-size: 1.4rem; line-height: 1; }
 .admin-saison__mois { font-size: 0.62rem; color: var(--gris); text-transform: lowercase; }
+.admin-saison__corps { min-width: 0; overflow-wrap: anywhere; }
 .admin-saison__nom {
   font-family: var(--font-display), serif; font-size: 1.1rem;
   color: var(--encre); text-decoration: none;
@@ -2252,7 +2276,10 @@ button:hover .photo img {
 }
 
 /* --- Paiements -------------------------------------------------------------- */
-.admin-paiements { list-style: none; margin: 0.8rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.admin-paiements {
+  list-style: none; margin: 0.8rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
 .admin-paiement {
   border: 1px solid var(--ligne); border-radius: 2px; padding: 0.7rem 0.85rem;
   display: grid; gap: 0.3rem; background: var(--blanc);
@@ -2274,7 +2301,10 @@ button:hover .photo img {
 @media (max-width: 560px) { .admin-grille-champs { grid-template-columns: 1fr; } }
 
 /* --- Notifications ----------------------------------------------------------- */
-.admin-notifs { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.admin-notifs {
+  list-style: none; margin: 1rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
 .admin-notif {
   border: 1px solid var(--ligne); border-left-width: 3px; border-radius: 2px;
   padding: 0.75rem 0.9rem; background: var(--blanc); display: grid; gap: 0.2rem;
@@ -2282,3 +2312,90 @@ button:hover .photo img {
 .admin-notif--neuve { border-left-color: var(--encre); background: var(--brume); }
 .admin-notif__titre { font-size: 0.95rem; color: var(--encre); }
 .admin-notif__meta { font-size: 0.72rem; color: var(--gris); }
+
+/* =============================================================================
+   V7 — MESSAGERIE
+   -----------------------------------------------------------------------------
+   Le fil doit se lire d'un pouce. Les trois natures de message se
+   distinguent sans couleur criarde : un entrant à gauche, un sortant à
+   droite, une note interne encadrée et teintée — visuellement, elle ne
+   ressemble à rien de ce qui part.
+   ============================================================================= */
+.admin-conversations {
+  list-style: none; margin: 1.2rem 0 0; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem;
+}
+.admin-conv { min-width: 0; overflow-wrap: anywhere; }
+.admin-conv {
+  display: grid; gap: 0.25rem; padding: 0.9rem 1rem; text-decoration: none;
+  background: var(--blanc); border: 1px solid var(--ligne); border-radius: 2px;
+  border-left-width: 3px; border-left-color: var(--ligne); color: var(--encre-douce);
+}
+.admin-conv:hover { border-color: var(--encre-douce); }
+.admin-conv--neuve { border-left-color: var(--encre); background: var(--brume); }
+.admin-conv__haut { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; }
+.admin-conv__nom { font-family: var(--font-display), serif; font-size: 1.05rem; color: var(--encre); }
+.admin-conv__quand { font-size: 0.72rem; color: var(--gris); white-space: nowrap; }
+.admin-conv__sujet { font-size: 0.9rem; color: var(--encre); }
+.admin-conv__apercu {
+  font-size: 0.8rem; color: var(--gris); overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.admin-conv__bas { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.2rem; }
+.admin-pastille--client { border-color: #2f6b45; color: #2f6b45; }
+.admin-pastille--partagee { border-color: #4a5a7a; color: #4a5a7a; }
+.admin-pastille--interne { border-color: #9a4b32; color: #9a4b32; }
+
+/* ⚠️ `minmax(0, 1fr)` ET PAS LA COLONNE IMPLICITE.
+   Une colonne de grille implicite se dimensionne sur `max-content` : la
+   bulle demandait `max-width: 100%`, ce 100% se résolvait contre une colonne
+   elle-même dictée par le texte, et la page partait à 1 700 px de large sur
+   un iPhone de 390. Une colonne explicite borne la résolution. */
+.admin-fil {
+  list-style: none; margin: 1.2rem 0 2rem; padding: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem;
+}
+.admin-bulle {
+  background: var(--blanc); border: 1px solid var(--ligne); border-radius: 2px;
+  padding: 0.9rem 1rem; max-width: min(100%, 44rem); min-width: 0;
+  /* Une adresse ou une URL collée par un client n'a pas d'espace où se
+     couper : sans cela, elle déborde seule. */
+  overflow-wrap: anywhere;
+}
+.admin-bulle--entrant { justify-self: start; border-left: 3px solid var(--encre); }
+.admin-bulle--sortant { justify-self: end; background: var(--brume); }
+/* ⚠️ UNE NOTE INTERNE NE DOIT PAS RESSEMBLER À UN MESSAGE ENVOYÉ. */
+.admin-bulle--interne {
+  justify-self: stretch; border-style: dashed; border-color: #9a4b32;
+  background: #fdf8f6;
+}
+.admin-bulle--neuve { box-shadow: inset 3px 0 0 var(--encre); }
+.admin-bulle__entete {
+  font-size: 0.78rem; color: var(--gris); display: flex; flex-wrap: wrap;
+  gap: 0.4rem; align-items: baseline; margin-bottom: 0.5rem;
+}
+.admin-bulle__entete strong { color: var(--encre); font-size: 0.86rem; }
+.admin-bulle__quand { margin-left: auto; }
+.admin-bulle__corps p { margin: 0 0 0.5rem; line-height: 1.55; font-size: 0.92rem; }
+.admin-bulle__corps p:last-child { margin-bottom: 0; }
+.admin-bulle__pieces, .admin-bulle__pied {
+  display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.6rem 0 0;
+}
+.admin-bulle__erreur { font-size: 0.75rem; color: #9a4b32; }
+
+.admin-case {
+  display: flex; gap: 0.5rem; align-items: baseline; font-size: 0.86rem;
+  padding: 0.25rem 0;
+}
+.admin-etapes { margin: 1rem 0 0 1.1rem; padding: 0; display: grid; gap: 0.6rem; }
+.admin-etapes li { font-size: 0.86rem; line-height: 1.55; color: var(--encre-douce); }
+.admin-alerte--neutre { border-color: var(--ligne); background: var(--brume); color: var(--encre-douce); }
+.admin code {
+  font-size: 0.85em; background: var(--brume); padding: 0.1em 0.35em;
+  border-radius: 2px; word-break: break-all;
+}
+
+@media (max-width: 560px) {
+  .admin-bulle { max-width: 100%; }
+  .admin-bulle--entrant, .admin-bulle--sortant { justify-self: stretch; }
+}

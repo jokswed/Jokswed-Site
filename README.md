@@ -33,7 +33,7 @@ npm run dev                  # http://localhost:3000
 npm run suite
 ```
 
-Enchaîne dix étapes, **509 vérifications**, et **échoue** à la première qui casse :
+Enchaîne onze étapes, **591 vérifications**, et **échoue** à la première qui casse :
 
 1. `verifier:sitemap` — chaque URL annoncée a sa page, chaque page publique est annoncée ;
 2. `verifier:coherence` — aucune formulation contradictoire, aucun lien mort, aucune image manquante, aucun prix en dur ;
@@ -42,9 +42,10 @@ Enchaîne dix étapes, **509 vérifications**, et **échoue** à la première qu
 5. `test:secrets` (24) — chiffrement, hachage, jetons ;
 6. `test:pdf` (90) — moteur documentaire : trois formules, tarifs, échéanciers, arrondis, clauses conditionnelles, pagination, libellés ;
 7. `test:securite` (79) — RLS et autorisations **sous le rôle applicatif réel** ;
-8. `test:v6` (132) — finances, collaborateurs et transmission vidéo, avec **deux entreprises** et quatre collaborateurs ;
-9. `test:admin` (123) — parcours complets et cloisonnement entre entreprises ;
-10. `test:neon` (9) — compatibilité du schéma avec Neon.
+8. `test:v6` (149) — finances, collaborateurs et transmission vidéo, avec **deux entreprises** et quatre collaborateurs ;
+9. `test:v7` (56) — messagerie, **réception comprise**, sur un vrai serveur HTTP ;
+10. `test:admin` (130) — parcours complets et cloisonnement entre entreprises ;
+11. `test:neon` (9) — compatibilité du schéma avec Neon.
 
 Le banc **n'envoie aucun e-mail** : la clé fournisseur qu'il utilise est volontairement invalide.
 
@@ -449,6 +450,128 @@ bouton de `/admin/collaborateurs`, après avoir basculé sur son entreprise dans
 le sélecteur. Et même alors, aucun e-mail ne peut sortir tant que
 `BREVO_API_KEY` est absente et que `NODE_ENV` n'est pas « production ».
 
+## Ce que la V6.1 a corrigé
+
+**La transmission au partenaire est automatique**, mais à trois conditions
+vérifiées en base : un membre actif non suspendu chez le destinataire, qui
+porte `collaboration.repondre`, et le consentement du couple au partage. Si
+l'une manque, la proposition reste préparée — et la fiche dit laquelle.
+Aucun rattrapage rétroactif : les demandes antérieures à l'activation d'un
+compte attendent un geste manuel, pour qu'on en revoie le périmètre.
+
+**« Contractualisé » s'est scindé en quatre paliers** : proposé (devis émis
+sans réponse), accepté, contrat émis, réservation confirmée. **Engagé** =
+palier ≥ 2, et c'est lui qui pilote « attendu » et « reste à percevoir ». Un
+devis que personne n'a accepté n'est plus un carnet de commandes.
+
+**Les montants interdits valent « — », pas « 0 € ».** Zéro affirmait que le
+mariage ne rapportait rien. La base rend NULL ; la valeur ne quitte jamais
+PostgreSQL.
+
+**Deux failles réelles trouvées en auditant le rôle `parrain`** :
+
+- *La RLS ne regardait que l'entreprise.* Un membre sans `finance.lire`
+  pouvait lire `paiements` et `documents` par une requête SQL directe.
+  Politiques **restrictives** par permission sur documents, lignes,
+  échéances, signatures, paiements, dossiers, demandes, et sur l'écriture
+  des informations fiscales. Effet de bord utile : retirer une permission à
+  quelqu'un lui retire désormais aussi l'accès aux lignes.
+- *Une invitation pouvait conférer plus que l'invitant.* Un parrain — deux
+  permissions — pouvait créer une invitation « Propriétaire » vers une
+  adresse qu'il contrôle. Les permissions conférées doivent maintenant être
+  incluses dans les siennes, **sauf en amorçage** (aucun membre non
+  parrain), seul cas où le parrainage a un sens.
+
+## Ce que la V7 a apporté — la messagerie
+
+### Ce qui marche aujourd'hui
+
+**Envoi.** Depuis `/admin/messagerie`, un message part réellement par Brevo,
+avec une identité d'expéditeur vérifiée. On ne peut pas écrire depuis une
+adresse qu'on ne possède pas : `identites_messagerie` le vérifie en base.
+
+**Réception.** Une réponse envoyée depuis Gmail, Outlook ou Mail réapparaît
+dans la conversation. Le rattachement ne se devine pas : chaque conversation
+porte un jeton de 128 bits qui voyage dans `Reply-To: rep+<jeton>@…`. Le
+sujet, `In-Reply-To` et l'adresse de l'expéditeur ont tous été écartés comme
+autorités — le premier mélangerait deux couples, le deuxième se forge, le
+troisième change. Ce qui n'est pas rattachable va en **quarantaine**, avec
+son motif, plutôt qu'« au plus probable ».
+
+**Trois natures de conversation**, et la confusion est rendue impossible :
+`client` (les messages partent), `partagee` (plusieurs prestataires, rien ne
+sort), `interne` (une entreprise, rien ne sort). Une note interne ne peut
+pas devenir un e-mail : contrainte de table, puis contrôle dans
+`composer_message`, puis filtre dans `message_pour_envoi`. La nature est
+figée à la création — on n'ajoute pas un client à une note, on ouvre une
+autre conversation.
+
+**Conversations à plusieurs.** Le couple, JoksWed et le vidéaste dans le
+même fil. L'accès se lit sur la participation, pas sur une colonne
+`entreprise_id` : c'est la seule table du schéma dont la politique fait une
+sous-requête.
+
+**Neuf modèles de réponse** avec variables de dossier. Une variable inconnue
+**reste visible** (`{{date_mariage}}`) au lieu de disparaître, l'aperçu la
+signale, et l'envoi est bloqué tant qu'il en reste une. Mieux vaut un
+aller-retour qu'une phrase trouée chez le client.
+
+**Pièces jointes.** Un devis, un contrat, une facture du dossier : le PDF est
+**régénéré depuis l'instantané** au moment de l'envoi — impossible de joindre
+une version périmée. Un brouillon est refusé : il n'a pas de numéro, porte
+« SANS VALEUR », et n'engage personne. Les pièces reçues sont stockées en
+base, servies en privé, avec `Content-Disposition: attachment` et `nosniff`.
+
+**Notifications** de réponse reçue, soumises aux permissions et aux
+préférences individuelles. Le vidéaste n'est notifié que des conversations
+où il participe.
+
+### Ce qui exige une configuration manuelle
+
+La réception **ne fonctionnera pas** tant que ces trois points ne sont pas
+faits — et l'écran le dit, plutôt que de laisser attendre des réponses :
+
+1. **Un sous-domaine de réception distinct du domaine d'envoi**, par exemple
+   `reply.jokswed.com`. Brevo refuse d'utiliser le domaine qui envoie.
+2. **Deux enregistrements MX** sur ce sous-domaine : priorité 10 →
+   `inbound1.sendinblue.com.`, priorité 20 → `inbound2.sendinblue.com.`
+3. **Un webhook Brevo** de type `inbound`, événement `inboundEmailProcessed`,
+   pointant vers `/api/entrant/brevo/<secret>` — puis
+   `JOKSWED_DOMAINE_REPONSE` et `JOKSWED_WEBHOOK_ENTRANT` dans
+   l'environnement.
+
+⚠️ **Brevo ne signe pas ses webhooks.** Sa documentation d'inbound parsing ne
+décrit aucun mécanisme de signature. Le secret dans l'URL est donc ce qui
+authentifie l'appel : il doit être long et ne jamais circuler ailleurs. Deux
+défenses s'y ajoutent — le jeton de conversation, et l'obligation pour
+l'expéditeur d'être participant.
+
+Rien de tout cela ne touche la configuration Brevo d'EyesofJoks : il s'agit
+d'un sous-domaine et d'un webhook nouveaux, pas d'une modification des
+siens.
+
+### Ce qui n'est PAS fait, et ne doit pas être présenté comme fait
+
+- **Aucune synchronisation d'une boîte Gmail existante.** Lire l'historique
+  d'une boîte exige le scope `gmail.readonly`, classé « restricted » par
+  Google : vérification de l'application, puis évaluation de sécurité
+  annuelle par un tiers agréé, à la charge de l'éditeur. Non engagé.
+- **OAuth Gmail et Outlook pour l'identité d'un collaborateur** : modélisés
+  (`identites_messagerie.methode`), affichés comme **indisponibles**. Yvann
+  enverra sous son nom via le compte Brevo de JoksWed, après vérification de
+  son adresse comme expéditeur — sans jamais confier de mot de passe.
+- **Aucun stockage objet.** Les pièces reçues vivent en base, bornées à
+  8 Mio. Au-delà, il faudra R2 — et une dépense.
+
+### Un défaut d'affichage présent depuis la V3
+
+`.admin-page` était une grille sans colonne explicite. Une colonne implicite
+se dimensionne sur `max-content` : sur iPhone, la page faisait 350 px de
+large et sa colonne 1 700, tout débordant vers la droite. Chaque bloc pris
+isolément semblait correct — c'est la colonne qui refusait de se réduire.
+`grid-template-columns: minmax(0, 1fr)` corrige la page et toutes les
+grilles imbriquées.
+
 ## Ce qui reste ouvert
 
 - **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
@@ -456,6 +579,8 @@ le sélecteur. Et même alors, aucun e-mail ne peut sortir tant que
 - **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
 - **Aucun rapprochement bancaire automatique** : les paiements se saisissent à la main. Aucun import de relevé, aucun lien Stripe.
 - **Aucune relance d'échéance automatique** : le type de notification `echeance.proche` existe et respecte les permissions, mais rien ne la déclenche encore — il faudra une tâche périodique.
+- **Aucune notification push iPhone** : prévue en V9 avec la PWA. Les notifications internes existent déjà et s'y brancheront.
+- **La réception d'e-mails n'a jamais été éprouvée contre le vrai Brevo** : le banc rejoue une charge utile conforme à sa documentation sur le vrai endpoint HTTP, ce qui prouve notre moitié de la chaîne. Les MX et le webhook, eux, dépendent d'un DNS et d'un compte.
 - **Aucune signature électronique.** La table `signatures` distingue déjà `case_acceptation` d'une signature qualifiée, et l'interface ne présentera jamais la première comme la seconde.
 - **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif — mais **pas** celle d'une facture.
 - **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.

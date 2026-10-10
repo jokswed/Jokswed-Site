@@ -43,6 +43,11 @@ export interface MessageSortant {
   html: string;
   texte: string;
   repondreA?: string | null;
+  /** Expéditeur explicite, pour une identité autre que celle par défaut. */
+  expediteurEmail?: string | null;
+  expediteurNom?: string | null;
+  /** Pièces jointes : nom + contenu. Brevo les attend en base64. */
+  pieces?: { nom: string; contenu: Buffer }[];
   /** Étiquettes Brevo, utiles pour filtrer les statistiques par projet. */
   etiquettes?: string[];
 }
@@ -113,7 +118,15 @@ export async function envoyer(message: MessageSortant): Promise<ResultatEnvoi> {
   const { inhibe, motif } = envoiInhibe();
   if (inhibe) return { statut: "inhibe", fournisseur: "aucun", erreur: motif };
 
-  const de = expediteur();
+  /* ⚠️ L'IDENTITÉ D'EXPÉDITION DOIT ÊTRE VÉRIFIÉE CHEZ BREVO.
+     On ne la choisit pas ici : l'appelant l'a déjà validée contre
+     `identites_messagerie`, et Brevo refusera de toute façon un expéditeur
+     qu'il ne connaît pas. */
+  const defaut = expediteur();
+  const de = {
+    email: message.expediteurEmail ?? defaut.email,
+    nom: message.expediteurNom ?? defaut.nom,
+  };
   try {
     const reponse = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
@@ -129,6 +142,11 @@ export async function envoyer(message: MessageSortant): Promise<ResultatEnvoi> {
         subject: message.sujet,
         htmlContent: message.html,
         textContent: message.texte,
+        attachment: message.pieces?.length
+          ? message.pieces.map((p) => ({
+              name: p.nom, content: p.contenu.toString("base64"),
+            }))
+          : undefined,
         tags: message.etiquettes ?? ["jokswed"],
       }),
       signal: AbortSignal.timeout(10_000),
