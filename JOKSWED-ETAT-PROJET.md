@@ -131,19 +131,45 @@ RLS : s'y connecter désactiverait silencieusement tout le cloisonnement.
 restauration par *branch from timestamp*. Avant toute migration de production :
 `pg_dump` dans un fichier daté, conservé hors Vercel.
 
-## 8. Configuration Vercel (à faire à la main)
+## 8. Déploiement Vercel — ce qui existe et ce qui reste
 
-1. Nouveau projet Vercel **jokswed**, dépôt distinct, **racine = ce dépôt**.
-   Ne pas réutiliser le projet EyesofJoks.
-2. Variables (voir §10), par environnement : Production et Preview **ne
-   partagent ni base ni secrets**.
-3. `vercel.json` déclare déjà le cron `/api/cron/drain` toutes les 15 min.
-   Plan Hobby : 2 crons max, exécution quotidienne seulement → **le plan Pro
-   est nécessaire pour un drain au quart d'heure**. À défaut, déclencher le
-   drain depuis un service externe appelant la route avec `CRON_SECRET`.
-4. Protection de la Preview : Vercel → Settings → Deployment Protection →
-   *Vercel Authentication* (gratuit) ou *Password Protection* (Pro).
-5. Domaine : ajouter `jokswed.com` **seulement après validation** de la Preview.
+**Existant** : projet Vercel `jokswed`, domaine `jokswed.com`, dépôt
+`jokswed/Jokswed-Site`, branche de production `main`, **Root Directory
+`jokswed`**. L'ancien site est en production sur `main`.
+
+⚠️ **Le dépôt GitHub range l'application sous `jokswed/`**, alors que le
+dépôt de travail local l'a à la racine. D'où `npm run preparer:preview`,
+qui construit une branche `preview` à la bonne arborescence, dans un plan de
+travail séparé, sans toucher `main` ni le dépôt local. Il ne pousse pas.
+
+**Enchaînement :**
+
+```bash
+npm run suite                 # tout vert avant de partir
+npm run preparer:preview      # construit la branche, ne pousse rien
+cd ../jokswed-preview && git push -u origin preview
+```
+
+Puis, dans Vercel :
+1. Variables d'environnement **Preview** (§10), pointant sur la branche Neon
+   `preview`. Production et Preview ne partagent **ni base ni secrets**.
+2. Settings → Deployment Protection → *Vercel Authentication*, pour que la
+   Preview ne soit pas publique.
+3. Le déploiement part tout seul à la poussée de la branche.
+
+```bash
+npm run verifier:prod -- https://<url-preview>   # 28 contrôles externes
+```
+
+⚠️ **Le cron `/api/cron/drain` est déclaré toutes les 15 min dans
+`vercel.json`.** Le plan Hobby limite à 2 crons, déclenchés une fois par
+jour : sans plan Pro, il faut un déclencheur externe appelant la route avec
+`CRON_SECRET`. Rien ne doit être souscrit sans validation.
+
+**Bascule en production** : fusionner `preview` dans `main` — et seulement
+après validation explicite. Le domaine `jokswed.com` pointe déjà sur ce
+projet : la fusion REMPLACE le site actuel. C'est l'étape irréversible du
+lot, et la seule.
 
 ## 9. Configuration Brevo
 

@@ -39,20 +39,28 @@ nom dans le mauvais dépôt. Lancer le serveur JoksWed par
 
 ## Ce qui reste à faire, dans l'ordre
 
+Services déjà créés par John : projet **Neon** `jokswed` (branches
+`production` et `preview`, Frankfurt), projet **Vercel** `jokswed` (domaine
+`jokswed.com`, dépôt `jokswed/Jokswed-Site`, branche `main`, Root Directory
+`jokswed`), **Brevo** (domaine authentifié, expéditeur unique
+`contact@jokswed.com`).
+
 | # | Action | Qui |
 | --- | --- | --- |
-| 1 | Créer le projet Neon JoksWed + bases `jokswed` et `jokswed_preview` | **John** |
-| 2 | `npm run neon:preparer` avec la chaîne propriétaire | Claude |
-| 3 | Créer le projet Vercel `jokswed` (racine = ce dépôt) | **John** |
-| 4 | Déclarer les variables Preview, déployer, protéger | **John** + Claude |
-| 5 | `npm run verifier:prod -- <url>` et vérifications manuelles | Claude |
-| 6 | Vérifier l'expéditeur Brevo `contact@jokswed.com` | **John** |
-| 7 | Initialiser le compte propriétaire via `/admin/amorcage?cle=…`, puis **retirer le secret** | **John** |
-| 8 | Valider la bascule sur `jokswed.com` | **John** |
-| 9 | Inviter Yvann depuis `/admin/collaborateurs` | **John** |
+| 1 | Chaîne du propriétaire de la branche Neon **preview** | **John** |
+| 2 | `npm run neon:preparer` → rôles + 49 migrations + contrôles | Claude |
+| 3 | `npm run preparer:preview` puis `git push -u origin preview` | Claude prépare, **John pousse** |
+| 4 | Variables Preview dans Vercel + protection du déploiement | **John** |
+| 5 | `npm run verifier:prod -- <url-preview>` | Claude |
+| 6 | Parcours manuel : accueil, formulaire, /admin, demande, document, finances, messagerie, iPhone | Claude |
+| 7 | `/admin/amorcage?cle=…`, puis **retirer le secret** | **John** |
+| 8 | Même chose sur la branche Neon `production` | Claude + John |
+| 9 | Validation explicite, puis fusion `preview` → `main` | **John** décide |
+| 10 | Inviter Yvann depuis `/admin/collaborateurs` | **John** |
 
-Claude ne peut pas faire 1, 3 et 6 : ils exigent une authentification chez
-Neon, Vercel et Brevo. Il n'y a pas de CLI Vercel installée ni de jeton.
+Claude ne peut pas faire 1, 3 (la poussée), 4, 7 et 9 : pas de CLI Vercel,
+pas de `gh`, pas de jeton, et aucune authentification Git dans cet
+environnement.
 
 ## Pièges déjà rencontrés — ne pas les refaire
 

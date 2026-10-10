@@ -25,7 +25,8 @@
     "test:v7": "tsx scripts/banc-v7.mjs",
     "neon:preparer": "tsx scripts/neon-preparer.mjs",
     "verifier:prod": "tsx scripts/verifier-prod.mjs",
-    "test:amorcage": "tsx scripts/banc-amorcage.mjs"
+    "test:amorcage": "tsx scripts/banc-amorcage.mjs",
+    "preparer:preview": "bash scripts/preparer-preview.sh"
   },
   "dependencies": {
     "next": "^16.4.0",
