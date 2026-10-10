@@ -38,9 +38,12 @@ interface Enveloppe {
   corps: string;
   bouton?: { libelle: string; lien: string } | null;
   pied?: string;
+  /** Identité professionnelle invitée, sans supposer un métier. */
+  marque?: string;
+  sousTitreMarque?: string;
 }
 
-function enveloppe({ preEntete, titre, corps, bouton, pied }: Enveloppe): string {
+function enveloppe({ preEntete, titre, corps, bouton, pied, marque, sousTitreMarque }: Enveloppe): string {
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -56,10 +59,10 @@ function enveloppe({ preEntete, titre, corps, bouton, pied }: Enveloppe): string
            style="max-width:560px;background:#ffffff;border:1px solid ${LIGNE}">
       <tr><td style="padding:34px 34px 0">
         <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:22px;
-                  letter-spacing:0.04em;color:${ENCRE}">Joks<em>Wed</em></p>
+                  letter-spacing:0.04em;color:${ENCRE}">${marque ? echapper(marque) : "Joks<em>Wed</em>"}</p>
         <p style="margin:6px 0 0;font-family:Helvetica,Arial,sans-serif;font-size:10px;
                   letter-spacing:0.28em;text-transform:uppercase;color:${GRIS}">
-          Photographe de mariage</p>
+          ${echapper(sousTitreMarque ?? "Photographe de mariage")}</p>
       </td></tr>
       <tr><td style="padding:26px 34px 0">
         <hr style="border:0;border-top:1px solid ${LIGNE};margin:0">
@@ -113,16 +116,21 @@ export function accuseReception(donnees: {
   reference: string;
   dateMariage?: string | null;
   formule?: string | null;
+  /** Vraie boîte de réponse ; aucun lien vers l'administration privée. */
+  emailReponse?: string | null;
 }): Gabarit {
   const quand = donnees.dateMariage
     ? ` du <strong>${echapper(donnees.dateMariage)}</strong>`
     : "";
   const quandTexte = donnees.dateMariage ? ` du ${donnees.dateMariage}` : "";
+  const adresse = donnees.emailReponse?.trim() || "jokswed@gmail.com";
+  const objetContact = encodeURIComponent(`Suivi de ma demande ${donnees.reference} — JoksWed`);
+  const lienContact = `mailto:${adresse}?subject=${objetContact}`;
 
   return {
-    sujet: `Votre demande a bien été reçue — JoksWed`,
+    sujet: "Votre demande a bien été reçue — JoksWed",
     html: enveloppe({
-      preEntete: `Demande ${donnees.reference} bien reçue. Je reviens vers vous sous 48 heures.`,
+      preEntete: `Demande ${donnees.reference} reçue. Voici les prochaines étapes.`,
       titre: "Merci pour votre confiance",
       corps: [
         paragraphe(`Bonjour ${echapper(donnees.prenoms)},`),
@@ -131,22 +139,27 @@ export function accuseReception(donnees: {
           ? paragraphe(`Formule envisagée : <strong>${echapper(donnees.formule)}</strong>.`)
           : "",
         paragraphe(
-          "Je vais étudier les informations transmises et je reviendrai vers vous " +
-            "personnellement, en général sous 48 heures.",
+          "Je vais prendre le temps d'étudier votre projet et votre planning. " +
+          "Je reviens personnellement vers vous, en général sous 48 heures."
         ),
         paragraphe(
-          `<em>Votre date n'est pas encore réservée</em> : elle le sera à la signature ` +
-            `du contrat et au versement de l'acompte. Je vérifie ma disponibilité et ` +
-            `vous le confirme par écrit.`,
+          "Votre demande est enregistrée, mais <strong>votre date n'est pas encore réservée</strong> : " +
+          "la réservation sera confirmée après signature du contrat et versement de l'acompte."
         ),
+        `<div style="border:1px solid ${LIGNE};background:${PAPIER};padding:18px 20px;margin:24px 0">
+          <p style="margin:0 0 7px;font-family:Helvetica,Arial,sans-serif;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;color:${GRIS}">Référence de votre demande</p>
+          <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:21px;color:${ENCRE}">${echapper(donnees.reference)}</p>
+        </div>`,
         paragraphe(
-          `Référence de votre demande : <strong>${echapper(donnees.reference)}</strong>`,
+          "Vous souhaitez ajouter une information ou poser une question ? " +
+          "Utilisez le bouton ci-dessous : votre référence sera déjà indiquée."
         ),
         paragraphe("À très bientôt,<br>John — JoksWed"),
       ].join(""),
+      bouton: { libelle: "Contacter JoksWed", lien: lienContact },
       pied:
-        "Vous recevez ce message parce que vous avez envoyé une demande sur jokswed.com. " +
-        "Pour toute question, répondez simplement à cet e-mail.",
+        "Ce message confirme la réception de votre demande, pas une réservation. " +
+        "Pour toute question, vous pouvez répondre directement à cet e-mail.",
     }),
     texte: [
       `Bonjour ${donnees.prenoms},`,
@@ -154,13 +167,14 @@ export function accuseReception(donnees: {
       `J'ai bien reçu votre demande pour votre mariage${quandTexte}.`,
       donnees.formule ? `Formule envisagée : ${donnees.formule}.` : "",
       "",
-      "Je vais étudier les informations transmises et je reviendrai vers vous",
-      "personnellement, en général sous 48 heures.",
+      "Je vais étudier votre projet et votre planning, et revenir personnellement",
+      "vers vous, en général sous 48 heures.",
       "",
-      "Votre date n'est pas encore réservée : elle le sera à la signature du",
-      "contrat et au versement de l'acompte.",
+      "Votre date n'est pas encore réservée : la réservation sera confirmée",
+      "après signature du contrat et versement de l'acompte.",
       "",
       `Référence de votre demande : ${donnees.reference}`,
+      "Pour la compléter, répondez à cet e-mail en rappelant votre référence.",
       "",
       "À très bientôt,",
       "John — JoksWed",
@@ -283,28 +297,41 @@ export function invitationCollaborateur(donnees: {
   expireLe: string;
 }): Gabarit {
   const salutation = donnees.prenom ? `Bonjour ${echapper(donnees.prenom)},` : "Bonjour,";
+  const nomEntreprise = echapper(donnees.entreprise);
   return {
-    sujet: `Votre accès à l'espace ${donnees.entreprise}`,
+    sujet: `Activez votre espace ${donnees.entreprise} — JoksWed`,
     html: enveloppe({
-      preEntete: "Créez votre accès à l'espace collaborateur.",
-      titre: "Votre accès collaborateur",
+      preEntete: `Votre accès à l'espace professionnel ${donnees.entreprise} est prêt.`,
+      marque: donnees.entreprise,
+      sousTitreMarque: "Espace professionnel · JoksWed",
+      titre: "Bienvenue dans votre espace",
       corps: [
         paragraphe(salutation),
         paragraphe(
-          `${echapper(donnees.entreprise)} vous invite à rejoindre son espace ` +
-            "collaborateur. Vous y choisirez vous-même votre mot de passe : " +
-            "personne, ici, ne le connaîtra.",
+          `Vous êtes invité(e) à activer l'espace professionnel de <strong>${nomEntreprise}</strong> ` +
+          "sur la plateforme JoksWed."
         ),
-        paragraphe(`Ce lien est personnel et expire le ${echapper(donnees.expireLe)}.`),
+        paragraphe(
+          "Selon les autorisations de votre compte, vous pourrez consulter les propositions " +
+          "qui vous sont adressées, gérer vos prestations et préparer vos devis, contrats et factures."
+        ),
+        paragraphe(
+          "Vous choisirez personnellement votre mot de passe. " +
+          "Utilisez un mot de passe unique, jamais employé sur un autre site."
+        ),
+        paragraphe(`Ce lien est personnel et expire le <strong>${echapper(donnees.expireLe)}</strong>.`),
       ].join(""),
-      bouton: { libelle: "Créer mon accès", lien: donnees.lien },
-      pied: "Si vous n'attendiez pas cette invitation, ignorez ce message.",
+      bouton: { libelle: "Activer mon espace", lien: donnees.lien },
+      pied: `Invitation sécurisée pour ${nomEntreprise} · JoksWed. ` +
+        "Si vous n'attendiez pas cette invitation, ignorez ce message.",
     }),
     texte: [
-      salutation.replace(/&[a-z]+;/g, ""),
+      donnees.prenom ? `Bonjour ${donnees.prenom},` : "Bonjour,",
       "",
-      `${donnees.entreprise} vous invite à rejoindre son espace collaborateur.`,
-      "Vous choisirez vous-même votre mot de passe.",
+      `Vous êtes invité(e) à activer l'espace professionnel de ${donnees.entreprise} sur JoksWed.`,
+      "Selon vos droits, vous pourrez consulter les propositions, gérer vos prestations",
+      "et préparer vos devis, contrats et factures.",
+      "Choisissez un mot de passe unique, non utilisé ailleurs.",
       "",
       `Lien personnel (expire le ${donnees.expireLe}) :`,
       donnees.lien,
