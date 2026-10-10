@@ -21,7 +21,10 @@ export default function Footer() {
             <h3>Explorer</h3>
             <ul>
               <li><Link href="/portfolio">Portfolio</Link></li>
-              <li><Link href="/mariages">Mariages</Link></li>
+              {/* ⚠️ « Mariages » pointait vers /mariages : route inexistante,
+                  donc un 404 présent sur TOUTES les pages du site. Remplacé par
+                  la FAQ, qui existe et qui est utile au visiteur. */}
+              <li><Link href="/faq">FAQ</Link></li>
               <li><Link href="/tarifs">Tarifs</Link></li>
               <li><Link href="/a-propos">À propos</Link></li>
               <li><Link href="/contact">Contact</Link></li>
@@ -47,6 +50,10 @@ export default function Footer() {
 
         <div className="pied__bas">
           <p>© {new Date().getFullYear()} {site.nom}. Tous droits réservés.</p>
+          <p style={{ display: "flex", gap: "1.1rem", flexWrap: "wrap" }}>
+            <Link href="/mentions-legales">Mentions légales</Link>
+            <Link href="/confidentialite">Confidentialité</Link>
+          </p>
           <p>{site.signature} — {site.baseline}</p>
         </div>
       </div>

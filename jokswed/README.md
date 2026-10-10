@@ -1,95 +1,604 @@
 # JoksWed — Site officiel
 
-Site vitrine de **JoksWed**, photographe de mariage — Paris & International.
-Construit avec **Next.js 14** (React), sans dépendance superflue : rapide,
-durable, facile à maintenir.
+Site de **JoksWed**, photographe de mariage — Paris & International.
+Next.js 16 · React 19 · App Router.
 
 ---
 
-## 🚀 Mise en ligne sur Vercel (5 minutes)
+## ⚠️ Le README précédent décrivait un autre site
 
-1. Créez un compte gratuit sur [vercel.com](https://vercel.com).
-2. Poussez ce dossier sur un dépôt GitHub (ou glissez-le directement via
-   `npx vercel` dans un terminal).
-3. Sur Vercel : **Add New → Project → Import** votre dépôt.
-4. Vercel détecte Next.js automatiquement. Cliquez sur **Deploy**. C'est tout.
-5. Ajoutez ensuite votre nom de domaine (ex. `jokswed.com`) dans
-   **Settings → Domains**.
+Il est corrigé ici. Pour mémoire, ce qu'il affirmait et qui était faux :
 
-## 💻 Lancer le site en local
+| Affirmation | Réalité |
+|---|---|
+| « Le formulaire ouvre le client mail du visiteur » | Il poste sur `/api/contact`, qui envoie un e-mail par API |
+| « Collez votre identifiant dans la constante `FORMSPREE_ID` » | Cette constante n'a jamais existé dans le code |
+| « `images/hero.jpg` : grande image d'accueil » | Ce fichier n'existait pas ; l'accueil utilisait `DSC01345-Modifier.jpg` |
+| « La page `/mariages/<slug>` est créée automatiquement » | Aucune route `app/mariages/` n'a jamais existé |
+| Aucune variable d'environnement mentionnée | Trois sont obligatoires — voir `.env.example` |
+
+---
+
+## Lancer le site en local
 
 ```bash
-npm install     # une seule fois
-npm run dev     # puis ouvrir http://localhost:3000
+npm install
+cp .env.example .env.local   # puis renseigner les trois variables obligatoires
+npm run dev                  # http://localhost:3000
 ```
+
+## Vérifier avant de déployer
+
+```bash
+npm run suite
+```
+
+Enchaîne onze étapes, **591 vérifications**, et **échoue** à la première qui casse :
+
+1. `verifier:sitemap` — chaque URL annoncée a sa page, chaque page publique est annoncée ;
+2. `verifier:coherence` — aucune formulation contradictoire, aucun lien mort, aucune image manquante, aucun prix en dur ;
+3. `build` — compilation de production ;
+4. `banc` (52) — démarre le serveur : codes HTTP de la route de contact, limitation de débit, consentements, absence de données personnelles dans les journaux, image Open Graph, balisage FAQPage, poids des images, `npm audit` ;
+5. `test:secrets` (24) — chiffrement, hachage, jetons ;
+6. `test:pdf` (90) — moteur documentaire : trois formules, tarifs, échéanciers, arrondis, clauses conditionnelles, pagination, libellés ;
+7. `test:securite` (79) — RLS et autorisations **sous le rôle applicatif réel** ;
+8. `test:v6` (149) — finances, collaborateurs et transmission vidéo, avec **deux entreprises** et quatre collaborateurs ;
+9. `test:v7` (56) — messagerie, **réception comprise**, sur un vrai serveur HTTP ;
+10. `test:admin` (130) — parcours complets et cloisonnement entre entreprises ;
+11. `test:neon` (9) — compatibilité du schéma avec Neon.
+
+Le banc **n'envoie aucun e-mail** : la clé fournisseur qu'il utilise est volontairement invalide.
 
 ---
 
-## ✏️ Modifier les TEXTES
+## Où se modifie quoi
 
-**Un seul fichier à connaître : `content/site.js`.**
-Tous les titres, paragraphes, avis, tarifs, questions de la FAQ, coordonnées…
-s'y modifient entre guillemets. Aucune autre connaissance nécessaire.
-
-## 🖼️ Remplacer les PHOTOS
-
-Toutes les images sont dans `public/images/`, rangées par page :
-
-| Dossier | Contenu |
+| Fichier | Contenu |
 |---|---|
-| `images/hero.jpg` | grande image d'accueil |
-| `images/accueil/` | mosaïque + photo de présentation |
-| `images/portfolio/` | les 12 images du portfolio |
-| `images/mariages/<nom>/` | cover + 8 photos par reportage |
-| `images/a-propos/` | portrait + image d'ambiance |
-| `images/contact/` | photo de la page contact |
+| `content/offres.ts` | **Formules et suppléments. Montants en centimes, TTC.** Source unique |
+| `content/faq.ts` | **FAQ. Source unique** pour `/faq` et l'encart de `/tarifs` |
+| `content/legal.ts` | Identité légale, sous-traitants, finalités RGPD |
+| `content/site.js` | Textes, avis, portfolio, chemins d'images |
+| `app/globals.css` | Système de design (couleurs, typographie, animations) |
+| `app/layout.jsx` | Polices et métadonnées globales |
+| `app/opengraph-image.jpg` | Visuel des partages sociaux (1200 × 630) |
 
-Deux façons de faire :
-- **La plus simple** : remplacez le fichier en gardant le même nom (`hero.jpg` → votre photo renommée `hero.jpg`).
-- **Ou** : déposez vos fichiers et mettez à jour les chemins dans `content/site.js`.
+### Changer un prix
 
-Conseils : JPEG qualité ~80, largeur max 2400 px. Next.js convertit ensuite
-automatiquement en AVIF/WebP et adapte la taille à chaque écran.
+Uniquement dans `content/offres.ts`, en **centimes** : `130_000` pour 1 300 € TTC.
+L'accueil, `/tarifs`, le formulaire et — à partir de la V5 — les devis et factures
+lisent cette même valeur. `npm run verifier:coherence` échoue si un prix réapparaît
+en dur dans une page.
 
-## ➕ Ajouter un reportage de mariage
+### Remplacer une photo
 
-1. Créez un dossier `public/images/mariages/<slug>/` avec `cover.jpg` et vos photos.
-2. Dans `content/site.js`, copiez-collez un bloc du tableau `mariages` et
-   adaptez `slug`, `titre`, `lieu`, `texte` et la liste `photos`.
-3. La page `/mariages/<slug>` est créée automatiquement (menu, sitemap compris).
-
-## 📬 Formulaire de contact
-
-Par défaut, le formulaire ouvre le client mail du visiteur avec un message
-prérempli (aucun serveur requis). Pour recevoir les messages directement :
-créez un formulaire gratuit sur [formspree.io](https://formspree.io) et collez
-votre identifiant dans `components/FormulaireContact.jsx` (constante
-`FORMSPREE_ID`, tout est expliqué dans le fichier).
-
-## 🎨 Ajuster les couleurs et polices
-
-Le système de design tient dans les 30 premières lignes de
-`app/globals.css` (variables `--blanc`, `--encre`, etc.). Les polices se
-changent dans `app/layout.jsx`.
+Déposer le fichier dans `public/images/…` et mettre à jour le chemin dans
+`content/site.js`. Garder une largeur maximale de 2400 px et une qualité JPEG
+d'environ 80 : `npm run banc` échoue si `public/images` dépasse 15 Mo.
 
 ---
 
-## 🧱 Structure du projet
+## Ce que la V1 a corrigé
+
+- **Dépendances** — Next 14.2.15 → 16.4.0, React 18 → 19.3. Lève une RCE critique de l'API d'optimisation d'images (applicable, le format AVIF étant activé) et un contournement d'autorisation du middleware qui interdisait d'ajouter un espace authentifié. `npm audit` : 1 critique + 3 hautes → **0**.
+- **Liens morts** — `/mariages` était annoncé au sitemap, lié depuis l'accueil **et depuis le pied de page de toutes les pages**, sans qu'aucune route existe.
+- **Open Graph** — l'image déclarée n'existait pas : tout partage sortait sans visuel. Remplacée par un vrai fichier 1200 × 630, résolu par convention Next.
+- **Sitemap** — `/faq` y était absente ; les pages légales y sont ajoutées.
+- **FAQ** — deux FAQ indépendantes se contredisaient sur le délai de livraison (13-15 vs 15-20 jours), le nombre de photos (« minimum 800 » vs « plusieurs centaines ») et les frais de déplacement. Une seule source, alignée sur le devis et le contrat signés.
+- **Prix** — annoncés **TTC**, et typés en centimes entiers au lieu de chaînes (`"1300€"`).
+- **Vidéaste** — l'ancien texte est remplacé par le nouveau. Ses coordonnées personnelles ne sont **pas** publiées.
+- **Images** — 116 Mo → **12 Mo**. Cinq paires de doublons exacts supprimées, 27 images de reportages de démonstration retirées, fichiers au-delà de 2400 px recompressés.
+- **Route de contact** — limitation de débit, vérification d'origine, plafond de taille, idempotence, consentements RGPD séparés par finalité, date normalisée en ISO, journaux expurgés, plus aucun expéditeur de repli sur un domaine tiers.
+- **Accessibilité** — `aria-expanded` suit l'état réel du menu ; le menu mobile fermé est `inert`, ses six liens n'étant plus atteignables à la tabulation.
+- **Pages légales** — mentions légales et politique de confidentialité, absentes du site livré.
+
+## Ce que la V2 a apporté
+
+- **Bande photographique** pleine largeur, carrés collés, défilement continu. Animation **100 % CSS** : aucun JavaScript, donc rien à recalculer par image — c'est ce qui tient sur Safari iOS. La série est dupliquée exactement une fois et translatée de -50 %, condition arithmétique du raccord invisible (vérifiée au banc : demi-piste = largeur d'une série).
+- **Les trois formules sur l'accueil**, avec « Choisir cette formule ». La sélection est reprise automatiquement dans le formulaire, et reste modifiable depuis celui-ci.
+- **Suppléments** sélectionnables, et la règle anti-double-facturation appliquée **des deux côtés** : un supplément compris dans la formule s'affiche « Incluse dans votre formule », n'est pas cliquable, et le serveur le reclasse aussi à la réception.
+- **Carte vidéaste** avec le nouveau texte d'Yvann, le lien vers ses réalisations, et l'emplacement de l'aperçu vidéo. Ses coordonnées ne sont pas publiées — vérifié au banc.
+- **Aucun total n'est affiché tant qu'une ligne reste « sur devis »** : seulement le prix de la formule et la liste des prestations à chiffrer.
+- **Formulaire sur l'accueil**, avec récapitulatif en direct. Les prix ne transitent jamais par le navigateur : seules des clés sont envoyées, revalidées contre le catalogue côté serveur.
+- **Aucune notification au vidéaste** : son compte et ses permissions n'existent pas. Une demande vidéo est signalée dans l'e-mail comme à relayer manuellement.
+- **En-tête opaque sur l'accueil** : il se rendait en blanc translucide par-dessus un héros sombre qui n'existe plus, et devenait illisible sur les photos claires de la bande.
+- **Cibles tactiles du pied de page** portées de 22 à 24 px (minimum WCAG 2.2 AA).
+- **Tailles d'images affinées** (320 et 640 ajoutés) : un carré de 250 px sur écran 2× recevait un fichier de 768 px.
+
+## Ce que la V3 a apporté
+
+**Base de données JoksWed indépendante** — PostgreSQL, 7 migrations, 20 tables.
+Entièrement distincte de celle d'EyesofJoks, qui n'a reçu aucune migration.
+
+**Identité** : utilisateurs, empreintes scrypt (paramètres OWASP, ~180 ms par
+vérification), second facteur TOTP chiffré au repos en AES-256-GCM, sessions
+dont seule l'empreinte du jeton est stockée, limitation des tentatives en base.
+
+**Entreprises et permissions** : entreprises juridiquement distinctes, régimes
+de TVA historisés, 28 permissions en table, 6 rôles modèles, plusieurs rôles par
+membre, refus individuels qui l'emportent, invitations à jeton haché.
+
+**Row Level Security** sur 19 tables, `FORCE` partout sauf 5 exceptions
+justifiées et vérifiées par banc. Rôle `jokswed_app` ni propriétaire, ni
+superutilisateur, ni `BYPASSRLS`. Identité portée par `set_config(..., true)`,
+locale à la transaction.
+
+**Administration** : connexion, tableau de bord, collaborateurs. Même système de
+design que le site public, mobile d'abord.
+
+### Lancer l'environnement de développement
+
+```bash
+npm run dev:complet
+```
+
+Démarre un PostgreSQL isolé (port 54329, dossier `.pgdev/`), applique les
+migrations, pose des fixtures en `.invalid`, puis lance Next.
+
+⚠️ Utilisez bien `dev:complet` et non `next start` : en production le cookie
+porte le préfixe `__Host-`, qui impose HTTPS. Servi en HTTP simple, il est
+rejeté par le navigateur et la connexion échoue silencieusement.
+
+### Tests
+
+```bash
+npm run test:securite   # 41 épreuves RLS, avec le rôle réel de l'application
+npm run test:admin      # 27 épreuves HTTP sur les routes d'administration
+npm run test:secrets    # 24 épreuves des primitives, dont le vecteur RFC 6238
+```
+
+## Ce que la V4 a apporté
+
+**Correction de sécurité préalable (paliers 008-009)** — l'élévation de privilèges
+est fermée EN BASE, pas seulement côté serveur. Le rôle applicatif a perdu tout
+droit d'écriture sur `membres`, `membres_roles`, `membres_permissions`, `roles`,
+`roles_permissions`, `affectations`, `invitations` et sur les réglages
+d'entreprise. Ces opérations passent par six fonctions qui vérifient
+l'appartenance, la permission et l'interdiction de se viser soi-même.
+
+**Second vecteur trouvé en auditant** : `app.auth_creer_session()` était accordée
+au rôle métier et ouvre une session pour n'importe quel identifiant. Une
+injection dans une requête métier permettait de se forger une session de
+propriétaire. Elle appartient désormais à `jokswed_auth`, un rôle **sans aucun
+privilège de table**, utilisé par le seul chemin de connexion.
+
+**Les demandes sont persistées avant toute notification.** La demande, ses
+lignes, ses consentements, la proposition vidéo et l'événement de notification
+sont écrits dans **une seule transaction**. Un échec d'envoi retarde la
+notification ; il ne perd plus la demande. L'idempotence est passée d'une `Map`
+de processus à une contrainte `UNIQUE` partagée par toutes les instances.
+
+**Instantané tarifaire** : chaque demande fige le catalogue tel qu'il était.
+Changer un prix demain ne réécrit pas ce que ce client a vu.
+
+**`/admin/demandes`** : liste filtrable, fiche complète, complétion des
+informations, notes internes, changement de statut. Aucun bouton de devis ou de
+contrat n'est affiché tant que leur moteur n'existe pas.
+
+**Collaboration vidéo enregistrée, non transmise** : la proposition est créée
+automatiquement, `envoyee_le` reste nul. Aucune coordonnée ne part.
+
+### Tests V4
+
+```bash
+npm run test:neon       # 9 contrôles de compatibilité avant migration
+npm run test:admin      # 63 épreuves HTTP, dont le parcours complet
+npm run test:securite   # 66 épreuves RLS et élévation de privilèges
+```
+
+## Ce que la V4.1 a apporté
+
+**L'identité n'est plus déclarée, elle est prouvée.** Les paramètres
+personnalisés PostgreSQL (`app.*`) sont réglables par tout rôle : tant que
+`app.acteur_id` portait un identifiant d'utilisateur, une seule ligne de SQL
+sous le rôle applicatif suffisait à se déclarer propriétaire. **La faille a été
+reproduite avant d'être corrigée.** Le réglage porte désormais l'empreinte du
+jeton de session, que `app.acteur()` résout en base — et qui vérifie en plus la
+révocation, l'expiration, le second facteur et l'état du compte.
+
+**E-mails Brevo** avec expéditeur distinct d'EyesofJoks, gabarits HTML et texte
+à l'identité JoksWed, fournisseur simulé pour les bancs, journal d'envoi avec
+statut et Message-ID.
+
+**File périodique** : `/api/cron/drain`, protégé par `CRON_SECRET`, verrou
+consultatif contre les traitements concurrents, report exponentiel, historique
+des tentatives, relance manuelle possible.
+
+**Limitation de débit persistante**, à deux échelles : stricte par adresse
+e-mail, large par réseau /24 — pour ne pas bloquer un opérateur mobile entier.
+
+### Actions manuelles avant mise en service
+
+1. **Brevo** : ajouter `jokswed.com` comme domaine, publier son DKIM et son code de vérification, déclarer et valider l'expéditeur `contact@jokswed.com`. ⚠️ Brevo n'exige **pas** d'`include` SPF à la racine : l'alignement passe par DKIM.
+2. **DMARC** : publier `v=DMARC1; p=none; rua=…` en observation avant de durcir.
+3. **Vercel** : vérifier que ton offre autorise une tâche planifiée toutes les 15 minutes (`vercel.json`). L'offre Hobby la limite à une fois par jour — et son usage commercial est de toute façon exclu.
+4. **`CRON_SECRET`** : sans lui, l'endpoint répond 503 au lieu de s'ouvrir.
+
+## Ce que la V5 a apporté
+
+**Moteur documentaire sans aucune dépendance.** Le devis fourni sort de Canva et
+n'utilise que `/Helvetica` et `/Helvetica-Bold` — deux des quatorze polices
+garanties dans tout lecteur PDF. La fidélité visuelle de ton modèle est donc
+atteignable sans embarquer un octet de police, sans Puppeteer, sans coût.
+Vérifié : le PDF produit s'ouvre dans un vrai lecteur, en A4, et son texte
+extrait suit ton modèle ligne pour ligne.
+
+**Génération depuis une fiche** : un bouton, et le devis reprend l'identité du
+prestataire, celle des clients, la date, les lieux, la formule, ses inclusions
+et l'échéancier. Rien n'est ressaisi. L'échéancier applique la règle du modèle :
+433,33 + 433,33 + **433,34** — le reliquat tombe sur la dernière échéance, et la
+somme fait exactement le total.
+
+**La garde d'émission fait ce que tu as demandé** : tant que le régime de TVA
+n'est pas qualifié et que le médiateur n'est pas désigné, le brouillon se
+prépare, se relit, se télécharge — mais ne devient jamais définitif. Les motifs
+s'affichent **avant** le clic. Un brouillon porte un bandeau « DOCUMENT NON
+ÉMIS, SANS VALEUR ».
+
+**Un refus d'émission ne consomme aucun numéro** : la série comptable ne garde
+aucun trou. Les bancs puisent dans une série `TEST-` distincte.
+
+**Immuabilité** : un document émis ne peut être ni modifié ni supprimé —
+exception levée, jamais un silence.
+
+**Contrat et CGV, en quatre pages.** `lib/documents/gabarit-contrat.ts`
+reproduit `Contrat Kimberly & Jérémy.pdf` : encadré gris des parties, puces
+d'informations du mariage, quinze articles, signatures, annexe de rétractation
+détachable, pied de page courant. Un titre d'article ne reste jamais seul en
+bas de page — il réclame sa place avec son premier paragraphe.
+
+**Les clauses sont conditionnées par le catalogue réel.** `clauses.ts` lit les
+inclusions de la formule et n'affirme que ce qu'elle contient : pas d'album
+dans la Formule 1, donc pas d'article « album », mais un article « supports
+livrés » ; la clause d'aperçu avant solde n'apparaît qu'en paiement
+fractionné ; la séance d'engagement n'est citée que si elle est incluse. Un
+banc le vérifie formule par formule.
+
+**Factures et avoirs partagent la mise en page du devis.** Un seul gabarit,
+`gabarit-commercial.ts`, sert le devis, la facture d'acompte, la facture de
+solde, la facture complète et l'avoir : même fond crème, même grille bordée,
+même bandeau noir pleine largeur. Une facture ajoute deux lignes — « Déjà
+réglé » et « Reste à payer » — et rien d'autre. Un client reconnaît
+immédiatement d'où vient le document.
+
+**Facturé et encaissé ne sont jamais confondus.** `app.situation_financiere()`
+rend quatre mesures distinctes — prestation, facturé, encaissé, reste dû — et
+le reste à payer se déduit des **paiements confirmés** et des avoirs, jamais
+des factures émises. C'est ce qui empêche de facturer deux fois le même
+montant.
+
+**Les prérequis diffèrent selon le type de document.** Le médiateur de la
+consommation n'est exigé que pour un contrat ; une facture peut être émise
+sans lui. La fiche interroge la garde pour chaque type et étiquette le motif
+`(contrats uniquement)`.
+
+### Deux défauts trouvés en comparant les rendus aux modèles
+
+Les PDF générés ont été rastérisés et comparés page à page aux originaux, pas
+seulement ouverts.
+
+- **`Tc` survit à `BT`/`ET`.** L'interlettrage n'était écrit que lorsqu'il
+  était non nul ; le `1.4 Tc` du bandeau « BROUILLON » restait donc actif pour
+  tout le reste de la page, qui sortait lettre-espacée. Sur une facture,
+  « Date de la prestation : » recouvrait sa propre valeur. L'interlettrage est
+  désormais émis systématiquement, y compris à zéro, et un banc refuse tout
+  bloc de texte qui ne le redéclare pas.
+- **Un libellé de catalogue passé au tout-minuscule.** Le contrat reprenait les
+  inclusions en milieu de phrase avec `.toLowerCase()` : « clé usb
+  personnalisée », « en france métropolitaine ». Seule l'initiale est
+  abaissée, et jamais sur un sigle.
+- **Un document émis sortait sans son numéro.** `emettre_document` écrivait
+  `documents.numero`, mais le PDF se rend depuis `documents.instantane`, qui
+  gardait `"numero": null` — sur une facture, une mention obligatoire
+  manquante. Le numéro est désormais estampillé dans l'instantané au moment
+  de l'émission, et l'ordre est devenu **émettre → rendre → sceller**
+  (migration 021). Comme PostgreSQL ne sait pas différer un `CHECK`,
+  l'exigence « un document émis a numéro, date et empreinte » est passée en
+  déclencheur `DEFERRABLE INITIALLY DEFERRED` : une transaction qui émettrait
+  sans sceller ne peut pas aboutir.
+
+**Trois exemplaires sont versionnés** dans `exemples/`, produits par
+`scripts/exemples.mts` à travers la **vraie** chaîne — dépôt du formulaire
+public, persistance PostgreSQL, génération, émission — sur une base jetable.
+Les données sont fictives : aucune reprise des informations de Kimberly &
+Jérémy, aucune signature scannée.
+
+## Ce que la V6 a apporté
+
+**Un tableau de bord financier qui ne mélange rien.** Quatre mesures, nommées
+et séparées :
+
+| | ce que c'est |
+| --- | --- |
+| **Contractualisé** | ce à quoi le client s'est engagé — un devis émis |
+| **Facturé** | ce qui a fait l'objet d'une facture, moins les avoirs |
+| **Exigible** | ce qui est facturé *et* dont l'échéance est passée |
+| **Encaissé** | ce qui est réellement arrivé — paiements **confirmés**, remboursements déduits |
+
+Ton exemple, tel quel : prestation 1 300 €, facture d'acompte de 433,33 € non
+réglée → contractualisé restant **1 300 €**, facturé **433,33 €**, encaissé
+**0 €**. Les trois coexistent et ne s'additionnent pas. Un banc le vérifie
+ligne par ligne.
+
+Vue mensuelle et annuelle, graphique de comparaison mois par mois (en CSS pur,
+sans bibliothèque), et une vue par mariage : prix total, encaissé, solde.
+
+**Les paiements se saisissent, puis se confirment.** Deux gestes distincts : un
+montant tapé dans un formulaire n'est pas un virement reçu, et n'entre dans
+aucun total tant qu'il n'est pas confirmé. Acompte, deuxième versement, solde,
+paiement partiel, remboursement — chacun avec sa date, son mode, sa référence
+et son auteur.
+
+**Une erreur se corrige par une opération, jamais par une gomme.** Avant
+confirmation, la saisie se modifie ou s'abandonne — et les deux sont au
+journal. Après, le mouvement est gelé : un déclencheur refuse la modification
+*et* la suppression, même au propriétaire de la base. La correction passe par
+un remboursement qui **désigne** l'opération d'origine. Le signe n'est jamais
+saisi : `montant_signe_cents` est une colonne générée, de sorte qu'un
+remboursement ne puisse pas être compté en plus.
+
+**On n'encaisse pas plus que dû, et on ne rembourse pas plus que reçu.** Les
+deux plafonds sont vérifiés en base, à la confirmation.
+
+**Saison des mariages**, en calendrier et en liste, sur une période
+configurable (juin → septembre par défaut, année entière d'un clic). Date,
+noms, lieu, formule, montant, acompte, solde, état des documents, équipe
+affectée et vidéaste. Filtres par année, mois, statut et collaborateur.
+L'écran s'ouvre sur l'année du **prochain** mariage, pas sur l'année courante :
+un carnet se remplit un à deux ans à l'avance.
+
+**Une demande confirmée devient un mariage.** Jusqu'ici le modèle « mariage
+partagé / dossiers séparés » existait en base sans que rien ne le peuple. La
+confirmation crée le mariage (commun, partageable), le dossier pilote de
+JoksWed (jamais partagé) et les contacts du couple. L'opération est
+idempotente : un double clic ne dédouble pas le carnet.
+
+### Collaborateurs
+
+**Le parcours d'invitation est complet** : préparer → envoyer → activer.
+Préparer crée l'invitation (jeton haché, jeton chiffré au repos, expiration) et
+**n'envoie rien**. Envoyer dépose un événement ; le drain compose le lien, le
+déchiffre **une seule fois**, l'envoie, puis **efface** le jeton chiffré. La
+base ne garde alors qu'une empreinte, et renvoyer le lien exige d'en régénérer
+un. L'invité choisit son mot de passe lui-même, sur une page qui ne demande
+aucune session et ne dit jamais *pourquoi* un lien est mort.
+
+**Suspendre n'est pas révoquer.** Un collaborateur saisonnier se suspend entre
+deux saisons et retrouve ses affectations ensuite ; le révoquer puis le
+réinviter lui en ferait perdre l'historique. Les deux coupent l'accès
+**immédiatement**, session ouverte comprise : `entreprises_de_lacteur()` est la
+racine de toutes les politiques, et un suspendu n'y figure plus.
+
+**Parrainer une entreprise partenaire.** Une entreprise neuve n'a aucun membre,
+donc personne pour y créer l'invitation qui amènera le premier — l'œuf et la
+poule. Le rôle `parrain` le résout avec exactement deux permissions : inviter
+et révoquer. Ni les dossiers du partenaire, ni ses finances. Un sélecteur
+d'entreprise active permet de passer de l'une à l'autre ; le cookie ne fait que
+choisir parmi celles où la base a déjà établi l'adhésion.
+
+**Rien n'est codé en dur.** Ajouter un photographe ou un vidéaste, c'est créer
+une entreprise et envoyer une invitation — pas modifier un fichier.
+
+### Transmission des demandes vidéo
+
+Le formulaire enregistre la proposition ; **transmettre reste un geste
+explicite**. Tant que `envoyee_le` est nul, la proposition existe chez
+l'émetteur et reste invisible du destinataire.
+
+Une fois transmise, le vidéaste voit **la date, le lieu, la prestation** — et
+rien d'autre. Ni nom, ni e-mail, ni téléphone du couple, ni le prix de la
+photo. Les coordonnées demandent un **second** geste du pilote, après
+acceptation, et se retirent aussi facilement qu'elles s'accordent. L'e-mail qui
+part ne contient pas davantage : pas un nom, pas un montant.
+
+Son acceptation crée **son** dossier, chez lui, avec **sa** référence, et pose
+le partage opérationnel — planning et lieux, pas les coordonnées. La
+transmission manuelle existe pour les couples qui demandent la vidéo plus tard.
+
+### Son espace à lui
+
+Le vidéaste prépare **ses** devis depuis **son** dossier, à **ses** prix, sous
+**son** régime de TVA, avec **sa** numérotation — contrat et factures compris.
+Rien n'est repris du catalogue de JoksWed, pas même les délais de livraison,
+qui ne sont pas les siens. Tant que son entreprise n'est pas renseignée, la
+garde refuse l'émission avec **ses** motifs à lui.
+
+Ses encaissements n'entrent dans aucun total de JoksWed, et réciproquement.
+Les deux séries comptables sont indépendantes : chacune commence à 0001.
+
+### Notifications
+
+Nouvelle demande, proposition de collaboration, réponse du collaborateur,
+modification du dossier, paiement enregistré, échéance à venir. **Une
+permission manquante l'emporte sur une préférence** : une notification
+financière n'atteint pas quelqu'un qui ne voit pas les montants, quelle que
+soit la case cochée. Et les préférences sont personnelles — la politique n'a
+aucune clause par entreprise : nul ne règle celles d'un autre, ni ne sait ce
+qu'il a désactivé.
+
+### Cinq défauts trouvés par les bancs
+
+- **`ON CONFLICT` sans le prédicat de l'index partiel.** `enregistrer_paiement`
+  héritait du palier 019 un `ON CONFLICT (entreprise_id, cle_idempotence)` sans
+  le `WHERE … IS NOT NULL` de l'index : PostgreSQL ne reconnaissait aucune
+  contrainte. Le défaut dormait — aucun banc n'avait encore saisi deux fois la
+  même clé de paiement.
+- **Une surcharge au lieu d'un remplacement.** Ajouter un paramètre à défaut à
+  `admin_creer_invitation` a créé une *seconde* fonction ; l'appel devenait
+  ambigu. Il faut supprimer l'ancienne signature avant de créer la nouvelle.
+- **Une jointure sur `entreprises` qui supprimait la ligne.** La fiche d'une
+  demande nommait le partenaire en joignant `entreprises` — dont la politique
+  ne rend que les siennes. La proposition disparaissait **en silence** et la
+  fiche affichait « aucune proposition ». Le cloisonnement était juste ; c'est
+  la page qui demandait mal.
+- **`attendu` et `facturé non réglé` bloqués à zéro** pour toute entreprise
+  sans demandes — donc pour tout collaborateur. Le calcul partait des demandes
+  seules ; il couvre désormais les deux ancrages.
+- **Un brouillon compté comme un montant dû.** L'écran des dossiers prenait le
+  dernier devis quel que soit son statut : un simple brouillon affichait
+  2 000 € de reste à percevoir.
+
+### Préparer l'accès d'Yvann
+
+```bash
+npm run preparer:videaste
+```
+
+Crée son entreprise, ses rôles, et une invitation à `cretinoiry@gmail.com`
+valable 7 jours. **`envoyee_le` reste nul** : rien ne part. L'envoi est un
+bouton de `/admin/collaborateurs`, après avoir basculé sur son entreprise dans
+le sélecteur. Et même alors, aucun e-mail ne peut sortir tant que
+`BREVO_API_KEY` est absente et que `NODE_ENV` n'est pas « production ».
+
+## Ce que la V6.1 a corrigé
+
+**La transmission au partenaire est automatique**, mais à trois conditions
+vérifiées en base : un membre actif non suspendu chez le destinataire, qui
+porte `collaboration.repondre`, et le consentement du couple au partage. Si
+l'une manque, la proposition reste préparée — et la fiche dit laquelle.
+Aucun rattrapage rétroactif : les demandes antérieures à l'activation d'un
+compte attendent un geste manuel, pour qu'on en revoie le périmètre.
+
+**« Contractualisé » s'est scindé en quatre paliers** : proposé (devis émis
+sans réponse), accepté, contrat émis, réservation confirmée. **Engagé** =
+palier ≥ 2, et c'est lui qui pilote « attendu » et « reste à percevoir ». Un
+devis que personne n'a accepté n'est plus un carnet de commandes.
+
+**Les montants interdits valent « — », pas « 0 € ».** Zéro affirmait que le
+mariage ne rapportait rien. La base rend NULL ; la valeur ne quitte jamais
+PostgreSQL.
+
+**Deux failles réelles trouvées en auditant le rôle `parrain`** :
+
+- *La RLS ne regardait que l'entreprise.* Un membre sans `finance.lire`
+  pouvait lire `paiements` et `documents` par une requête SQL directe.
+  Politiques **restrictives** par permission sur documents, lignes,
+  échéances, signatures, paiements, dossiers, demandes, et sur l'écriture
+  des informations fiscales. Effet de bord utile : retirer une permission à
+  quelqu'un lui retire désormais aussi l'accès aux lignes.
+- *Une invitation pouvait conférer plus que l'invitant.* Un parrain — deux
+  permissions — pouvait créer une invitation « Propriétaire » vers une
+  adresse qu'il contrôle. Les permissions conférées doivent maintenant être
+  incluses dans les siennes, **sauf en amorçage** (aucun membre non
+  parrain), seul cas où le parrainage a un sens.
+
+## Ce que la V7 a apporté — la messagerie
+
+### Ce qui marche aujourd'hui
+
+**Envoi.** Depuis `/admin/messagerie`, un message part réellement par Brevo,
+avec une identité d'expéditeur vérifiée. On ne peut pas écrire depuis une
+adresse qu'on ne possède pas : `identites_messagerie` le vérifie en base.
+
+**Réception.** Une réponse envoyée depuis Gmail, Outlook ou Mail réapparaît
+dans la conversation. Le rattachement ne se devine pas : chaque conversation
+porte un jeton de 128 bits qui voyage dans `Reply-To: rep+<jeton>@…`. Le
+sujet, `In-Reply-To` et l'adresse de l'expéditeur ont tous été écartés comme
+autorités — le premier mélangerait deux couples, le deuxième se forge, le
+troisième change. Ce qui n'est pas rattachable va en **quarantaine**, avec
+son motif, plutôt qu'« au plus probable ».
+
+**Trois natures de conversation**, et la confusion est rendue impossible :
+`client` (les messages partent), `partagee` (plusieurs prestataires, rien ne
+sort), `interne` (une entreprise, rien ne sort). Une note interne ne peut
+pas devenir un e-mail : contrainte de table, puis contrôle dans
+`composer_message`, puis filtre dans `message_pour_envoi`. La nature est
+figée à la création — on n'ajoute pas un client à une note, on ouvre une
+autre conversation.
+
+**Conversations à plusieurs.** Le couple, JoksWed et le vidéaste dans le
+même fil. L'accès se lit sur la participation, pas sur une colonne
+`entreprise_id` : c'est la seule table du schéma dont la politique fait une
+sous-requête.
+
+**Neuf modèles de réponse** avec variables de dossier. Une variable inconnue
+**reste visible** (`{{date_mariage}}`) au lieu de disparaître, l'aperçu la
+signale, et l'envoi est bloqué tant qu'il en reste une. Mieux vaut un
+aller-retour qu'une phrase trouée chez le client.
+
+**Pièces jointes.** Un devis, un contrat, une facture du dossier : le PDF est
+**régénéré depuis l'instantané** au moment de l'envoi — impossible de joindre
+une version périmée. Un brouillon est refusé : il n'a pas de numéro, porte
+« SANS VALEUR », et n'engage personne. Les pièces reçues sont stockées en
+base, servies en privé, avec `Content-Disposition: attachment` et `nosniff`.
+
+**Notifications** de réponse reçue, soumises aux permissions et aux
+préférences individuelles. Le vidéaste n'est notifié que des conversations
+où il participe.
+
+### Ce qui exige une configuration manuelle
+
+La réception **ne fonctionnera pas** tant que ces trois points ne sont pas
+faits — et l'écran le dit, plutôt que de laisser attendre des réponses :
+
+1. **Un sous-domaine de réception distinct du domaine d'envoi**, par exemple
+   `reply.jokswed.com`. Brevo refuse d'utiliser le domaine qui envoie.
+2. **Deux enregistrements MX** sur ce sous-domaine : priorité 10 →
+   `inbound1.sendinblue.com.`, priorité 20 → `inbound2.sendinblue.com.`
+3. **Un webhook Brevo** de type `inbound`, événement `inboundEmailProcessed`,
+   pointant vers `/api/entrant/brevo/<secret>` — puis
+   `JOKSWED_DOMAINE_REPONSE` et `JOKSWED_WEBHOOK_ENTRANT` dans
+   l'environnement.
+
+⚠️ **Brevo ne signe pas ses webhooks.** Sa documentation d'inbound parsing ne
+décrit aucun mécanisme de signature. Le secret dans l'URL est donc ce qui
+authentifie l'appel : il doit être long et ne jamais circuler ailleurs. Deux
+défenses s'y ajoutent — le jeton de conversation, et l'obligation pour
+l'expéditeur d'être participant.
+
+Rien de tout cela ne touche la configuration Brevo d'EyesofJoks : il s'agit
+d'un sous-domaine et d'un webhook nouveaux, pas d'une modification des
+siens.
+
+### Ce qui n'est PAS fait, et ne doit pas être présenté comme fait
+
+- **Aucune synchronisation d'une boîte Gmail existante.** Lire l'historique
+  d'une boîte exige le scope `gmail.readonly`, classé « restricted » par
+  Google : vérification de l'application, puis évaluation de sécurité
+  annuelle par un tiers agréé, à la charge de l'éditeur. Non engagé.
+- **OAuth Gmail et Outlook pour l'identité d'un collaborateur** : modélisés
+  (`identites_messagerie.methode`), affichés comme **indisponibles**. Yvann
+  enverra sous son nom via le compte Brevo de JoksWed, après vérification de
+  son adresse comme expéditeur — sans jamais confier de mot de passe.
+- **Aucun stockage objet.** Les pièces reçues vivent en base, bornées à
+  8 Mio. Au-delà, il faudra R2 — et une dépense.
+
+### Un défaut d'affichage présent depuis la V3
+
+`.admin-page` était une grille sans colonne explicite. Une colonne implicite
+se dimensionne sur `max-content` : sur iPhone, la page faisait 350 px de
+large et sa colonne 1 700, tout débordant vers la droite. Chaque bloc pris
+isolément semblait correct — c'est la colonne qui refusait de se réduire.
+`grid-template-columns: minmax(0, 1fr)` corrige la page et toutes les
+grilles imbriquées.
+
+## Ce qui reste ouvert
+
+- **Aucun envoi « exactement une fois » n'est promis.** Brevo accuse la prise en charge, pas la remise : si un appel expire après qu'il a accepté le message, la reprise le renverra. On vise « au moins une fois, sans doublon évitable ».
+- **Aucun webhook Brevo n'est branché** : un envoi reste au statut `envoye`, jamais `remis` ni `ouvert`.
+- **Aucune interface de relance** : `app.relancer_envoi()` existe et est éprouvée, mais aucun bouton ne l'appelle encore.
+- **Aucun rapprochement bancaire automatique** : les paiements se saisissent à la main. Aucun import de relevé, aucun lien Stripe.
+- **Aucune relance d'échéance automatique** : le type de notification `echeance.proche` existe et respecte les permissions, mais rien ne la déclenche encore — il faudra une tâche périodique.
+- **Aucune notification push iPhone** : prévue en V9 avec la PWA. Les notifications internes existent déjà et s'y brancheront.
+- **La réception d'e-mails n'a jamais été éprouvée contre le vrai Brevo** : le banc rejoue une charge utile conforme à sa documentation sur le vrai endpoint HTTP, ce qui prouve notre moitié de la chaîne. Les MX et le webhook, eux, dépendent d'un DNS et d'un compte.
+- **Aucune signature électronique.** La table `signatures` distingue déjà `case_acceptation` d'une signature qualifiée, et l'interface ne présentera jamais la première comme la seconde.
+- **Médiateur de la consommation** non désigné (« À COMPLÉTER AVANT SIGNATURE », article 14 du contrat). Bloque l'émission de tout contrat définitif — mais **pas** celle d'une facture.
+- **Régime de TVA à qualifier.** L'obligation d'afficher un numéro de TVA intracommunautaire n'est pas générale : elle dépend du régime. En franchise en base (art. 293 B du CGI), c'est la mention « TVA non applicable » qui est obligatoire, pas le numéro. En régime assujetti, le numéro du vendeur figure parmi les mentions de l'article 242 nonies A, annexe II du CGI. Le devis fourni applique 20 % de TVA : soit le numéro manque, soit c'est le taux qui est l'anomalie. `content/legal.ts` modélise les deux cas et n'affiche rien tant que le régime n'est pas qualifié.
+- **Aucun tarif d'option** n'a été communiqué : tous les suppléments sont « sur devis ».
+- **La vidéo d'aperçu du vidéaste est absente** du ZIP et des pièces jointes. L'emplacement est prêt (`videastePartenaire.apercuVideo`), à `null`.
+
+---
+
+## Déploiement
+
+Rien n'est déployé sans validation explicite. Le flux attendu : aperçu Vercel,
+inspection, puis promotion — jamais un `--prod` direct.
 
 ```
-app/                  → les pages (accueil, portfolio, mariages, tarifs…)
-components/           → les briques réutilisables (header, galeries, formulaire…)
-content/site.js       → ★ TOUT le contenu modifiable (textes + chemins d'images)
-public/images/        → ★ toutes les photos
-app/globals.css       → le système de design (couleurs, typographie, animations)
+app/              → les pages
+components/       → les briques réutilisables
+content/          → offres.ts · faq.ts · legal.ts · site.js
+lib/              → utilitaires serveur
+public/images/    → les photos
+scripts/          → les bancs d'essai
 ```
-
-## ✅ Ce qui est déjà en place
-
-- Design responsive (ordinateur, iPhone, Android, tablette)
-- SEO complet : balises, métadonnées, Open Graph, `sitemap.xml`, `robots.txt`, données structurées schema.org
-- Images optimisées automatiquement (AVIF/WebP, tailles adaptées, chargement progressif)
-- Polices auto-hébergées (aucune requête externe)
-- Animations fluides à 60 fps, désactivées si le visiteur préfère réduire les animations
-- Accessibilité : navigation clavier, focus visibles, alternatives textuelles
-- Page 404 personnalisée
