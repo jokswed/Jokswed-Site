@@ -25,8 +25,10 @@ export const dynamic = "force-dynamic";
    Sans partage, ses documents portent la référence du dossier à la place du
    nom. Un document incomplet, plutôt qu'un contournement de la règle.
    ============================================================================= */
+/* NULL = « accès restreint », pas « zéro euro ». */
 function euros(cents) {
-  return `${((cents ?? 0) / 100).toLocaleString("fr-FR", {
+  if (cents === null || cents === undefined) return "—";
+  return `${(cents / 100).toLocaleString("fr-FR", {
     minimumFractionDigits: 2, maximumFractionDigits: 2,
   })} €`;
 }
@@ -380,7 +382,7 @@ export default async function MesDossiers({ searchParams }) {
                     <div><dt>Encaissé</dt><dd>{euros(d.encaisse_cents)}</dd></div>
                     <div>
                       <dt>Reste</dt>
-                      <dd className={d.reste_du_cents > 0 ? "num--du" : undefined}>
+                      <dd className={(d.reste_du_cents ?? 0) > 0 ? "num--du" : undefined}>
                         {euros(d.reste_du_cents)}
                       </dd>
                     </div>

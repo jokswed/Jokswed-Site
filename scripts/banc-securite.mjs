@@ -209,6 +209,10 @@ try {
     /* V6 — notifications. `notifier` doit lire les permissions du
        DESTINATAIRE, qui n'est pas l'acteur courant. */
     "notification_voulue","mes_notifications",
+    /* V6.1 — enveloppe de `permissions_de` utilisée PAR LES POLITIQUES
+       elles-mêmes : elle doit voir `membres` sans être filtrée par la
+       politique qu'elle sert à évaluer. */
+    "acteur_porte",
     /* V6 — le commercial d'un collaborateur, ancré à SON dossier.
        `contexte_dossier` et `mes_dossiers` décident que les coordonnées du
        couple ne sortent qu'après partage explicite ; `_encours_entreprise`
@@ -220,6 +224,17 @@ try {
        sur une entreprise dont l'appelant est DÉJÀ membre, et n'accorde au
        parrain qu'inviter et révoquer. */
     "creer_entreprise_partenaire",
+    /* V6.1 — transmission automatique. `transmettre_propositions_auto` est
+       appelée par le DRAIN, qui n'a pas d'acteur : elle ne s'appuie donc sur
+       aucune permission d'appelant et ne prend qu'un identifiant de demande.
+       Ses propres conditions (destinataire opérationnel, consentement du
+       couple) sont vérifiées en base. */
+    "destinataire_operationnel","transmettre_propositions_auto",
+    "propositions_en_attente",
+    /* V6.1 — garde-fous du parrainage. `quitter_entreprise` ne fait que
+       RÉDUIRE les droits de l'appelant : c'est la seule action qu'on
+       s'applique légitimement à soi-même. */
+    "entreprise_en_amorcage","quitter_entreprise",
     /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
@@ -382,6 +397,19 @@ try {
   verifier("Un refus individuel l'emporte sur la permission du rôle",
     !apresRefus.rows.some((r) => r.permission_cle === "dossier.lire"));
 
+  /* ⚠️ ET IL RETIRE AUSSI L'ACCÈS AUX LIGNES, PAS SEULEMENT LE VERBE.
+     Avant le palier 034, les politiques ne regardaient que l'appartenance à
+     l'entreprise : un membre dont on venait de retirer `dossier.lire`
+     continuait de lire `dossiers` par une requête SQL directe. L'interface
+     le lui refusait ; la base, non. */
+  const dossiersApresRefus = await en(app, assistant,
+    "SELECT count(*)::int n FROM dossiers");
+  verifier("…et le refus coupe aussi l'accès SQL aux dossiers",
+    dossiersApresRefus.rows[0].n === 0, `${dossiersApresRefus.rows[0].n} ligne(s)`);
+  const demandesApresRefus = await en(app, assistant,
+    "SELECT count(*)::int n FROM demandes");
+  verifier("…et aux demandes", demandesApresRefus.rows[0].n === 0);
+
   /* ═══════════ 9. SECRETS : CHACUN LES SIENS ═══════════ */
   const secretsAutrui = await en(app, videaste,
     "SELECT count(*)::int n FROM identifiants WHERE utilisateur_id <> $1", [videaste]);
@@ -393,15 +421,21 @@ try {
   verifier("Personne ne lit les sessions d'autrui", sessionsAutrui.rows[0].n === 0);
 
   /* ═══════════ 10. RÉVOCATION IMMÉDIATE ═══════════ */
+  /* ⚠️ RE-POINTÉ AU PALIER 034. On vient de retirer `dossier.lire` à
+     l'assistant : il voit déjà zéro dossier, et ce test passerait À VIDE, en
+     prouvant seulement qu'on a bien cassé quelque chose avant. On lui rend
+     donc son droit, pour que la révocation soit la SEULE cause du passage à
+     zéro. (On ne prend pas le photographe : il sert de cible stable à un
+     contrôle positif plus bas.) */
+  await en(app, proprietaire,
+    "SELECT app.admin_definir_permission($1,'dossier.lire',true,'banc : on rend le droit')",
+    [membreAssistant.rows[0].id]);
   const avantRevoc = await en(app, assistant, "SELECT count(*)::int n FROM dossiers");
   /* Re-pointé au palier 008 : l'UPDATE direct n'est plus permis au rôle
      applicatif, la révocation passe par la fonction qui vérifie la
      permission et pose la trace d'audit. */
-  const membreARevoquer = await verite.query(
-    "SELECT id FROM membres WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL",
-    [assistant, jokswed]);
   await en(app, proprietaire, "SELECT app.admin_revoquer_membre($1)",
-    [membreARevoquer.rows[0].id]);
+    [membreAssistant.rows[0].id]);
   const apresRevoc = await en(app, assistant, "SELECT count(*)::int n FROM dossiers");
   verifier("Après retrait du membre, il ne voit plus rien — dès la requête suivante",
     avantRevoc.rows[0].n > 0 && apresRevoc.rows[0].n === 0,

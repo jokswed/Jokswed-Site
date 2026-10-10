@@ -186,9 +186,15 @@ try {
   const parDemande = await en(app, PROPRIO,
     "SELECT * FROM app.finances_par_demande($1)", [JK]);
   const ligneJuillet = parDemande.rows.find((r) => r.demande_id === deposees.juillet);
-  v("La vue par mariage distingue facturé et contractualisé",
-    ligneJuillet.contractualise_cents === 130000 && ligneJuillet.facture_cents === 43333,
+  /* ⚠️ RE-POINTÉ EN V6.1 : « contractualisé » s'est scindé.
+     Un devis ÉMIS est une proposition ; seul un devis accepté, un contrat ou
+     une réservation engage. Ici la demande est confirmée (palier 4). */
+  v("La vue par mariage distingue facturé et engagé",
+    ligneJuillet.engage_cents === 130000 && ligneJuillet.facture_cents === 43333,
     JSON.stringify(ligneJuillet));
+  v("…et un devis simplement émis ne compte pas comme engagé",
+    ligneJuillet.niveau === 4 && ligneJuillet.propose_cents === 0,
+    `niveau ${ligneJuillet.niveau}, proposé ${ligneJuillet.propose_cents}`);
 
   /* ── Les cinq natures de paiement ── */
   const saisir = (acteur, demande, montant, moyen, type, cle, motif = null) =>
@@ -324,8 +330,13 @@ try {
     "SELECT * FROM app.saison_mariages($1,$2,$3)",
     [JK, `${annee}-01-01`, `${annee + 1}-01-01`]);
   v("L'assistant voit la saison", saisonAssistant.rows.length === 3);
-  v("…mais TOUS ses montants sont à zéro",
-    saisonAssistant.rows.every((r) => r.total_cents === 0 && r.encaisse_cents === 0),
+  /* ⚠️ RE-POINTÉ EN V6.1 : zéro était une AFFIRMATION, et elle était fausse.
+     « 0 € » laisse croire que le mariage ne rapporte rien. On rend NULL, que
+     l'interface affiche « — », et la valeur ne quitte pas PostgreSQL. */
+  v("…mais aucun montant ne lui est transmis",
+    saisonAssistant.rows.every((r) =>
+      r.total_cents === null && r.encaisse_cents === null
+        && r.solde_restant_cents === null && r.montants_masques === true),
     JSON.stringify(saisonAssistant.rows.map((r) => r.total_cents)));
   const eFinAssistant = await refuse(app, ASSISTANT,
     "SELECT * FROM app.finances_resume($1,current_date,current_date)", [JK]);
@@ -638,6 +649,123 @@ try {
     !!eSansDroit, eSansDroit?.message);
 
   /* ═══════════════════════════════════════════════════════════════════════
+     6 ter. LE PARRAIN, AU MICROSCOPE (V6.1)
+     -----------------------------------------------------------------------
+     Il est membre de l'entreprise du partenaire : le cloisonnement par
+     entreprise ne le gêne donc en rien. Tout ce qui le retient, ce sont les
+     politiques RESTRICTIVES par permission du palier 034.
+     ═══════════════════════════════════════════════════════════════════════ */
+  /* Il faut des lignes à voir pour que « il ne voit rien » veuille dire
+     quelque chose : on pose un document et un paiement chez le partenaire. */
+  await verite.query(
+    `INSERT INTO documents (entreprise_id, type, statut, total_ht_cents,
+                            total_tva_cents, total_ttc_cents, instantane)
+     VALUES ($1,'devis','brouillon',50000,0,50000,'{}'::jsonb)`, [partenaire]);
+  const { rows: [dossierPart] } = await verite.query(
+    `INSERT INTO dossiers (mariage_id, entreprise_id, reference, prestation)
+     SELECT m.id, $1, 'PART-0001', 'video' FROM mariages m LIMIT 1 RETURNING id`,
+    [partenaire]);
+  await verite.query(
+    `INSERT INTO paiements (entreprise_id, dossier_id, montant_cents, moyen, statut,
+                            confirme_par, confirme_le)
+     VALUES ($1,$2,50000,'virement','confirme',$3, now())`,
+    [partenaire, dossierPart.id, PROPRIO]);
+  await verite.query(
+    `INSERT INTO regimes_tva (entreprise_id, regime, mention_legale, debut_le)
+     VALUES ($1,'franchise_base','Mention du partenaire', current_date)`, [partenaire]);
+
+  const vuParrain = await en(app, PROPRIO, `
+    SELECT (SELECT count(*)::int FROM documents  WHERE entreprise_id = $1) AS docs,
+           (SELECT count(*)::int FROM paiements  WHERE entreprise_id = $1) AS pay,
+           (SELECT count(*)::int FROM dossiers   WHERE entreprise_id = $1) AS dos,
+           (SELECT count(*)::int FROM echeances  WHERE entreprise_id = $1) AS ech`,
+    [partenaire]);
+  v("⚠️ Le parrain ne lit AUCUN document du partenaire, même en SQL direct",
+    vuParrain.rows[0].docs === 0, `${vuParrain.rows[0].docs} ligne(s)`);
+  v("⚠️ …aucun paiement", vuParrain.rows[0].pay === 0, `${vuParrain.rows[0].pay}`);
+  v("⚠️ …aucun dossier", vuParrain.rows[0].dos === 0, `${vuParrain.rows[0].dos}`);
+  v("⚠️ …aucune échéance", vuParrain.rows[0].ech === 0, `${vuParrain.rows[0].ech}`);
+
+  /* Et le partenaire, lui, les voit bien : une protection qui aveugle aussi
+     le légitime est une panne, pas une protection. */
+  const jetonPart = "v6-partenaire";
+  const { rows: [uPart] } = await verite.query(
+    `INSERT INTO utilisateurs (email, prenom, nom) VALUES ('chef.part@exemple.invalid','Chef','Part')
+     RETURNING id`);
+  const { rows: [mPart] } = await verite.query(
+    `INSERT INTO membres (entreprise_id, utilisateur_id) VALUES ($1,$2) RETURNING id`,
+    [partenaire, uPart.id]);
+  await verite.query(
+    `INSERT INTO membres_roles (membre_id, role_id)
+     SELECT $1, id FROM roles WHERE entreprise_id = $2 AND cle = 'proprietaire'`,
+    [mPart.id, partenaire]);
+  await verite.query(
+    `INSERT INTO sessions (utilisateur_id, jeton_hache, expire_le, mfa_validee)
+     VALUES ($1,$2, now() + interval '1 day', true)`, [uPart.id, jetonPart]);
+  jetons.set(uPart.id, jetonPart);
+  const vuChef = await en(app, uPart.id,
+    "SELECT count(*)::int n FROM documents WHERE entreprise_id = $1", [partenaire]);
+  v("…alors que le propriétaire du partenaire les voit",
+    vuChef.rows[0].n === 1, `${vuChef.rows[0].n}`);
+
+  /* Les informations fiscales : lecture oui, écriture non. */
+  const eFiscal = await refuse(app, PROPRIO,
+    `INSERT INTO regimes_tva (entreprise_id, regime, mention_legale, debut_le)
+     VALUES ($1,'assujetti','Détourné', current_date)`, [partenaire]);
+  v("⚠️ Le parrain ne modifie pas les informations fiscales du partenaire",
+    !!eFiscal, eFiscal?.message);
+  const eReglages = await refuse(app, PROPRIO,
+    "SELECT app.admin_maj_entreprise($1,$2::jsonb)",
+    [partenaire, JSON.stringify({ siret: "99999999999999" })]);
+  v("…ni ses réglages", !!eReglages, eReglages?.message);
+  const eRenommer = await refuse(app, PROPRIO,
+    "UPDATE entreprises SET nom_commercial = 'Détournée' WHERE id = $1", [partenaire]);
+  v("…ni son nom, en SQL direct", !!eRenommer, eRenommer?.message);
+
+  /* ⚠️ ON N'INVITE PAS PLUS HAUT QUE SOI — SAUF POUR AMORCER. */
+  const { rows: [roleProprioPart] } = await verite.query(
+    "SELECT id FROM roles WHERE entreprise_id = $1 AND cle = 'proprietaire'", [partenaire]);
+  const eInviteHaut = await refuse(app, PROPRIO,
+    "SELECT app.admin_creer_invitation($1,$2::citext,NULL,NULL,$3,ARRAY[$4]::uuid[],7,NULL)",
+    [partenaire, "complice@exemple.invalid", hacherJeton(engendrerJeton()),
+     roleProprioPart.id]);
+  v("⚠️ Le parrain ne peut plus inviter un compte plus puissant que lui",
+    !!eInviteHaut && /conférerait des permissions/.test(eInviteHaut.message),
+    eInviteHaut?.message);
+  v("…parce que l'entreprise n'est plus en amorçage",
+    (await verite.query("SELECT app.entreprise_en_amorcage($1) AS x", [partenaire]))
+      .rows[0].x === false);
+
+  /* L'amorçage, lui, reste possible : c'est sa raison d'être. */
+  const neuve = (await en(app, PROPRIO,
+    "SELECT app.creer_entreprise_partenaire($1,$2,$3,$4::citext) AS id",
+    [JK, "partenaire-neuf", "Partenaire neuf", "neuf@exemple.invalid"])).rows[0].id;
+  const { rows: [roleNeuf] } = await verite.query(
+    "SELECT id FROM roles WHERE entreprise_id = $1 AND cle = 'proprietaire'", [neuve]);
+  const amorcage = await en(app, PROPRIO,
+    "SELECT app.admin_creer_invitation($1,$2::citext,NULL,NULL,$3,ARRAY[$4]::uuid[],7,NULL) AS id",
+    [neuve, "chef.neuf@exemple.invalid", hacherJeton(engendrerJeton()), roleNeuf.id]);
+  v("…mais l'amorçage d'une entreprise neuve reste permis",
+    !!amorcage.rows[0].id);
+
+  /* Rendre son tablier. */
+  await en(app, PROPRIO, "SELECT app.quitter_entreprise($1)", [partenaire]);
+  const apresDepart = await en(app, PROPRIO, "SELECT app.entreprises_de_lacteur() AS e");
+  v("Le parrain peut se retirer une fois l'entreprise autonome",
+    !apresDepart.rows[0].e.includes(partenaire));
+  const eDernier = await refuse(app, PROPRIO, "SELECT app.quitter_entreprise($1)", [JK]);
+  v("⚠️ …mais pas s'il est le dernier à pouvoir administrer",
+    !!eDernier && /dernier/.test(eDernier.message), eDernier?.message);
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     6 quater. TRANSMISSION AUTOMATIQUE (V6.1)
+     ═══════════════════════════════════════════════════════════════════════ */
+  v("Le vidéaste partenaire est opérationnel",
+    (await verite.query("SELECT app.destinataire_operationnel($1) AS x", [VD])).rows[0].x === true);
+  v("⚠️ Une entreprise sans membre ne l'est pas",
+    (await verite.query("SELECT app.destinataire_operationnel($1) AS x", [neuve])).rows[0].x === false);
+
+  /* ═══════════════════════════════════════════════════════════════════════
      7 bis. LE VIDÉASTE FACTURE SA PROPRE PRESTATION
      -----------------------------------------------------------------------
      ⚠️ SON DOSSIER, SA NUMÉROTATION, SES MONTANTS.
@@ -737,7 +865,7 @@ try {
      Ce qui doit être vrai, c'est que SES chiffres ne sont QUE les siens. */
   v("…et chez lui, il ne voit QUE ses propres chiffres",
     sesFinancesApres.encaisse_cents === 100000
-      && sesFinancesApres.contractualise_cents === 200000
+      && sesFinancesApres.engage_cents === 200000
       && sesFinancesApres.encaisse_cents !== resumeJkApres.encaisse_cents,
     JSON.stringify(sesFinancesApres));
   v("…et ses encours de DOSSIER sont bien comptés",
@@ -843,11 +971,25 @@ try {
     }),
     auxCouples.map((m) => m.destinataire).join(", "));
 
-  /* Rejouer le drain ne doit rien renvoyer. */
+  /* ⚠️ « AUCUN DOUBLON » N'EST PAS « AUCUN ENVOI ».
+     Le drain d'un `demande.recue` peut CRÉER un événement de transmission :
+     le passage suivant le traitera, et c'est un premier envoi, pas un
+     doublon. L'invariant qui compte est l'unicité des clés d'idempotence
+     dans `envois_email` — une première version comparait la boîte à vide et
+     échouait sur un envoi parfaitement légitime. */
   viderBoiteDeTest();
   await drainer(50);
-  v("Un second passage n'envoie aucun doublon", boiteDeTest().length === 0,
-    boiteDeTest().map((m) => m.destinataire).join(", "));
+  await drainer(50);
+  const doublons = await verite.query(
+    `SELECT cle_idempotence, count(*)::int n FROM envois_email
+      WHERE cle_idempotence IS NOT NULL
+      GROUP BY cle_idempotence HAVING count(*) > 1`);
+  v("Aucun envoi n'est journalisé deux fois sous la même clé",
+    doublons.rows.length === 0,
+    doublons.rows.map((r) => `${r.cle_idempotence}×${r.n}`).join(", "));
+  const restants = await verite.query(
+    "SELECT count(*)::int n FROM evenements WHERE traite_le IS NULL");
+  v("…et la file finit par se vider", restants.rows[0].n === 0, `${restants.rows[0].n}`);
 
   /* ═══════════════════════════════════════════════════════════════════════
      9. COHÉRENCE DES CALCULS

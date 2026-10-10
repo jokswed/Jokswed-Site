@@ -87,6 +87,11 @@ export default async function FicheDemande({ params }) {
       ? await q("SELECT * FROM app.partenaires_disponibles($1)", [entreprise.id])
       : { rows: [] };
     const propositions = await q("SELECT * FROM app.propositions_emises($1)", [id]);
+    /* Pourquoi une proposition n'est pas partie toute seule. Un écran qui
+       dit « en attente » sans dire pourquoi oblige à deviner. */
+    const enAttente = acces.permissions.has("collaboration.proposer")
+      ? await q("SELECT * FROM app.propositions_en_attente($1)", [entreprise.id])
+      : { rows: [] };
 
     /* Première ouverture : on marque la demande lue et on la sort de « non
        lue ». C'est une lecture qui change l'état, donc on la trace. */
@@ -111,13 +116,14 @@ export default async function FicheDemande({ params }) {
       paiements: paiements.rows,
       partenaires: partenaires.rows,
       propositions: propositions.rows,
+      enAttente: enAttente.rows.filter((p) => p.demande_id === id),
     };
   });
 
   if (!vue) notFound();
   const { demande, lignes, consentements, notes, proposition, documents,
           motifsBlocage, motifsContrat, situation, paiements, partenaires,
-          propositions } = vue;
+          propositions, enAttente } = vue;
   const devisEmis = documents.find((d) => d.type === "devis" && d.statut !== "brouillon");
   const devisDisponible = devisEmis ?? documents.find((d) => d.type === "devis");
   const peutEcrire = acces.permissions.has("dossier.ecrire");
@@ -544,7 +550,28 @@ export default async function FicheDemande({ params }) {
               </ul>
             )}
 
-            {/* ⚠️ TRANSMETTRE EST UN GESTE EXPLICITE.
+            {/* ⚠️ LA TRANSMISSION EST AUTOMATIQUE, SAUF EMPÊCHEMENT.
+                Depuis la V6.1, une proposition part seule dès le dépôt si le
+                partenaire a un compte opérationnel et si le couple a
+                consenti au partage. Quand elle reste là, on dit POURQUOI. */}
+            {enAttente.length > 0 ? (
+              <div className="admin-alerte" style={{ marginTop: "1rem" }}>
+                <strong>Transmission en attente :</strong>
+                <ul style={{ margin: "0.5rem 0 0 1rem", padding: 0 }}>
+                  {enAttente.map((p) => (
+                    <li key={p.id}>{p.destinataire} — {p.motif}</li>
+                  ))}
+                </ul>
+                <p style={{ marginTop: "0.6rem", fontSize: "0.85rem" }}>
+                  Les demandes déposées avant l&apos;activation d&apos;un compte ne
+                  sont pas transmises rétroactivement : le bouton
+                  « Transmettre » permet de le faire après avoir revu le
+                  périmètre du partage.
+                </p>
+              </div>
+            ) : null}
+
+            {/* ⚠️ TRANSMETTRE RESTE POSSIBLE À LA MAIN.
                 Une proposition préparée reste invisible du partenaire tant
                 qu'on ne l'a pas transmise : aucune donnée ne part toute seule.
                 Et même transmise, elle ne porte ni nom, ni e-mail, ni

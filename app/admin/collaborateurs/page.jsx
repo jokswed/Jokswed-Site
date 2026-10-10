@@ -1,4 +1,5 @@
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces, interdireAutoModification } from "@/lib/auth/acces";
 import { chiffrer, engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
@@ -109,6 +110,18 @@ export default async function Collaborateurs() {
       await q("SELECT app.admin_revoquer_membre($1)", [rows[0].id]);
     });
     revalidatePath("/admin/collaborateurs");
+  }
+
+  /* ⚠️ SE RETIRER SOI-MÊME EST TOUJOURS PERMIS.
+     Le geste ne fait que RÉDUIRE ses propres droits ; `exigerAcces` sans
+     permission suffit donc. La base refuse en revanche de laisser une
+     entreprise sans personne pour l'administrer. */
+  async function quitterEntreprise() {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id);
+    await a.executer((q) => q("SELECT app.quitter_entreprise($1)", [e.id]));
+    redirect("/admin");
   }
 
   async function envoyerInvitation(formulaire) {
@@ -313,6 +326,29 @@ export default async function Collaborateurs() {
           </ul>
         )}
       </section>
+
+      {/* ⚠️ UN RÔLE D'AMORÇAGE DOIT POUVOIR SE RENDRE.
+          Le parrain n'existe que pour qu'une entreprise neuve ait quelqu'un
+          capable d'y créer la première invitation. Une fois son
+          propriétaire installé, laisser le parrain en place serait un accès
+          qui survit à sa raison d'être. */}
+      {donnees.membres.some((m) => m.utilisateur_id === session.utilisateurId
+        && !m.retire_le && /Parrain/.test(m.roles)) ? (
+        <section style={{ marginTop: "2.5rem" }}>
+          <h2 className="display t-carte">Votre rôle ici</h2>
+          <p className="recap__note">
+            Vous êtes <strong>parrain</strong> de cette entreprise : vous pouvez
+            inviter et révoquer, rien d&apos;autre. Ni ses dossiers, ni ses
+            documents, ni ses comptes ne vous sont accessibles. Une fois son
+            responsable installé, retirez-vous.
+          </p>
+          <form action={quitterEntreprise} style={{ marginTop: "0.9rem" }}>
+            <button type="submit" className="btn btn--fantome">
+              Me retirer de cette entreprise
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       {/* ⚠️ LE JOURNAL N'EST PAS DÉCORATIF.
           Qui a invité, qui a suspendu, qui a changé des rôles, et quand. Si

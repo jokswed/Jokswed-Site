@@ -180,11 +180,14 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
             }
           }
 
-          /* ⚠️ RIEN N'EST ENVOYÉ AU VIDÉASTE, MÊME SI LA VIDÉO EST DEMANDÉE.
-             Son compte n'est pas activé et ses permissions ne sont pas
-             opérationnelles. La proposition est enregistrée, `envoyee_le`
-             reste nul, et aucune coordonnée ne sort. Le gabarit existe
-             (`propositionCollaborateur`) pour le jour où tu l'autoriseras. */
+          /* ── TRANSMISSION AUTOMATIQUE AU PARTENAIRE ──
+             ⚠️ ELLE NE PART QUE SI TROIS CONDITIONS SONT RÉUNIES : un membre
+             actif capable de répondre chez le destinataire, et le
+             consentement du couple au partage. Sinon la proposition reste
+             « préparée » et attend un geste manuel — c'est la base qui en
+             décide, pas ce fichier. Rejouer le drain ne transmet rien deux
+             fois : la mise à jour ne vise que les propositions `preparee`. */
+          await q("SELECT app.transmettre_propositions_auto($1)", [demande_id]);
         }
 
         /* ── INVITATION D'UN COLLABORATEUR ──

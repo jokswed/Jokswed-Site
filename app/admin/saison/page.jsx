@@ -29,8 +29,13 @@ const STATUTS = [
   ["attente_client", "Attente client"],
 ];
 
+/* ⚠️ NULL N'EST PAS ZÉRO.
+   La base rend NULL quand l'acteur n'a pas `finance.lire` : la valeur n'a
+   jamais quitté PostgreSQL. Afficher « 0 € » affirmerait que le mariage ne
+   rapporte rien ; on affiche « — », qui n'affirme rien. */
 function euros(cents) {
-  return `${((cents ?? 0) / 100).toLocaleString("fr-FR", {
+  if (cents === null || cents === undefined) return "—";
+  return `${(cents / 100).toLocaleString("fr-FR", {
     minimumFractionDigits: 0, maximumFractionDigits: 0,
   })} €`;
 }
@@ -109,8 +114,8 @@ export default async function Saison({ searchParams }) {
   const moisAffiches = [];
   for (let mo = moisDebut; mo <= Math.min(moisFin, 12); mo += 1) moisAffiches.push(mo);
 
-  const total = mariages.reduce((t, m) => t + m.total_cents, 0);
-  const encaisse = mariages.reduce((t, m) => t + m.encaisse_cents, 0);
+  const total = mariages.reduce((t, m) => t + (m.total_cents ?? 0), 0);
+  const encaisse = mariages.reduce((t, m) => t + (m.encaisse_cents ?? 0), 0);
 
   return (
     <main className="admin-page">
@@ -251,17 +256,21 @@ export default async function Saison({ searchParams }) {
                         <dt>Total</dt>
                         <dd>
                           {euros(m.total_cents)}
-                          {!m.total_contractualise ? (
-                            /* ⚠️ SANS DEVIS ÉMIS, CE N'EST PAS UN ENGAGEMENT.
-                               On montre le prix annoncé, et on le dit. */
-                            <span className="admin-saison__annonce"> annoncé</span>
+                          {/* ⚠️ QUATRE PALIERS, ET ON DIT LEQUEL.
+                              Un devis émis est une proposition ; seul un
+                              devis accepté, un contrat ou une réservation
+                              engage le client. */}
+                          {m.niveau !== null ? (
+                            <span className="admin-saison__annonce">
+                              {" "}{["annoncé", "proposé", "accepté", "contrat", "réservé"][m.niveau]}
+                            </span>
                           ) : null}
                         </dd>
                       </div>
                       <div><dt>Acompte</dt><dd>{euros(m.acompte_cents)}</dd></div>
                       <div>
                         <dt>Solde</dt>
-                        <dd className={m.solde_restant_cents > 0 ? "num--du" : undefined}>
+                        <dd className={(m.solde_restant_cents ?? 0) > 0 ? "num--du" : undefined}>
                           {euros(m.solde_restant_cents)}
                         </dd>
                       </div>
@@ -276,8 +285,9 @@ export default async function Saison({ searchParams }) {
 
       {!voitFinances ? (
         <p className="recap__note" style={{ marginTop: "2rem" }}>
-          Les montants ne vous sont pas accessibles : votre rôle ne porte pas la
-          permission « Voir les montants de l&apos;entreprise ».
+          <strong>Accès restreint aux montants.</strong> Votre rôle ne porte pas
+          « Voir les montants de l&apos;entreprise » : les chiffres ne sont pas
+          affichés, et ils ne sont pas non plus transmis à votre navigateur.
         </p>
       ) : null}
     </main>

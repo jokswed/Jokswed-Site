@@ -70,7 +70,7 @@ export default async function Finances({ searchParams }) {
 
   const { resume, mensuel, parMariage } = donnees;
   const plafond = Math.max(
-    1, ...mensuel.flatMap((m) => [m.encaisse_cents, m.facture_cents, m.previsionnel_cents]));
+    1, ...mensuel.flatMap((m) => [m.encaisse_cents, m.facture_cents, m.engage_cents]));
 
   const cartes = [
     { libelle: vue === "annee" ? `Encaissé en ${annee}` : "Encaissé ce mois-ci",
@@ -78,15 +78,24 @@ export default async function Finances({ searchParams }) {
       note: "Paiements confirmés, remboursements déduits." },
     { libelle: "Acomptes reçus", valeur: resume.acomptes_cents },
     { libelle: "Soldes reçus", valeur: resume.soldes_cents },
+    /* ⚠️ PROPOSÉ ET ENGAGÉ SONT DEUX CHOSES.
+       Un devis émis que le client n'a pas accepté n'est pas un carnet de
+       commandes : le compter comme tel gonfle les projections de dossiers
+       qui n'aboutiront jamais. */
+    { libelle: "Proposé (devis sans réponse)", valeur: resume.propose_cents,
+      note: "Devis émis que le client n'a ni accepté ni refusé." },
+    { libelle: "Engagé", valeur: resume.engage_cents,
+      note: "Devis accepté, contrat émis ou réservation confirmée." },
     { libelle: "Facturé sur la période", valeur: resume.facture_cents,
       note: "Factures émises, avoirs déduits. Ce n'est pas de l'encaissé." },
     { libelle: "Facturé non réglé", valeur: resume.facture_non_regle_cents, alerte: true,
       note: "Factures émises dont le règlement n'est pas arrivé." },
     { libelle: "Paiements attendus", valeur: resume.attendu_cents,
-      note: "Contractualisé moins encaissé, tous dossiers confondus." },
+      note: "Engagé moins encaissé. Le proposé n'y entre pas." },
     { libelle: "Encaissements prévisionnels", valeur: resume.previsionnel_cents,
       note: "Échéances non réglées des documents émis." },
   ];
+  const PALIERS = ["—", "proposé", "accepté", "contrat", "réservé"];
 
   return (
     <main className="admin-page">
@@ -140,8 +149,10 @@ export default async function Finances({ searchParams }) {
       <section className="admin-bloc">
         <h2 className="display t-carte">Évolution {annee}</h2>
         <p className="recap__note">
-          Encaissé, facturé et prévisionnel, mois par mois. Les trois ne
+          Encaissé, facturé et engagé, mois par mois. Les trois ne
           s&apos;additionnent pas : ils mesurent trois choses différentes.
+          L&apos;engagé est daté du mois où l&apos;affaire est entrée — devis
+          accepté ou contrat — pas du mois où le devis est parti.
         </p>
         <ol className="admin-graph" role="list">
           {mensuel.map((m, i) => (
@@ -150,7 +161,7 @@ export default async function Finances({ searchParams }) {
                 {[
                   ["encaisse", m.encaisse_cents, "Encaissé"],
                   ["facture", m.facture_cents, "Facturé"],
-                  ["prevu", m.previsionnel_cents, "Prévisionnel"],
+                  ["prevu", m.engage_cents, "Engagé"],
                 ].map(([cle, valeur, titre]) => (
                   <span key={cle}
                     className={`admin-graph__barre admin-graph__barre--${cle}`}
@@ -166,7 +177,7 @@ export default async function Finances({ searchParams }) {
         <p className="admin-legende">
           <span className="admin-legende__puce admin-legende__puce--encaisse" /> Encaissé
           <span className="admin-legende__puce admin-legende__puce--facture" /> Facturé
-          <span className="admin-legende__puce admin-legende__puce--prevu" /> Prévisionnel
+          <span className="admin-legende__puce admin-legende__puce--prevu" /> Engagé
         </p>
       </section>
 
@@ -179,14 +190,16 @@ export default async function Finances({ searchParams }) {
           <div className="admin-tableau-enroule">
             <table className="admin-tableau">
               <caption className="admin-tableau__legende">
-                Prix total, encaissé et solde par mariage. « Facturé » n&apos;est
-                pas « encaissé » : les deux colonnes restent séparées.
+                Engagement, montant, facturé, encaissé et solde par mariage.
+                « Proposé » n&apos;est pas « engagé », et « facturé » n&apos;est
+                pas « encaissé » : les colonnes restent séparées.
               </caption>
               <thead>
                 <tr>
                   <th scope="col">Mariage</th>
                   <th scope="col">Date</th>
-                  <th scope="col" className="num">Contractualisé</th>
+                  <th scope="col">Engagement</th>
+                  <th scope="col" className="num">Montant</th>
                   <th scope="col" className="num">Facturé</th>
                   <th scope="col" className="num">Encaissé</th>
                   <th scope="col" className="num">Solde</th>
@@ -202,8 +215,14 @@ export default async function Finances({ searchParams }) {
                     <td data-libelle="Date">
                       {m.date_mariage ? formaterDateSql(m.date_mariage) : "—"}
                     </td>
-                    <td data-libelle="Contractualisé" className="num">
-                      {euros(m.contractualise_cents)}
+                    <td data-libelle="Engagement">
+                      <span className={`admin-pastille${
+                        m.niveau >= 2 ? " admin-pastille--emis" : ""}`}>
+                        {PALIERS[m.niveau]}
+                      </span>
+                    </td>
+                    <td data-libelle="Montant" className="num">
+                      {euros(m.niveau >= 2 ? m.engage_cents : m.propose_cents)}
                     </td>
                     <td data-libelle="Facturé" className="num">{euros(m.facture_cents)}</td>
                     <td data-libelle="Encaissé" className="num">{euros(m.encaisse_cents)}</td>
