@@ -138,8 +138,26 @@ export async function envoyer(message: MessageSortant): Promise<ResultatEnvoi> {
     };
   }
 
-  const { inhibe, motif } = envoiInhibe();
-  if (inhibe) return { statut: "inhibe", fournisseur: "aucun", erreur: motif };
+  /* Preview reste en DRY_RUN. Seule exception, explicitement autorisée :
+     une invitation à l'unique boîte de test configurée dans Vercel Preview.
+     Jamais un message client, jamais un e-mail EyesofJoks, jamais Production. */
+  const preview = process.env.VERCEL_ENV === "preview";
+  if (preview) {
+    const destinataireAutorise = (process.env.JOKSWED_PREVIEW_INVITATION_EMAIL ?? "")
+      .trim().toLowerCase();
+    const exceptionInvitation = process.env.EMAIL_DRY_RUN === "1"
+      && process.env.JOKSWED_PREVIEW_INVITATIONS_ACTIVES === "1"
+      && Boolean(process.env.BREVO_API_KEY)
+      && destinataireAutorise.length > 0
+      && message.destinataire.trim().toLowerCase() === destinataireAutorise
+      && (message.etiquettes ?? []).includes("invitation");
+    if (!exceptionInvitation) {
+      return { statut: "inhibe", fournisseur: "aucun", erreur: "Preview : non autorisé" };
+    }
+  } else {
+    const { inhibe, motif } = envoiInhibe();
+    if (inhibe) return { statut: "inhibe", fournisseur: "aucun", erreur: motif };
+  }
 
   /* ⚠️ L'IDENTITÉ D'EXPÉDITION DOIT ÊTRE VÉRIFIÉE CHEZ BREVO.
      On ne la choisit pas ici : l'appelant l'a déjà validée contre

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces, interdireAutoModification } from "@/lib/auth/acces";
 import { chiffrer, engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
+import { drainer } from "@/lib/demandes/drain";
 
 export const metadata = { title: "Collaborateurs" };
 export const dynamic = "force-dynamic";
@@ -19,6 +20,19 @@ export const dynamic = "force-dynamic";
    garantit qu'aucun e-mail ne part pour une transaction annulée, et qu'une
    panne du fournisseur ne fait pas disparaître l'invitation. */
 const DUREE_INVITATION_JOURS = 7;
+
+/** Vérifié à chaque geste serveur (les boutons ne font pas foi). */
+function invitationImmediatementAutorisee(email) {
+  if (!process.env.BREVO_API_KEY || process.env.EMAIL_FOURNISSEUR === "simule") return false;
+  if (process.env.VERCEL_ENV === "preview") {
+    return process.env.EMAIL_DRY_RUN === "1"
+      && process.env.JOKSWED_PREVIEW_INVITATIONS_ACTIVES === "1"
+      && (process.env.JOKSWED_PREVIEW_INVITATION_EMAIL ?? "").trim().toLowerCase()
+        === email.trim().toLowerCase();
+  }
+  return process.env.VERCEL_ENV === "production"
+    && process.env.EMAIL_DRY_RUN === "0";
+}
 
 export default async function Collaborateurs() {
   const { session, entreprise } = await contexteAdmin();
@@ -40,8 +54,9 @@ export default async function Collaborateurs() {
         GROUP BY m.id, u.id ORDER BY m.retire_le NULLS FIRST, u.nom`,
       [entreprise.id]);
     const { rows: invitations } = await q(
-      `SELECT id, email, prenom, nom, cree_le, expire_le, envoyee_le, utilisee_le, revoquee_le
-         FROM invitations WHERE entreprise_id = $1 ORDER BY cree_le DESC`,
+      `SELECT id, email, prenom, nom, cree_le, expire_le, envoyee_le, utilisee_le, revoquee_le,
+              (jeton_chiffre IS NULL) AS pris_en_charge
+          FROM invitations WHERE entreprise_id = $1 ORDER BY cree_le DESC`,
       [entreprise.id]);
     const { rows: roles } = await q(
       "SELECT id, cle, libelle, description FROM roles WHERE entreprise_id = $1 ORDER BY libelle",
@@ -91,6 +106,7 @@ export default async function Collaborateurs() {
       throw new Error("Adresse e-mail du partenaire invalide");
     }
 
+    const autorisee = invitationImmediatementAutorisee(email);
     await a.executer(async (q) => {
       const { rows: entreprises } = await q(
         "SELECT app.creer_entreprise_partenaire($1,$2,$3,$4::citext) AS id",
@@ -106,28 +122,35 @@ export default async function Collaborateurs() {
       if (!roles[0]) throw new Error("Rôle propriétaire indisponible");
 
       const { rows: invitations } = await q(
-        `SELECT id FROM invitations
+        `SELECT id, envoyee_le FROM invitations
           WHERE entreprise_id = $1 AND email = $2::citext
             AND utilisee_le IS NULL AND revoquee_le IS NULL
-          LIMIT 1`,
+            AND expire_le > now() ORDER BY cree_le DESC LIMIT 1`,
         [entrepriseId, email],
       );
 
-      if (!invitations.length) {
+      let invitationId = invitations[0]?.id;
+      let dejaEnvoyee = Boolean(invitations[0]?.envoyee_le);
+      if (!invitationId) {
         const jeton = engendrerJeton();
-
-        await q(
+        const { rows: creees } = await q(
           `SELECT app.admin_creer_invitation(
             $1,$2::citext,$3,$4,$5,ARRAY[$6]::uuid[],$7,$8
-          )`,
+          ) AS id`,
           [
             entrepriseId, email, prenom || null, nomContact || null,
             hacherJeton(jeton), roles[0].id, 7, chiffrer(jeton),
           ],
         );
+        invitationId = creees[0]?.id;
+        dejaEnvoyee = false;
+      }
+      if (autorisee && invitationId && !dejaEnvoyee) {
+        await q("SELECT app.admin_envoyer_invitation($1)", [invitationId]);
       }
     });
 
+    if (autorisee) await drainer(20);
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -153,11 +176,18 @@ export default async function Collaborateurs() {
        L'envoi se fera plus tard, depuis le drain, où le jeton n'existera
        plus. On le conserve donc chiffré (AES-256-GCM, clé hors base) le temps
        de l'envoi — après quoi le drain l'efface. */
-    await a.executer((q) =>
-      q(`SELECT app.admin_creer_invitation($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7,$8)`,
+    const autorisee = invitationImmediatementAutorisee(email);
+    await a.executer(async (q) => {
+      const { rows } = await q(
+        `SELECT app.admin_creer_invitation($1,$2,$3,$4,$5,ARRAY[$6]::uuid[],$7,$8) AS id`,
         [e.id, email, String(formulaire.get("prenom") ?? "") || null,
          String(formulaire.get("nom") ?? "") || null, hacherJeton(jeton), roleId,
-         DUREE_INVITATION_JOURS, chiffrer(jeton)]));
+         DUREE_INVITATION_JOURS, chiffrer(jeton)]);
+      if (autorisee && rows[0]?.id) {
+        await q("SELECT app.admin_envoyer_invitation($1)", [rows[0].id]);
+      }
+    });
+    if (autorisee) await drainer(20);
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -202,8 +232,19 @@ export default async function Collaborateurs() {
     "use server";
     const { entreprise: e } = await contexteAdmin();
     const a = await exigerAcces(e.id, ["membre.inviter"]);
+    const identifiant = String(formulaire.get("invitation"));
+    const email = await a.executer(async (q) => {
+      const { rows } = await q(
+        "SELECT email FROM invitations WHERE id=$1 AND entreprise_id=$2",
+        [identifiant, e.id]);
+      return rows[0]?.email ?? "";
+    });
+    if (!invitationImmediatementAutorisee(email)) {
+      throw new Error("Envoi désactivé pour cette adresse dans cet environnement");
+    }
     await a.executer((q) => q("SELECT app.admin_envoyer_invitation($1)",
-      [String(formulaire.get("invitation"))]));
+      [identifiant]));
+    await drainer(20);
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -368,8 +409,13 @@ export default async function Collaborateurs() {
           </div>
 
           <button type="submit" className="btn">
-            Créer le partenaire et préparer son invitation
+            Créer DON YC / partenaire et préparer son invitation
           </button>
+          <p className="recap__note">
+            L'e-mail part immédiatement uniquement si les invitations sont
+            activées pour cette adresse. Sinon le lien est conservé chiffré
+            et vous pourrez l'envoyer après activation.
+          </p>
         </form>
 
         <p className="recap__note" style={{ marginTop: "0.8rem" }}>
@@ -431,8 +477,9 @@ export default async function Collaborateurs() {
                     {i.utilisee_le ? "acceptée"
                       : i.revoquee_le ? "révoquée"
                       : new Date(i.expire_le) <= new Date() ? "expirée"
-                      : i.envoyee_le ? "envoyée"
-                      : "préparée — non envoyée"}
+                       : i.pris_en_charge && i.envoyee_le ? "acceptée par Brevo"
+                       : i.envoyee_le ? "en attente d'envoi"
+                       : "préparée — non envoyée"}
                   </span>
                   <span>expire le {new Date(i.expire_le).toLocaleDateString("fr-FR")}</span>
                   {encoreUtile && acces.permissions.has("membre.inviter") ? (

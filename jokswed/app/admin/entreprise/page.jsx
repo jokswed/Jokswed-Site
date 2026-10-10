@@ -87,6 +87,19 @@ export default async function MonEntreprise() {
 
   const { e, regimes, verdict } = donnees;
   const actuel = regimes.find((r) => !r.fin_le);
+  /* La fiche juridique est préremplie et CONFIRMÉE par son propriétaire.
+     Ne pas attribuer ces données aux autres partenaires ni à JoksWed. */
+  const suggestions = e.slug === "yvann-cretinoir" ? {
+    nom_commercial: "DON YC",
+    raison_sociale: "Yvann CRETINOIR EI",
+    siret: "98930209600015",
+    code_ape: "5911B",
+    adresse_ligne1: "7 allée de la Colline",
+    code_postal: "93160",
+    ville: "Noisy-le-Grand",
+    email: "cretinoiry@gmail.com",
+  } : {};
+  const estDonYc = e.slug === "yvann-cretinoir";
 
   return (
     <main className="admin-page">
@@ -113,13 +126,18 @@ export default async function MonEntreprise() {
           Ce sont ces informations qui figurent sur vos devis, contrats et
           factures.
         </p>
+        {estDonYc ? (
+          <p className="recap__note">Informations DON YC suggérées d'après votre fiche
+            d'entreprise. Vérifiez-les et cliquez sur Enregistrer pour les utiliser
+            sur vos futurs documents.</p>
+        ) : null}
         <form action={enregistrer} className="formulaire" style={{ marginTop: "1rem" }}>
           <div className="admin-grille-champs">
             {CHAMPS.map(([cle, libelle, type, requis]) => (
               <div className="champ" key={cle}>
                 <label htmlFor={cle}>{libelle}</label>
                 <input id={cle} name={cle} type={type} required={requis}
-                  defaultValue={e[cle] ?? ""} />
+                  defaultValue={e[cle] || suggestions[cle] || ""} />
               </div>
             ))}
           </div>
@@ -158,11 +176,13 @@ export default async function MonEntreprise() {
             </div>
             <div className="champ">
               <label htmlFor="tva_numero">N° de TVA intracommunautaire</label>
-              <input id="tva_numero" name="tva_numero" type="text" />
+              <input id="tva_numero" name="tva_numero" type="text"
+                defaultValue={estDonYc ? "FR16989302096" : ""} />
             </div>
             <div className="champ">
               <label htmlFor="mention_legale">Mention à porter sur les documents</label>
               <input id="mention_legale" name="mention_legale" type="text"
+                defaultValue={estDonYc ? "TVA non applicable, art. 293 B du CGI" : ""}
                 placeholder="TVA non applicable, article 293 B du CGI" />
             </div>
           </div>

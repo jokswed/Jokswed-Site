@@ -210,7 +210,11 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
             "SELECT * FROM app.invitation_pour_envoi($1)", [invitation_id]);
           const inv = rows[0];
           if (inv?.jeton_chiffre) {
-            const site = process.env.SITE_URL ?? "https://jokswed.com";
+            /* Le lien doit pointer vers LE déploiement qui envoie l'invitation.
+               En Preview, SITE_URL peut encore contenir jokswed.com. */
+            const site = process.env.VERCEL_ENV === "preview" && process.env.VERCEL_URL
+              ? `https://${process.env.VERCEL_URL}`
+              : (process.env.SITE_URL ?? "https://jokswed.com");
             const jeton = dechiffrer(Buffer.from(inv.jeton_chiffre));
             const gabarit = invitationCollaborateur({
               prenom: inv.prenom,
@@ -230,11 +234,18 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
             });
             await journaliser(q, evenement.id, null, entreprise_id,
               "invitation", inv.email, gabarit.sujet, r, `invitation:${invitation_id}`);
-            if (r.statut === "envoye") bilan.envoyes += 1;
-            else if (r.statut === "inhibe") bilan.inhibes += 1;
-            else throw new Error(`invitation : ${r.erreur}`);
-            /* Envoyé (ou volontairement inhibé) : le secret disparaît. */
-            await q("SELECT app.invitation_jeton_efface($1)", [invitation_id]);
+            if (r.statut === "envoye") {
+              bilan.envoyes += 1;
+              /* Jeton effacé UNIQUEMENT après acceptation par Brevo. */
+              await q("SELECT app.invitation_jeton_efface($1)", [invitation_id]);
+            } else {
+              if (r.statut === "inhibe") bilan.inhibes += 1;
+              /* L'événement reste en attente ; le lien reste chiffré et utilisable.
+                 Le bloc de reprise marque l'échec et retentera plus tard. */
+              throw new Error(r.statut === "inhibe"
+                ? "Invitation non expédiée : envoi désactivé"
+                : `Invitation Brevo refusée : ${r.erreur}`);
+            }
           }
         }
 
