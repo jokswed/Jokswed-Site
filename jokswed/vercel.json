@@ -5,5 +5,8 @@
       "path": "/api/cron/drain",
       "schedule": "*/15 * * * *"
     }
+  ],
+  "regions": [
+    "fra1"
   ]
 }
