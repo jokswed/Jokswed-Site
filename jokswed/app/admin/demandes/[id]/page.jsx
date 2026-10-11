@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { dechiffrer } from "@/lib/auth/secrets";
+import { validerSignature } from "@/lib/documents/signature-trace";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
 import { formaterDateSql } from "@/lib/dates";
-import { formaterPrix } from "@/content/offres";
+import { formaterPrix, formules } from "@/content/offres";
 import { tarifsSurDemande } from "@/lib/email/gabarits";
 import { envoyer, adresseDeReponse } from "@/lib/email/fournisseur";
 import {
@@ -153,7 +155,13 @@ export default async function FicheDemande({ params, searchParams }) {
     const { session: s, entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["dossier.ecrire"]);
     const champs = {
+      contact_nom: String(formulaire.get("contact_nom") ?? "").trim(),
+      contact_email: String(formulaire.get("contact_email") ?? "").trim().toLowerCase(),
       contact_telephone: String(formulaire.get("telephone") ?? "") || null,
+      contact_prefere: ["email", "telephone", "sms"].includes(String(formulaire.get("contact_prefere")))
+        ? String(formulaire.get("contact_prefere")) : null,
+      date_mariage: String(formulaire.get("date_mariage") ?? "").trim() || null,
+      date_incertaine: !String(formulaire.get("date_mariage") ?? "").trim(),
       ville: String(formulaire.get("ville") ?? "") || null,
       departement: String(formulaire.get("departement") ?? "") || null,
       lieu: String(formulaire.get("lieu") ?? "") || null,
@@ -161,16 +169,92 @@ export default async function FicheDemande({ params, searchParams }) {
       invites_estimes: Number.parseInt(String(formulaire.get("invites") ?? ""), 10) || null,
       complements: String(formulaire.get("complements") ?? "") || null,
     };
+    if (!champs.contact_nom || champs.contact_nom.length > 200) {
+      throw new Error("Nom du couple invalide");
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(champs.contact_email)
+      || champs.contact_email.length > 254) {
+      throw new Error("Adresse e-mail invalide");
+    }
+    if (champs.date_mariage && !/^\d{4}-\d{2}-\d{2}$/.test(champs.date_mariage)) {
+      throw new Error("Date de mariage invalide");
+    }
+    const champsValeurs = Object.values(champs);
     await a.executer(async (q) => {
+      const { rows: avant } = await q(
+        `SELECT entreprise_destinataire_id, mariage_id, date_mariage, contact_nom, contact_email
+           FROM demandes WHERE id = $1 FOR UPDATE`, [id]);
+      if (!avant[0] || avant[0].entreprise_destinataire_id !== e.id) {
+        throw new Error("Dossier non autorisé");
+      }
       await q(
-        `UPDATE demandes SET contact_telephone = $1, ville = $2, departement = $3,
-                lieu = $4, horaires = $5, invites_estimes = $6, complements = $7
-          WHERE id = $8`,
-        [...Object.values(champs), id]);
+        `UPDATE demandes SET contact_nom=$1, contact_email=$2, contact_telephone=$3,
+          contact_prefere=$4, date_mariage=$5, date_incertaine=$6,
+          ville=$7, departement=$8, lieu=$9, horaires=$10,
+          invites_estimes=$11, complements=$12 WHERE id=$13`,
+        [...champsValeurs, id]);
+      /* Si le mariage est déjà partagé, seule l'entreprise pilote met à jour
+         les données communes. Les devis déjà émis ne sont jamais modifiés. */
+      if (avant[0].mariage_id) {
+        /* Sync sécurisée via SQL : le pilote seulement, puis notification aux
+           partenaires ayant réellement un dossier sur ce mariage. */
+        await q("SELECT app.actualiser_mariage_pilote($1)", [id]);
+      }
+
       /* ⚠️ `instantane` N'EST PAS TOUCHÉ : il garde ce que le client a
          réellement soumis. Ces champs-ci sont des compléments de l'équipe. */
       await tracer(q, s.utilisateurId, e.id, "demande.completee", "demande", id, null, champs);
     });
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function modifierFormule(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const cle = String(formulaire.get("formule_cle") ?? "");
+    const formule = formules.find((f) => f.cle === cle);
+    if (!formule) throw new Error("Formule inconnue");
+    const autre = String(formulaire.get("prix_personnalise") ?? "").trim().replace(",", ".");
+    const prix = autre === "" ? formule.prixCents : Math.round(Number(autre) * 100);
+    if (!Number.isSafeInteger(prix) || prix < 0 || prix > 100000000) {
+      throw new Error("Prix invalide");
+    }
+    await a.executer((q) => q("SELECT app.modifier_formule_demande($1,$2,$3,$4)",
+      [id, cle, `${formule.nom} — ${formule.surnom}`, prix]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function modifierOption(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const libelle = String(formulaire.get("libelle") ?? "").trim();
+    const brut = String(formulaire.get("prix") ?? "").trim().replace(",", ".");
+    const prix = brut === "" ? null : Math.round(Number(brut) * 100);
+    if (libelle.length < 3 || libelle.length > 250 ||
+       (prix !== null && (!Number.isSafeInteger(prix) || prix < 0 || prix > 100000000))) {
+      throw new Error("Option invalide");
+    }
+    await a.executer((q) => q("SELECT app.modifier_option_manuelle($1,$2,$3,$4)",
+      [id,String(formulaire.get("ligne") ?? ""),libelle,prix]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function ajouterOption(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const libelle = String(formulaire.get("option_libelle") ?? "").trim();
+    const brut = String(formulaire.get("option_prix") ?? "").trim().replace(",", ".");
+    const cents = brut ? Math.round(Number(brut) * 100) : null;
+    if (libelle.length < 3 || libelle.length > 250
+        || (cents !== null && (!Number.isSafeInteger(cents) || cents < 0 || cents > 100000000))) {
+      throw new Error("Option ou tarif invalide");
+    }
+    const partenaire = String(formulaire.get("option_partenaire") ?? "");
+    await a.executer((q) => q("SELECT app.ajouter_option_demande($1,$2,$3,$4,$5)",
+      [id, libelle, cents, partenaire || null, partenaire ? "video" : "autre"]));
     revalidatePath(`/admin/demandes/${id}`);
   }
 
@@ -333,6 +417,41 @@ export default async function FicheDemande({ params, searchParams }) {
   const consentement = (finalite) =>
     consentements.find((c) => c.finalite === finalite)?.accorde === true;
 
+  async function apposerSignature(formulaire) {
+    "use server";
+    if (process.env.JOKSWED_SIGNATURES_ENABLED !== "1") throw new Error("Signatures non activées");
+    const { entreprise: e, session: se } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.rediger"]);
+    const documentId = String(formulaire.get("document") ?? "");
+    await a.executer(async (q) => {
+      const { rows: profil } = await q(
+        "SELECT trace_chiffree FROM signatures_profils WHERE entreprise_id=$1 AND utilisateur_id=app.acteur()",
+        [e.id]);
+      if (!profil[0]) throw new Error("Enregistrez d'abord votre signature dans Mon compte");
+      const { rows: docs } = await q(
+        `SELECT id, instantane FROM documents WHERE id=$1 AND entreprise_id=$2
+         AND statut='brouillon' AND type IN ('devis','contrat','facture') FOR UPDATE`,
+        [documentId, e.id]);
+      if (!docs[0]) throw new Error("Brouillon inaccessible ou déjà émis");
+      const traces = validerSignature(JSON.parse(dechiffrer(Buffer.from(profil[0].trace_chiffree))));
+      const { rows: utilisateurs } = await q(
+        "SELECT prenom, nom FROM utilisateurs WHERE id=app.acteur()");
+      const u = utilisateurs[0];
+      const signataire = {
+        traces,
+        nom: [u?.prenom,u?.nom].filter(Boolean).join(" "),
+        date: new Date().toISOString(),
+      };
+      const instantane = { ...docs[0].instantane, signaturePrestataire: signataire };
+      await q(`UPDATE documents SET instantane=$1::jsonb WHERE id=$2 AND entreprise_id=$3
+               AND statut='brouillon'`,[JSON.stringify(instantane), documentId, e.id]);
+      await q(`INSERT INTO journal_audit(acteur_id,entreprise_id,action,ressource_type,ressource_id)
+               VALUES($1,$2,'document.signature_prestataire','document',$3)`,
+              [se.utilisateurId,e.id,documentId]);
+    });
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
   async function genererDevis() {
     "use server";
     const { session: s, entreprise: e } = await contexteAdmin();
@@ -450,12 +569,68 @@ export default async function FicheDemande({ params, searchParams }) {
                 ))}
               </ul>
             )}
+            {peutEcrire ? <form action={modifierFormule} className="formulaire" style={{marginTop:"1.2rem"}}>
+              <p className="label label--nu">Changer de formule / ajuster le tarif</p>
+              <div className="champ"><label htmlFor="formule_cle">Formule</label>
+                <select id="formule_cle" name="formule_cle" defaultValue={demande.formule_cle ?? ""}>
+                  {formules.map(f => <option value={f.cle} key={f.cle}>
+                    {f.nom} — {formaterPrix(f.prixCents)}
+                  </option>)}
+                </select>
+              </div>
+              <div className="champ"><label htmlFor="prix_personnalise">Prix personnalisé TTC (€) — facultatif</label>
+                <input id="prix_personnalise" name="prix_personnalise" type="number" min="0" step="0.01"
+                  placeholder="Laisser vide pour le tarif de la formule" /></div>
+              <button type="submit" className="btn btn--fantome">Modifier la formule pour les futurs documents</button>
+            </form> : null}
+            {peutEcrire && lignes.some(l=>l.cle?.startsWith("ajout-")) ? (
+              <div style={{marginTop:"1.2rem"}}>
+                <p className="label label--nu">Corriger les options ajoutées</p>
+                {lignes.filter(l=>l.cle?.startsWith("ajout-")).map(l=>(
+                  <form action={modifierOption} key={l.id} className="formulaire"
+                    style={{padding:"0.8rem 0",borderBottom:"1px solid var(--bordure,#e8e5df)"}}>
+                    <input type="hidden" name="ligne" value={l.id}/>
+                    <div className="champ"><label>Intitulé / livrable</label>
+                      <input name="libelle" required defaultValue={l.libelle}/></div>
+                    <div className="champ"><label>Prix TTC (€), vide pour sur devis</label>
+                      <input name="prix" type="number" min="0" step="0.01"
+                        defaultValue={l.prix_cents===null ? "" : (l.prix_cents/100).toFixed(2)}/></div>
+                    <button type="submit" className="btn btn--fantome">Enregistrer la correction</button>
+                  </form>))}
+              </div>
+            ) : null}
+
             {/* ⚠️ L'instantané fige ce que le client a vu : si un tarif change
                 demain, cette fiche continue d'afficher le prix du jour de la
                 demande. */}
             <p className="recap__note" style={{ marginTop: "0.9rem" }}>
-              Tarifs figés au moment de la demande.
+              Les choix initiaux restent conservés. Les options ajoutées ensuite
+              sont tracées séparément et n'altèrent aucun document déjà émis.
             </p>
+            {peutEcrire ? (
+              <form action={ajouterOption} className="formulaire" style={{ marginTop: "1rem" }}>
+                <p className="label label--nu">Ajouter une option après échange avec le client</p>
+                <div className="champ">
+                  <label htmlFor="option_libelle">Prestation / livrable</label>
+                  <input id="option_libelle" name="option_libelle" required maxLength={250}
+                    placeholder="Ex. film des mariés, galerie supplémentaire…" />
+                </div>
+                <div className="champ">
+                  <label htmlFor="option_prix">Prix TTC (€), vide si sur devis</label>
+                  <input id="option_prix" name="option_prix" type="number" min="0" step="0.01" />
+                </div>
+                <div className="champ">
+                  <label htmlFor="option_partenaire">Confier à un partenaire (facultatif)</label>
+                  <select id="option_partenaire" name="option_partenaire" defaultValue="">
+                    <option value="">Aucun — mon entreprise</option>
+                    {partenaires.map((p) => <option key={p.id} value={p.id}>{p.nom_commercial}</option>)}
+                  </select>
+                </div>
+                <p className="recap__note">Si vous choisissez un partenaire, il reçoit une proposition
+                  dans son espace (sans coordonnées client). Le prix reste à valider avec lui.</p>
+                <button type="submit" className="btn btn--fantome">Ajouter et notifier le partenaire</button>
+              </form>
+            ) : null}
           </section>
 
           <section className="admin-bloc">
@@ -471,6 +646,35 @@ export default async function FicheDemande({ params, searchParams }) {
                 soumises par le client restent conservées à part, intactes.
               </p>
               <form action={completer} className="formulaire" style={{ marginTop: "1rem" }}>
+                <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="contact_nom">Nom du couple</label>
+                    <input id="contact_nom" name="contact_nom" type="text"
+                      required maxLength={200} defaultValue={demande.contact_nom} />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="contact_email">E-mail client</label>
+                    <input id="contact_email" name="contact_email" type="email"
+                      required maxLength={254} defaultValue={demande.contact_email} />
+                  </div>
+                </div>
+                <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="contact_prefere">Contact préféré</label>
+                    <select id="contact_prefere" name="contact_prefere" defaultValue={demande.contact_prefere ?? ""}>
+                      <option value="">Non défini</option>
+                      <option value="email">E-mail</option>
+                      <option value="telephone">Téléphone</option>
+                      <option value="sms">SMS</option>
+                    </select>
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="date_mariage">Date du mariage</label>
+                    <input id="date_mariage" name="date_mariage" type="date"
+                      defaultValue={demande.date_mariage ? String(demande.date_mariage).slice(0, 10) : ""} />
+                    <p className="recap__note">Laissez vide si la date est encore incertaine.</p>
+                  </div>
+                </div>
                 <div className="formulaire__deux">
                   <div className="champ">
                     <label htmlFor="telephone">Téléphone</label>
@@ -813,6 +1017,14 @@ export default async function FicheDemande({ params, searchParams }) {
                     <a className="btn btn--fantome btn--petit"
                        href={`/api/admin/documents/${doc.id}/pdf`}
                        target="_blank" rel="noopener noreferrer">Ouvrir le PDF</a>
+                    {process.env.JOKSWED_SIGNATURES_ENABLED === "1"
+                      && doc.statut === "brouillon"
+                      && acces.permissions.has("document.rediger") ? (
+                      <form action={apposerSignature}>
+                        <input type="hidden" name="document" value={doc.id} />
+                        <button type="submit" className="btn btn--fantome btn--petit">Apposer ma signature</button>
+                      </form>
+                    ) : null}
                     {doc.statut === "brouillon"
                       && acces.permissions.has("document.emettre")
                       && motifsBlocage.length === 0 ? (

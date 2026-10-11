@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { dechiffrer } from "@/lib/auth/secrets";
+import { validerSignature } from "@/lib/documents/signature-trace";
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
+import { tracer } from "@/lib/auth/acces";
 import { engendrerJetonConversation } from "@/lib/messagerie/adresses";
 import { formaterDateSql } from "@/lib/dates";
 import {
@@ -43,6 +46,9 @@ export default async function MesDossiers({ searchParams }) {
   const donnees = await acces.executer(async (q) => {
     const { rows: dossiers } = await q(
       "SELECT * FROM app.mes_dossiers($1)", [entreprise.id]);
+    const { rows: prestations } = await q(
+      `SELECT id, details_prestation, livrables, horaires_prestation
+         FROM dossiers WHERE entreprise_id=$1`, [entreprise.id]);
     const { rows: documents } = await q(
       `SELECT id, dossier_id, type, role_facture, numero, statut, total_ttc_cents
          FROM documents WHERE entreprise_id = $1 AND dossier_id IS NOT NULL
@@ -53,8 +59,67 @@ export default async function MesDossiers({ searchParams }) {
         ORDER BY recu_le DESC`, [entreprise.id]);
     const { rows: [verdict] } = await q(
       "SELECT * FROM app.verdict_emission($1,'devis')", [entreprise.id]);
-    return { dossiers, documents, paiements, verdict };
+    return { dossiers, prestations, documents, paiements, verdict };
   });
+
+  /* Chaque prestataire gère SES livrables et horaires, pas les informations
+     communes du mariage ni le devis définitivement émis. */
+  async function modifierMaPrestation(formulaire) {
+    "use server";
+    const { session: s, entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const dossierId = String(formulaire.get("dossier") ?? "");
+    const details = String(formulaire.get("details") ?? "").trim();
+    const livrables = String(formulaire.get("livrables") ?? "").trim();
+    const horaires = String(formulaire.get("horaires") ?? "").trim();
+    if (details.length > 4000 || livrables.length > 4000 || horaires.length > 2000) {
+      throw new Error("Informations de prestation trop longues");
+    }
+    await a.executer(async (q) => {
+      const { rows } = await q(
+        `UPDATE dossiers SET details_prestation=$1, livrables=$2,
+         horaires_prestation=$3 WHERE id=$4 AND entreprise_id=$5 RETURNING id`,
+        [details || null, livrables || null, horaires || null, dossierId, e.id]);
+      if (!rows.length) throw new Error("Dossier inaccessible");
+      await tracer(q, s.utilisateurId, e.id, "dossier.prestation_maj", "dossier", dossierId);
+    });
+    revalidatePath("/admin/dossiers");
+  }
+
+  async function apposerSignature(formulaire) {
+    "use server";
+    if (process.env.JOKSWED_SIGNATURES_ENABLED !== "1") throw new Error("Signatures non activées");
+    const { entreprise: e, session: se } = await contexteAdmin();
+    const a = await accesPage(e.id, ["document.rediger"]);
+    const documentId = String(formulaire.get("document") ?? "");
+    await a.executer(async (q) => {
+      const { rows: profil } = await q(
+        "SELECT trace_chiffree FROM signatures_profils WHERE entreprise_id=$1 AND utilisateur_id=app.acteur()",
+        [e.id]);
+      if (!profil[0]) throw new Error("Enregistrez d'abord votre signature dans Mon compte");
+      const { rows: docs } = await q(
+        `SELECT id, instantane FROM documents WHERE id=$1 AND entreprise_id=$2
+         AND statut='brouillon' AND type IN ('devis','contrat','facture') FOR UPDATE`,
+        [documentId, e.id]);
+      if (!docs[0]) throw new Error("Brouillon inaccessible ou déjà émis");
+      const traces = validerSignature(JSON.parse(dechiffrer(Buffer.from(profil[0].trace_chiffree))));
+      const { rows: utilisateurs } = await q(
+        "SELECT prenom, nom FROM utilisateurs WHERE id=app.acteur()");
+      const u = utilisateurs[0];
+      const signataire = {
+        traces,
+        nom: [u?.prenom,u?.nom].filter(Boolean).join(" "),
+        date: new Date().toISOString(),
+      };
+      const instantane = { ...docs[0].instantane, signaturePrestataire: signataire };
+      await q(`UPDATE documents SET instantane=$1::jsonb WHERE id=$2 AND entreprise_id=$3
+               AND statut='brouillon'`,[JSON.stringify(instantane), documentId, e.id]);
+      await q(`INSERT INTO journal_audit(acteur_id,entreprise_id,action,ressource_type,ressource_id)
+               VALUES($1,$2,'document.signature_prestataire','document',$3)`,
+              [se.utilisateurId,e.id,documentId]);
+    });
+    revalidatePath("/admin/dossiers");
+  }
 
   async function creerDevis(formulaire) {
     "use server";
@@ -161,9 +226,10 @@ export default async function MesDossiers({ searchParams }) {
     revalidatePath("/admin/dossiers");
   }
 
-  const { dossiers, documents, paiements, verdict } = donnees;
+  const { dossiers, prestations, documents, paiements, verdict } = donnees;
   const ouvert = params?.dossier;
   const peutRediger = acces.permissions.has("document.rediger");
+  const peutModifier = acces.permissions.has("dossier.ecrire");
   const voitFinances = acces.permissions.has("finance.lire");
 
   return (
@@ -200,6 +266,7 @@ export default async function MesDossiers({ searchParams }) {
           {dossiers.map((d) => {
             const docs = documents.filter((x) => x.dossier_id === d.dossier_id);
             const devis = docs.find((x) => x.type === "devis");
+            const maPrestation = prestations.find((x) => x.id === d.dossier_id);
             const mouvements = paiements.filter((x) => x.dossier_id === d.dossier_id);
             const estOuvert = ouvert === d.dossier_id;
             return (
@@ -243,6 +310,32 @@ export default async function MesDossiers({ searchParams }) {
                     </p>
                   ) : (
                     <>
+                      {peutModifier ? (
+                        <form action={modifierMaPrestation} className="formulaire"
+                          style={{ marginTop:"1rem" }}>
+                          <p className="label label--nu">Informations de ma prestation</p>
+                          <p className="recap__note">Vous pouvez actualiser vos propres horaires,
+                            prestations et livrables. Le planning commun relève de l'entreprise pilote ;
+                            les documents émis ne sont jamais réécrits.</p>
+                          <input type="hidden" name="dossier" value={d.dossier_id}/>
+                          <div className="champ">
+                            <label htmlFor={`prest-details-${d.dossier_id}`}>Détails et options</label>
+                            <textarea id={`prest-details-${d.dossier_id}`} name="details"
+                              rows={3} defaultValue={maPrestation?.details_prestation ?? ""}/>
+                          </div>
+                          <div className="champ">
+                            <label htmlFor={`prest-h-${d.dossier_id}`}>Horaires de ma prestation</label>
+                            <textarea id={`prest-h-${d.dossier_id}`} name="horaires"
+                              rows={2} defaultValue={maPrestation?.horaires_prestation ?? ""}/>
+                          </div>
+                          <div className="champ">
+                            <label htmlFor={`prest-liv-${d.dossier_id}`}>Livrables et délais</label>
+                            <textarea id={`prest-liv-${d.dossier_id}`} name="livrables"
+                              rows={3} defaultValue={maPrestation?.livrables ?? ""}/>
+                          </div>
+                          <button type="submit" className="btn btn--fantome">Enregistrer mes modifications</button>
+                        </form>
+                      ) : null}
                       {/* ── Écrire au couple ── */}
                       {peutEcrire && acces.permissions.has("message.envoyer") ? (
                         d.coordonnees_partagees ? (
@@ -272,6 +365,14 @@ export default async function MesDossiers({ searchParams }) {
                               href={`/api/admin/documents/${x.id}/pdf`}>
                               PDF {x.type}
                             </a>
+                            {process.env.JOKSWED_SIGNATURES_ENABLED === "1"
+                              && x.statut === "brouillon"
+                              && acces.permissions.has("document.rediger") ? (
+                              <form action={apposerSignature}>
+                                <input type="hidden" name="document" value={x.id} />
+                                <button type="submit" className="btn btn--fantome btn--petit">Apposer ma signature</button>
+                              </form>
+                            ) : null}
                             {x.statut === "brouillon"
                               && acces.permissions.has("document.emettre") ? (
                               <form action={emettre}>

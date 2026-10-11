@@ -116,6 +116,9 @@ export default async function TableauDeBord({ searchParams }) {
         {peut("dossier.lire") ? (
           <Link href="/admin/saison" className="btn btn--fantome">Saison</Link>
         ) : null}
+        {peut("dossier.lire") ? (
+          <Link href="/admin/agenda" className="btn btn--fantome">Agenda · Apple</Link>
+        ) : null}
         {peut("finance.lire") ? (
           <Link href="/admin/finances" className="btn btn--fantome">Finances</Link>
         ) : null}

@@ -141,66 +141,8 @@ export default function Configurateur({ formules, supplements, videaste }) {
               );
             })}
           </div>
-        </div>
-      </section>
 
-      {/* ═══════════════════ SUPPLÉMENTS ═══════════════════ */}
-      <section className="section section--papier" id="supplements">
-        <div className="conteneur">
-          <div className="entete-section">
-            <Reveal as="p" className="label">Sur mesure</Reveal>
-            <Reveal as="h2" className="display t-section" retard={0.1}>
-              Compléter votre <em>formule</em>
-            </Reveal>
-            <Reveal as="p" className="texte" retard={0.2}>
-              {formuleChoisie
-                ? `Ajoutez ce qui vous manque à la ${formuleChoisie.nom}. Ce qu'elle comprend déjà est signalé, et jamais compté deux fois.`
-                : "Choisissez d'abord une formule : je vous indiquerai alors ce qu'elle comprend déjà, pour ne rien vous facturer en double."}
-            </Reveal>
-          </div>
-
-          <div className="supplements">
-            {autresSupplements.map((s) => {
-              const statut = statutSupplement(s, formuleCle);
-              if (statut === "incompatible") return null;
-
-              /* ⚠️ LE CAS QUI COMPTE : déjà compris dans la formule.
-                 On l'affiche — le client doit voir qu'il l'a — mais la carte
-                 n'est pas un bouton, et `chiffrer()` ne l'additionne pas. */
-              if (statut === "inclus") {
-                return (
-                  <div key={s.cle} className="supplement supplement--inclus">
-                    <p className="supplement__titre">
-                      <span>{s.nom}</span>
-                    </p>
-                    <p className="etiquette-incluse">✓ Incluse dans votre formule</p>
-                    <p className="supplement__texte">{s.description}</p>
-                  </div>
-                );
-              }
-
-              const actif = supplementsCles.includes(s.cle);
-              return (
-                <button
-                  key={s.cle}
-                  type="button"
-                  className="supplement"
-                  aria-pressed={actif}
-                  onClick={() => basculerSupplement(s.cle)}
-                >
-                  <span className="supplement__titre">
-                    <span>{s.nom}</span>
-                    <span className="supplement__prix">{etiquettePrix(s)}</span>
-                  </span>
-                  <span className="supplement__texte">{s.description}</span>
-                  <span className="etiquette-incluse" aria-hidden="true">
-                    {actif ? "✓ Ajouté" : "+ Ajouter"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
+          {/* Proposition vidéo au même endroit que les formules photo. */}
           {/* ─────────── LA CARTE VIDÉASTE ─────────── */}
           {supplementVideo ? (
             <Reveal style={{ marginTop: "clamp(2rem, 5vw, 3.5rem)" }}>
@@ -275,6 +217,66 @@ export default function Configurateur({ formules, supplements, videaste }) {
               </div>
             </Reveal>
           ) : null}
+        </div>
+      </section>
+
+      {/* ═══════════════════ SUPPLÉMENTS ═══════════════════ */}
+      <section className="section section--papier" id="supplements">
+        <div className="conteneur">
+          <div className="entete-section">
+            <Reveal as="p" className="label">Sur mesure</Reveal>
+            <Reveal as="h2" className="display t-section" retard={0.1}>
+              Compléter votre <em>formule</em>
+            </Reveal>
+            <Reveal as="p" className="texte" retard={0.2}>
+              {formuleChoisie
+                ? `Ajoutez ce qui vous manque à la ${formuleChoisie.nom}. Ce qu'elle comprend déjà est signalé, et jamais compté deux fois.`
+                : "Choisissez d'abord une formule : je vous indiquerai alors ce qu'elle comprend déjà, pour ne rien vous facturer en double."}
+            </Reveal>
+          </div>
+
+          <div className="supplements">
+            {autresSupplements.map((s) => {
+              const statut = statutSupplement(s, formuleCle);
+              if (statut === "incompatible") return null;
+
+              /* ⚠️ LE CAS QUI COMPTE : déjà compris dans la formule.
+                 On l'affiche — le client doit voir qu'il l'a — mais la carte
+                 n'est pas un bouton, et `chiffrer()` ne l'additionne pas. */
+              if (statut === "inclus") {
+                return (
+                  <div key={s.cle} className="supplement supplement--inclus">
+                    <p className="supplement__titre">
+                      <span>{s.nom}</span>
+                    </p>
+                    <p className="etiquette-incluse">✓ Incluse dans votre formule</p>
+                    <p className="supplement__texte">{s.description}</p>
+                  </div>
+                );
+              }
+
+              const actif = supplementsCles.includes(s.cle);
+              return (
+                <button
+                  key={s.cle}
+                  type="button"
+                  className="supplement"
+                  aria-pressed={actif}
+                  onClick={() => basculerSupplement(s.cle)}
+                >
+                  <span className="supplement__titre">
+                    <span>{s.nom}</span>
+                    <span className="supplement__prix">{etiquettePrix(s)}</span>
+                  </span>
+                  <span className="supplement__texte">{s.description}</span>
+                  <span className="etiquette-incluse" aria-hidden="true">
+                    {actif ? "✓ Ajouté" : "+ Ajouter"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
         </div>
       </section>
 

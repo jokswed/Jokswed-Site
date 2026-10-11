@@ -40,6 +40,7 @@ export interface InstantaneContrat {
   numero: string | null;
   dateContrat: string;
   prestataire: IdentiteDocument;
+  signaturePrestataire?: { traces: number[][][]; nom: string; date: string } | null;
   clients: { nom: string; telephone?: string | null }[];
   emailClient?: string | null;
   adresseClient?: string | null;
@@ -274,19 +275,28 @@ export function dessinerContrat(d: InstantaneContrat): Buffer {
     ...d.clients.map((c) => c.nom),
     `${d.prestataire.responsable ?? ""} - ${d.prestataire.nomCommercial}`.replace(/^ - /, ""),
   ];
-  for (const nom of signataires) {
-    doc.assurer(46);
+  for (const [position, nom] of signataires.entries()) {
+    const signeParPrestataire = position === signataires.length - 1 && Boolean(d.signaturePrestataire);
+    doc.assurer(signeParPrestataire ? 95 : 46);
     doc.page().texte(MARGE, doc.y, nom, { taille: 8, police: "grasse", couleur: ENCRE });
     doc.sauter(12);
     doc.page().texte(MARGE, doc.y, "Mention « Lu et approuvé - Bon pour accord »", {
       taille: 8, couleur: ENCRE,
     });
     doc.sauter(12);
-    doc.page().texte(MARGE, doc.y,
-      "Signature : ________________________________________________", {
-        taille: 8, couleur: ENCRE,
-      });
-    doc.sauter(22);
+    if (signeParPrestataire && d.signaturePrestataire) {
+      doc.page().texte(MARGE, doc.y, "Signature du prestataire :", { taille: 8, couleur: ENCRE });
+      doc.sauter(12);
+      doc.page().tracerSignature(d.signaturePrestataire.traces,
+        MARGE + 14, doc.y, 190, 38);
+      doc.sauter(42);
+    } else {
+      doc.page().texte(MARGE, doc.y,
+        "Signature : ________________________________________________", {
+          taille: 8, couleur: ENCRE,
+        });
+      doc.sauter(22);
+    }
   }
 
   /* ── Annexe : formulaire de rétractation ── */

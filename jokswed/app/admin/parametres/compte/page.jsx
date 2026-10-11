@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces } from "@/lib/auth/acces";
 import { avecAuth } from "@/lib/db/client";
+import { validerSignature } from "@/lib/documents/signature-trace";
+import SignaturePad from "@/components/admin/SignaturePad";
 import {
   chiffrer, codeTotp, dechiffrer, engendrerGraineTotp,
   hacherMotDePasse, verifierMotDePasse, verifierTotp,
@@ -40,8 +42,39 @@ export default async function MonCompte({ searchParams }) {
       `SELECT id, libelle, confirme_le FROM facteurs_mfa
         WHERE utilisateur_id = app.acteur() ORDER BY cree_le DESC`);
     const { rows: attente } = await q("SELECT * FROM app.mfa_en_attente()");
-    return { moi: moi[0], sessions, connexions, facteurs, attente: attente[0] ?? null };
+    const signature = process.env.JOKSWED_SIGNATURES_ENABLED === "1"
+      ? await q("SELECT 1 FROM signatures_profils WHERE entreprise_id=$1 AND utilisateur_id=app.acteur()",
+          [entreprise.id]) : { rows: [] };
+    return { moi: moi[0], sessions, connexions, facteurs, attente: attente[0] ?? null,
+      signaturePresente: signature.rows.length > 0 };
   });
+
+  async function enregistrerSignature(formulaire) {
+    "use server";
+    if (process.env.JOKSWED_SIGNATURES_ENABLED !== "1") throw new Error("Signatures non activées");
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["document.rediger"]);
+    const brut = String(formulaire.get("trace") ?? "");
+    if (brut.length > 35000) throw new Error("Signature trop volumineuse");
+    const valide = validerSignature(JSON.parse(brut));
+    await a.executer(q => q(
+      `INSERT INTO signatures_profils (entreprise_id, utilisateur_id, trace_chiffree)
+         VALUES ($1,app.acteur(),$2)
+         ON CONFLICT (entreprise_id, utilisateur_id)
+           DO UPDATE SET trace_chiffree=excluded.trace_chiffree, maj_le=now()`,
+      [e.id, chiffrer(JSON.stringify(valide))]));
+    revalidatePath("/admin/parametres/compte");
+  }
+
+  async function retirerSignature() {
+    "use server";
+    if (process.env.JOKSWED_SIGNATURES_ENABLED !== "1") throw new Error("Signatures non activées");
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["document.rediger"]);
+    await a.executer(q => q(
+      "DELETE FROM signatures_profils WHERE entreprise_id=$1 AND utilisateur_id=app.acteur()",[e.id]));
+    revalidatePath("/admin/parametres/compte");
+  }
 
   async function changerMotDePasse(formulaire) {
     "use server";
@@ -155,6 +188,21 @@ export default async function MonCompte({ searchParams }) {
       ) : null}
       {sp?.ok ? (
         <p className="admin-alerte admin-alerte--neutre">{SUCCES[sp.ok] ?? "Enregistré."}</p>
+      ) : null}
+
+      {process.env.JOKSWED_SIGNATURES_ENABLED === "1" ? (
+        <section className="admin-bloc">
+          <h2 className="display t-carte">Ma signature</h2>
+          <p className="recap__note">{vue.signaturePresente
+            ? "Signature enregistrée et chiffrée pour cette entreprise. Vous pouvez la remplacer."
+            : "Aucune signature enregistrée pour cette entreprise."}</p>
+          <SignaturePad action={enregistrerSignature} />
+          {vue.signaturePresente ? <form action={retirerSignature}>
+            <button type="submit" className="btn btn--fantome" style={{marginTop:"0.7rem"}}>
+              Supprimer ma signature enregistrée
+            </button>
+          </form> : null}
+        </section>
       ) : null}
 
       <section className="admin-bloc">

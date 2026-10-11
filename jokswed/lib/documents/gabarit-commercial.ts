@@ -65,6 +65,8 @@ export interface InstantaneCommercial {
   /** Date de la prestation : mention obligatoire sur une facture. */
   datePrestation?: string | null;
   prestataire: IdentiteDocument;
+  /** Signature de l'émetteur explicitement apposée avant émission du PDF. */
+  signaturePrestataire?: { traces: number[][][]; nom: string; date: string } | null;
   client: {
     nom: string;
     nom2?: string | null;
@@ -334,10 +336,14 @@ export function dessinerCommercial(d: InstantaneCommercial): Buffer {
     d.echeances.length > 1 ? ` - Paiement en ${d.echeances.length} fois` : ""
   }`, { taille: 8.5, police: "grasse", couleur: ENCRE });
 
-  page.texte(MARGE + UTILE * 0.56, y, "Bon pour accord : Signature", {
-    taille: 8.5, police: "grasse", couleur: ENCRE,
-  });
-  /* Le trait de signature, à la même hauteur que dans le modèle. */
+  page.texte(MARGE + UTILE * 0.56, y,
+    d.signaturePrestataire ? "Visa de l'émetteur :" : "Bon pour accord : Signature", {
+      taille: 8.5, police: "grasse", couleur: ENCRE,
+    });
+  if (d.signaturePrestataire) {
+    page.tracerSignature(d.signaturePrestataire.traces,
+      MARGE + UTILE * 0.57, y + 13, UTILE * 0.31, 43);
+  }
   page.filet(MARGE + UTILE * 0.56, y + 62, UTILE * 0.40, 0.7, [0.45, 0.44, 0.42]);
 
   y += 14;

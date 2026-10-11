@@ -292,10 +292,55 @@ try {
        (`base_un_seul_membre`). C'est ce qui autorise la création du tout
        premier compte sans jamais ouvrir une porte ensuite. */
     "entreprise_sans_membre","entreprise_sans_role","base_un_seul_membre",
+    /* Palier 057 : fonctions SECURITY DEFINER revisees.
+       Toutes exigeront une session valide et une permission scoped entreprise.
+       mon_agenda: dossier.lire; filtre entreprise + mariage partage.
+       ajouter_evenement_agenda: dossier.ecrire; partage reserve au pilote.
+       actualiser_mariage_pilote: dossier.ecrire + presence du dossier pilote.
+       ajouter_option_demande: dossier.ecrire + collaboration.proposer si tiers.
+       modifier_formule_demande et modifier_option_manuelle: dossier.ecrire;
+       mise a jour de la demande sans alterer les documents emis.
+       Un ajout a cette liste exige la meme revue avant d etre autorise. */
+    "mon_agenda","ajouter_evenement_agenda","actualiser_mariage_pilote",
+    "ajouter_option_demande","modifier_formule_demande","modifier_option_manuelle",
   ];
   const secdefInattendues = secdef.rows.map((r) => r.proname).filter((n) => !secdefAttendues.includes(n));
   verifier("Aucune fonction SECURITY DEFINER hors de la liste autorisée",
     secdefInattendues.length === 0, secdefInattendues.join(", "));
+
+  /* ═══ PALIER 057 : VERIFICATIONS REELLES DES NOUVELLES CAPACITES ═══ */
+  const accesDirectAgenda = await refuse(app, proprietaire,
+    "SELECT count(*) FROM agenda_evenements");
+  verifier("Agenda : aucun SELECT direct du role applicatif",
+    accesDirectAgenda !== null);
+
+  const lectureAgendaAutrui = await refuse(app, videaste,
+    "SELECT count(*) FROM app.mon_agenda($1)", [jokswed]);
+  verifier("Agenda : un partenaire ne lit pas le calendrier de JoksWed",
+    lectureAgendaAutrui !== null);
+
+  const creationAgendaAutrui = await refuse(app, videaste,
+    `SELECT app.ajouter_evenement_agenda(
+       $1, NULL, 'Evenement interdit', NULL,
+       '2027-08-14 11:00'::timestamp, '2027-08-14 12:00'::timestamp, false)`, [jokswed]);
+  verifier("Agenda : un partenaire ne cree rien pour une autre entreprise",
+    creationAgendaAutrui !== null);
+
+  const signatureAutrui = await refuse(app, videaste,
+    `INSERT INTO signatures_profils(entreprise_id, utilisateur_id, trace_chiffree)
+     VALUES ($1,$2,decode(repeat('ab',80),'hex'))`, [jokswed, videaste]);
+  verifier("Signatures : un partenaire ne peut pas ecrire sous JoksWed",
+    signatureAutrui !== null);
+
+  const agendaPrive = await en(app, proprietaire,
+    `SELECT app.ajouter_evenement_agenda(
+       $1, NULL, 'Rendez-vous interne', NULL,
+       '2027-08-14 11:00'::timestamp, '2027-08-14 12:00'::timestamp, false) AS id`, [jokswed]);
+  const monAgenda = await en(app, proprietaire,
+    "SELECT count(*)::int AS n FROM app.mon_agenda($1) WHERE id=$2",
+    [jokswed, agendaPrive.rows[0].id]);
+  verifier("Agenda : le proprietaire retrouve son propre rendez-vous prive",
+    monAgenda.rows[0].n === 1);
 
   /* ═══════════ 2. SANS IDENTITÉ : REFUS TOTAL ═══════════ */
   await app.query("BEGIN");

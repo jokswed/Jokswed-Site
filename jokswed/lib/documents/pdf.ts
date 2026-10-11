@@ -228,6 +228,25 @@ export class Page {
     );
   }
 
+  /** Traits de signature manuscrite en coordonnées normalisées, sans SVG/HTML. */
+  tracerSignature(traces: number[][][], x: number, y: number, largeur: number, hauteur: number): void {
+    if (!Array.isArray(traces) || traces.length > 30) return;
+    for (const trait of traces) {
+      if (!Array.isArray(trait) || trait.length < 2 || trait.length > 100) continue;
+      const sommets: string[] = [];
+      for (const p of trait) {
+        if (!Array.isArray(p) || p.length !== 2 ||
+            !p.every((n) => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 1)) {
+          sommets.length = 0; break;
+        }
+        const px = (x + p[0] * largeur).toFixed(2);
+        const py = (HAUTEUR - y - p[1] * hauteur).toFixed(2);
+        sommets.push(`${px} ${py} ${sommets.length ? "l" : "m"}`);
+      }
+      if (sommets.length >= 2) this.flux.push(`q 0.08 0.075 0.07 RG 1.25 w 1 J 1 j ${sommets.join(" ")} S Q`);
+    }
+  }
+
   /** Retourne la hauteur consommée : l'appelant enchaîne sans recalculer. */
   paragraphe(
     x: number, yDepuisHaut: number, largeurMax: number, contenu: string,
