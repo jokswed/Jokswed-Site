@@ -113,6 +113,7 @@ export function accuseReception(donnees: {
   reference: string;
   dateMariage?: string | null;
   formule?: string | null;
+  lienSuivi?: string | null;
 }): Gabarit {
   const quand = donnees.dateMariage
     ? ` du <strong>${echapper(donnees.dateMariage)}</strong>`
@@ -144,6 +145,9 @@ export function accuseReception(donnees: {
         ),
         paragraphe("À très bientôt,<br>John — JoksWed"),
       ].join(""),
+      bouton: donnees.lienSuivi
+        ? { libelle: "Suivre ma demande", lien: donnees.lienSuivi }
+        : null,
       pied:
         "Vous recevez ce message parce que vous avez envoyé une demande sur jokswed.com. " +
         "Pour toute question, répondez simplement à cet e-mail.",
@@ -161,6 +165,9 @@ export function accuseReception(donnees: {
       "contrat et au versement de l'acompte.",
       "",
       `Référence de votre demande : ${donnees.reference}`,
+      donnees.lienSuivi ? "" : "",
+      donnees.lienSuivi ? "Suivre votre demande :" : "",
+      donnees.lienSuivi ?? "",
       "",
       "À très bientôt,",
       "John — JoksWed",
