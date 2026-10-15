@@ -11,7 +11,7 @@
     "verifier:sitemap": "node scripts/verifier-sitemap.mjs",
     "verifier:coherence": "node scripts/verifier-coherence.mjs",
     "banc": "node scripts/banc-v1.mjs",
-    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc && npm run test:secrets && npm run test:pdf && npm run test:securite && npm run test:amorcage && npm run test:v6 && npm run test:v7 && npm run test:admin && npm run test:neon",
+    "suite": "npm run verifier:sitemap && npm run verifier:coherence && npm run build && npm run banc && npm run test:secrets && npm run test:pdf && npm run test:securite && npm run test:amorcage && npm run test:v6 && npm run test:v7 && npm run test:admin  && npm run test:crm && npm run test:neon",
     "db:migrer": "tsx scripts/migrer.mjs",
     "db:semer": "tsx scripts/semer.mjs",
     "test:secrets": "tsx scripts/test-secrets.mts",
@@ -29,7 +29,12 @@
     "preparer:preview": "bash scripts/preparer-preview.sh",
     "neon:production": "tsx scripts/neon-production.mjs",
     "vercel:production": "tsx scripts/variables-production.mjs",
-    "verifier:neon-prod": "tsx scripts/verifier-neon-production.mjs"
+    "verifier:neon-prod": "tsx scripts/verifier-neon-production.mjs",
+    "test:crm": "tsx scripts/banc-crm.mjs",
+    "db:refaire": "tsx scripts/reinitialiser-dev.mjs",
+    "verifier:paliers-prod": "tsx scripts/verifier-paliers-production.mjs",
+    "db:migrer-prod": "tsx scripts/migrer-production.mjs",
+    "db:migrer-preview": "tsx scripts/migrer-production.mjs --preview"
   },
   "dependencies": {
     "next": "^16.4.0",

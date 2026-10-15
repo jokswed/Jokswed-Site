@@ -299,6 +299,35 @@ export const supplements: readonly Supplement[] = [
     ordre: 8,
     visible: true,
   },
+  {
+    cle: "photobooth-360",
+    nom: "Photobooth 360",
+    description:
+      "Une plateforme rotative qui filme vos invités à 360°, avec partage immédiat "
+      + "des vidéos. Installée et animée pendant la soirée.",
+    /* ⚠️ `sur_devis`, ET `prixCents: null` — AUCUN TARIF NE M'A ÉTÉ DONNÉ.
+       Inventer un prix ici le ferait apparaître sur le site, dans l'instantané
+       de la demande, puis sur un devis : une promesse chiffrée que personne
+       n'a jamais faite. La prestation est donc proposable et comptée « sur
+       devis » tant qu'un montant n'est pas saisi sur la fiche du dossier.
+       Le catalogue gère déjà ce cas — `tirages-exposition` fonctionne ainsi. */
+    typeTarif: "sur_devis",
+    prixCents: null,
+    unite: null,
+    /* ⚠️ PAS D'EXÉCUTANT PARTENAIRE DÉCLARÉ ICI.
+       Ce champ déclenche la proposition AUTOMATIQUE au dépôt (voir
+       `deposerDemande`) : un simple prospect serait transmis au prestataire
+       photobooth avant toute confirmation. L'affectation se fait depuis la
+       fiche, une fois le dossier confirmé. */
+    executantPartenaire: null,
+    compatibilites: {
+      "formule-1": "proposable",
+      "formule-2": "proposable",
+      "formule-3": "proposable",
+    },
+    ordre: 9,
+    visible: true,
+  },
 ];
 
 /* ──────────────────────── LE VIDÉASTE PARTENAIRE ────────────────────────────

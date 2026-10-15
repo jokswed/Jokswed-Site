@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
@@ -16,8 +16,39 @@ export const dynamic = "force-dynamic";
 
 const STATUTS = [
   "non_lue", "a_traiter", "attente_client", "attente_collaborateur",
-  "en_cours_devis", "devis_envoye", "confirmee", "refusee", "archivee",
+  "en_cours_devis", "devis_envoye", "confirmee", "refusee", "annulee",
+  "close", "archivee",
 ];
+
+/* Les catégories de fichiers, telles que la contrainte de la table les
+   accepte : une valeur absente d'ici serait refusée EN BASE, pas ici. */
+const CATEGORIES_FICHIER = [
+  ["planning", "Planning"],
+  ["inspirations", "Inspirations"],
+  ["contrat", "Contrat"],
+  ["devis", "Devis"],
+  ["paiement", "Paiement"],
+  ["photos", "Photos"],
+  ["autre", "Autre"],
+];
+
+/* ⚠️ LISTE BLANCHE, ET LA MÊME QUE CELLE DE LA TABLE.
+   Le contrôle en base est celui qui compte ; celui-ci sert à refuser tôt et
+   à expliquer. Ni HTML ni SVG : servis depuis notre domaine, ils y
+   exécuteraient leur script. */
+const MIMES_FICHIER = new Set([
+  "application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic",
+]);
+const TAILLE_MAX = 8 * 1024 * 1024;
+
+/* Les montants arrivent en euros depuis un champ texte : on arrondit APRÈS
+   multiplication, et on ne garde que des centimes entiers. */
+function centimes(brut) {
+  const net = String(brut ?? "").replace(/\s/g, "").replace(",", ".").trim();
+  if (!net) return null;
+  const cents = Math.round(Number.parseFloat(net) * 100);
+  return Number.isFinite(cents) && cents >= 0 ? cents : null;
+}
 
 export default async function FicheDemande({ params }) {
   const { id } = await params;
@@ -93,6 +124,28 @@ export default async function FicheDemande({ params }) {
       ? await q("SELECT * FROM app.propositions_en_attente($1)", [entreprise.id])
       : { rows: [] };
 
+    /* L'échéancier du dossier, avec l'état DÉDUIT des paiements rattachés :
+       « à recevoir », « déclaré », « reçu ». Aucune colonne d'état en double. */
+    const echeancier = await q("SELECT * FROM app.echeancier_demande($1)", [id]);
+    const planning = await q(
+      `SELECT id, ordre, heure, titre, lieu, notes
+         FROM etapes_planning WHERE demande_id = $1 ORDER BY ordre`, [id]);
+    /* ⚠️ SANS `contenu` : un octet de plus que nécessaire traverserait le
+       réseau à chaque affichage de la fiche. Le contenu ne sort que par la
+       route de téléchargement. */
+    const fichiers = await q(
+      `SELECT id, nom, categorie, type_mime, taille_octets, partage, cree_le
+         FROM fichiers_dossier WHERE demande_id = $1
+        ORDER BY cree_le DESC`, [id]);
+    /* Les collaborateurs affectés au dossier, s'il existe. */
+    const affectes = rows[0].dossier_id
+      ? await q(
+          `SELECT a.id, a.mission, u.prenom, u.nom
+             FROM affectations a JOIN utilisateurs u ON u.id = a.utilisateur_id
+            WHERE a.dossier_id = $1 AND a.retiree_le IS NULL
+            ORDER BY u.nom`, [rows[0].dossier_id])
+      : { rows: [] };
+
     /* Première ouverture : on marque la demande lue et on la sort de « non
        lue ». C'est une lecture qui change l'état, donc on la trace. */
     if (!rows[0].lue_le) {
@@ -117,58 +170,234 @@ export default async function FicheDemande({ params }) {
       partenaires: partenaires.rows,
       propositions: propositions.rows,
       enAttente: enAttente.rows.filter((p) => p.demande_id === id),
+      echeancier: echeancier.rows,
+      planning: planning.rows,
+      fichiers: fichiers.rows,
+      affectes: affectes.rows,
     };
   });
 
   if (!vue) notFound();
   const { demande, lignes, consentements, notes, proposition, documents,
           motifsBlocage, motifsContrat, situation, paiements, partenaires,
-          propositions, enAttente } = vue;
+          propositions, enAttente, echeancier, planning, fichiers,
+          affectes } = vue;
   const devisEmis = documents.find((d) => d.type === "devis" && d.statut !== "brouillon");
   const devisDisponible = devisEmis ?? documents.find((d) => d.type === "devis");
   const peutEcrire = acces.permissions.has("dossier.ecrire");
 
+  /* ⚠️ PAR LA FONCTION MÉTIER, PAS PAR UN `UPDATE` LIBRE.
+     Un `UPDATE demandes SET statut = 'confirmee'` écrivait l'état sans créer
+     le mariage ni le dossier : le carnet annonçait une date que rien ne
+     portait — ni planning, ni affectation, ni flux de calendrier.
+     `app.definir_statut_demande` renvoie « confirmee » vers
+     `app.confirmer_demande`, qui crée l'objet ou refuse faute de date. Une
+     seule transition, et elle est cohérente. */
   async function changerStatut(formulaire) {
     "use server";
-    const { session: s, entreprise: e } = await contexteAdmin();
+    const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["dossier.ecrire"]);
     const nouveau = String(formulaire.get("statut") ?? "");
     if (!STATUTS.includes(nouveau)) return;
+    await a.executer((q) =>
+      q("SELECT app.definir_statut_demande($1,$2)", [id, nouveau]));
+    revalidatePath(`/admin/demandes/${id}`);
+    revalidatePath("/admin");
+  }
+
+  /* ⚠️ UNE MODIFICATION SE RÉPERCUTE PARTOUT, OU ELLE N'A PAS LIEU.
+     `app.maj_demande` écrit la demande ET le mariage dans la même
+     transaction : le tableau de bord, la saison, le flux Apple et l'espace
+     d'un collaborateur lisent donc tous la nouvelle date. Il n'existe pas de
+     copie à resynchroniser plus tard.
+
+     ⚠️ ET `instantane` N'EST JAMAIS TOUCHÉ.
+     Il garde ce que le client a réellement soumis — c'est la preuve de ce
+     qu'il a vu et demandé, pas un brouillon de travail. */
+  async function modifier(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+
+    const texte = (nom) => String(formulaire.get(nom) ?? "").trim();
+    const prix = centimes(formulaire.get("prix_total"));
+    const nombre = Number.parseInt(String(formulaire.get("echeances") ?? ""), 10);
+
+    /* Seules les clés PRÉSENTES sont modifiées : la fonction distingue une
+       clé absente (on ne touche pas) d'une clé vide (on efface). */
+    const champs = {
+      contact_nom: texte("nom_1"),
+      contact_nom_2: texte("nom_2"),
+      contact_email: texte("email"),
+      contact_telephone: texte("telephone"),
+      contact_adresse: texte("adresse"),
+      date_mariage: texte("date_mariage"),
+      heure_debut: texte("heure_debut"),
+      heure_fin: texte("heure_fin"),
+      lieu_mairie: texte("mairie"),
+      lieu_ceremonie: texte("ceremonie"),
+      lieu_reception: texte("domaine"),
+      lieu: texte("lieu"),
+      ville: texte("ville"),
+      departement: texte("departement"),
+      invites_estimes: texte("invites"),
+      horaires: texte("horaires"),
+      formule_nom: texte("formule_nom"),
+      photobooth_360: formulaire.get("photobooth") === "1",
+      photobooth_prix_cents: (() => {
+        const c = centimes(formulaire.get("photobooth_prix"));
+        return c === null ? "" : String(c);
+      })(),
+      complements: texte("complements"),
+    };
+    /* Le prix et l'échéancier ne passent QUE s'ils sont fournis : une fiche
+       enregistrée avec le champ vide ne doit pas effacer un prix convenu. */
+    if (prix !== null) champs.prix_total_cents = String(prix);
+    if ([1, 2, 3].includes(nombre)) champs.nombre_echeances = String(nombre);
+
+    await a.executer((q) =>
+      q("SELECT app.maj_demande($1,$2::jsonb)", [id, JSON.stringify(champs)]));
+    revalidatePath(`/admin/demandes/${id}`);
+    revalidatePath("/admin");
+    revalidatePath("/admin/saison");
+  }
+
+  /* ── L'échéancier : 1×, 2× ou 3× ──
+     ⚠️ LE PARTAGE SE FAIT EN CENTIMES ENTIERS, EN BASE.
+     1300 € en 3× donne 433,33 / 433,33 / 433,34 — le centime restant va sur
+     la dernière échéance, sinon la somme des trois est inférieure d'un
+     centime au total et le dossier ne se solde jamais. Aucun flottant. */
+  async function definirEcheancier(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    const total = centimes(formulaire.get("total"));
+    const nombre = Number.parseInt(String(formulaire.get("nombre") ?? "1"), 10);
+    if (total === null || ![1, 2, 3].includes(nombre)) return;
+    await a.executer((q) =>
+      q("SELECT app.definir_echeancier($1,$2,$3)", [id, total, nombre]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Le planning de la journée ── */
+  async function enregistrerEtape(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["planning.ecrire"]);
+    const titre = String(formulaire.get("titre") ?? "").trim();
+    if (!titre) return;
+    const etape = String(formulaire.get("etape") ?? "");
+    const ordre = Number.parseInt(String(formulaire.get("ordre") ?? ""), 10);
+    const valeurs = [
+      String(formulaire.get("heure") ?? "") || null,
+      titre.slice(0, 200),
+      String(formulaire.get("lieu") ?? "").trim() || null,
+      String(formulaire.get("notes") ?? "").trim() || null,
+    ];
     await a.executer(async (q) => {
-      const { rows } = await q(
-        "UPDATE demandes SET statut = $1 WHERE id = $2 RETURNING statut", [nouveau, id]);
-      if (rows[0]) {
-        await tracer(q, s.utilisateurId, e.id, "demande.statut", "demande", id,
-          { statut: demande.statut }, { statut: nouveau });
+      if (etape) {
+        await q(
+          `UPDATE etapes_planning SET heure = $1, titre = $2, lieu = $3, notes = $4
+            WHERE id = $5 AND demande_id = $6`, [...valeurs, etape, id]);
+
+        /* ⚠️ LE RANG SE CHANGE PAR UNE FONCTION, PAS PAR UN `UPDATE`.
+           `etape_ordre_unique` refuse deux étapes au même rang : écrire « 2 »
+           là où une autre se trouve déjà levait une violation de contrainte,
+           donc une 500. `app.reordonner_etape` échange les deux rangs dans
+           une seule transaction, en passant par une valeur temporaire. */
+        if (Number.isFinite(ordre) && ordre > 0) {
+          await q("SELECT app.reordonner_etape($1,$2)", [etape, ordre]);
+        }
+        return;
       }
+      /* Le rang suivant, calculé en base : deux ajouts simultanés ne se
+         retrouvent pas au même ordre — la contrainte d'unicité le refuserait. */
+      await q(
+        `INSERT INTO etapes_planning (demande_id, entreprise_id, ordre, heure,
+                                      titre, lieu, notes)
+         SELECT $1, $2,
+                coalesce((SELECT max(ordre) FROM etapes_planning WHERE demande_id = $1), 0) + 1,
+                $3, $4, $5, $6`,
+        [id, e.id, ...valeurs]);
     });
     revalidatePath(`/admin/demandes/${id}`);
   }
 
-  async function completer(formulaire) {
+  async function supprimerEtape(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["planning.ecrire"]);
+    await a.executer((q) => q(
+      "DELETE FROM etapes_planning WHERE id = $1 AND demande_id = $2",
+      [String(formulaire.get("etape")), id]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Les fichiers du dossier ──
+     ⚠️ TROIS CONTRÔLES, ET LE DERNIER EST EN BASE.
+     Type MIME en liste blanche, taille bornée, nom assaini. La contrainte de
+     la table refuse de toute façon un type absent de la liste : ce qui est
+     écrit ici explique, ce qui est écrit là-bas protège. */
+  async function deposerFichier(formulaire) {
     "use server";
     const { session: s, entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["dossier.ecrire"]);
-    const champs = {
-      contact_telephone: String(formulaire.get("telephone") ?? "") || null,
-      ville: String(formulaire.get("ville") ?? "") || null,
-      departement: String(formulaire.get("departement") ?? "") || null,
-      lieu: String(formulaire.get("lieu") ?? "") || null,
-      horaires: String(formulaire.get("horaires") ?? "") || null,
-      invites_estimes: Number.parseInt(String(formulaire.get("invites") ?? ""), 10) || null,
-      complements: String(formulaire.get("complements") ?? "") || null,
-    };
-    await a.executer(async (q) => {
-      await q(
-        `UPDATE demandes SET contact_telephone = $1, ville = $2, departement = $3,
-                lieu = $4, horaires = $5, invites_estimes = $6, complements = $7
-          WHERE id = $8`,
-        [...Object.values(champs), id]);
-      /* ⚠️ `instantane` N'EST PAS TOUCHÉ : il garde ce que le client a
-         réellement soumis. Ces champs-ci sont des compléments de l'équipe. */
-      await tracer(q, s.utilisateurId, e.id, "demande.completee", "demande", id, null, champs);
-    });
+    const fichier = formulaire.get("fichier");
+    if (!fichier || typeof fichier === "string" || fichier.size === 0) return;
+    if (!MIMES_FICHIER.has(fichier.type) || fichier.size > TAILLE_MAX) return;
+    const categorie = String(formulaire.get("categorie") ?? "autre");
+    if (!CATEGORIES_FICHIER.some(([c]) => c === categorie)) return;
+
+    /* Le nom d'origine est une chaîne venue du poste du client : on ne garde
+       que ce qui ne peut pas tromper un en-tête ou un chemin. */
+    const nom = (fichier.name || "fichier")
+      .replace(/[^\w.\- ]+/g, "_").slice(0, 120);
+    const octets = Buffer.from(await fichier.arrayBuffer());
+
+    await a.executer((q) => q(
+      `INSERT INTO fichiers_dossier (demande_id, entreprise_id, categorie, nom,
+                                     type_mime, taille_octets, contenu,
+                                     partage, depose_par)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, e.id, categorie, nom, fichier.type, octets.length, octets,
+       formulaire.get("partage") === "1", s.utilisateurId]));
     revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function basculerPartageFichier(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    await a.executer((q) => q(
+      "UPDATE fichiers_dossier SET partage = $1 WHERE id = $2 AND demande_id = $3",
+      [formulaire.get("partage") === "1", String(formulaire.get("fichier")), id]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  async function supprimerFichier(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    await a.executer((q) => q(
+      "DELETE FROM fichiers_dossier WHERE id = $1 AND demande_id = $2",
+      [String(formulaire.get("fichier")), id]));
+    revalidatePath(`/admin/demandes/${id}`);
+  }
+
+  /* ── Suppression définitive ──
+     ⚠️ ELLE EXIGE DE RECOPIER LA RÉFÉRENCE.
+     Un bouton seul se clique par accident. Et la fonction en base refuse de
+     toute façon dès qu'il existe un encaissement confirmé ou un document
+     émis : une recette et un numéro de facture ne se suppriment pas. */
+  async function supprimerDossier(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["dossier.ecrire"]);
+    if (String(formulaire.get("confirmation") ?? "").trim() !== demande.reference) return;
+    await a.executer((q) => q("SELECT app.supprimer_demande($1)", [id]));
+    revalidatePath("/admin/demandes");
+    revalidatePath("/admin");
+    redirect("/admin/demandes");
   }
 
   async function ajouterNote(formulaire) {
@@ -213,25 +442,45 @@ export default async function FicheDemande({ params }) {
     const motif = String(formulaire.get("motif") ?? "").trim() || null;
     if (type === "remboursement" && !motif) return;
 
-    await a.executer((q) => q(
-      "SELECT app.enregistrer_paiement($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-      [id, cents, String(formulaire.get("moyen") ?? "virement"), type,
-       String(formulaire.get("reference") ?? "").trim() || null,
-       String(formulaire.get("recu_le") ?? "") || null,
-       /* Clé d'idempotence : un double-clic ne crée pas deux versements. */
-       `saisie:${id}:${cents}:${String(formulaire.get("recu_le") ?? "")}:${type}`,
-       motif,
-       String(formulaire.get("corrige") ?? "") || null]));
+    /* ⚠️ DEUX FONCTIONS, SELON QU'ON RATTACHE OU NON UNE ÉCHÉANCE.
+       `enregistrer_paiement` à neuf paramètres gère les régularisations et
+       les remboursements ; `enregistrer_paiement_echeance` rattache un
+       versement à SON échéance et vérifie qu'elle appartient bien à cette
+       demande. Un nom distinct plutôt qu'une surcharge : avec deux fonctions
+       de même nom, un paramètre nul non typé rend l'appel ambigu. */
+    const echeance = String(formulaire.get("echeance") ?? "") || null;
+    const cle = `saisie:${id}:${cents}:${String(formulaire.get("recu_le") ?? "")}:${type}`;
+    await a.executer((q) => (echeance && type !== "remboursement"
+      ? q("SELECT app.enregistrer_paiement_echeance($1,$2,$3,$4,$5,$6,$7,$8)",
+          [id, echeance, cents, String(formulaire.get("moyen") ?? "virement"), type,
+           String(formulaire.get("reference") ?? "").trim() || null,
+           String(formulaire.get("recu_le") ?? "") || null, cle])
+      : q("SELECT app.enregistrer_paiement($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+          [id, cents, String(formulaire.get("moyen") ?? "virement"), type,
+           String(formulaire.get("reference") ?? "").trim() || null,
+           String(formulaire.get("recu_le") ?? "") || null,
+           /* Clé d'idempotence : un double-clic ne crée pas deux versements. */
+           cle, motif,
+           String(formulaire.get("corrige") ?? "") || null])));
     revalidatePath(`/admin/demandes/${id}`);
   }
 
+  /* ⚠️ C'EST L'ARGENT REÇU QUI RÉSERVE LA DATE.
+     Confirmer un acompte ouvre le mariage et le dossier dans LA MÊME
+     transaction : on n'a plus à cliquer « confirmer la demande » ensuite, et
+     il ne peut plus exister un acompte encaissé sur un dossier qui n'est pas
+     au carnet. Sans date de mariage, le paiement est quand même confirmé —
+     l'argent est arrivé, c'est un fait — et la fonction dit ce qui manque. */
   async function confirmerPaiement(formulaire) {
     "use server";
     const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["finance.confirmer_paiement"]);
     await a.executer((q) =>
-      q("SELECT app.confirmer_paiement($1)", [String(formulaire.get("paiement"))]));
+      q("SELECT * FROM app.confirmer_paiement_et_dossier($1)",
+        [String(formulaire.get("paiement"))]));
     revalidatePath(`/admin/demandes/${id}`);
+    revalidatePath("/admin");
+    revalidatePath("/admin/saison");
   }
 
   async function annulerPaiement(formulaire) {
@@ -361,14 +610,18 @@ export default async function FicheDemande({ params }) {
           <section className="admin-bloc">
             <h2 className="display t-carte">Le couple</h2>
             <dl className="admin-dl">
-              <dt>Nom</dt><dd>{demande.contact_nom}</dd>
+              <dt>Personne 1</dt><dd>{demande.contact_nom}</dd>
+              <dt>Personne 2</dt><dd>{demande.contact_nom_2 ?? "—"}</dd>
               <dt>E-mail</dt>
-              <dd><a className="lien" href={`mailto:${demande.contact_email}`}>{demande.contact_email}</a></dd>
+              <dd>{String(demande.contact_email).endsWith("@jokswed.invalid")
+                ? <span className="recap__note">adresse à renseigner</span>
+                : <a className="lien" href={`mailto:${demande.contact_email}`}>{demande.contact_email}</a>}</dd>
               <dt>Téléphone</dt>
               <dd>{demande.contact_telephone
                 ? <a className="lien" href={`tel:${demande.contact_telephone.replace(/\s/g, "")}`}>{demande.contact_telephone}</a>
                 : "—"}</dd>
               <dt>Contact préféré</dt><dd>{demande.contact_prefere ?? "—"}</dd>
+              <dt>Adresse</dt><dd>{demande.contact_adresse ?? "—"}</dd>
             </dl>
           </section>
 
@@ -378,12 +631,40 @@ export default async function FicheDemande({ params }) {
               <dt>Date</dt>
               <dd>{demande.date_incertaine && !demande.date_mariage
                 ? "À définir" : formaterDateSql(demande.date_mariage)}</dd>
-              <dt>Lieu</dt><dd>{demande.lieu ?? "—"}</dd>
+              <dt>Horaires</dt>
+              <dd>{demande.heure_debut || demande.heure_fin
+                ? `${String(demande.heure_debut ?? "?").slice(0, 5)} → ${String(demande.heure_fin ?? "?").slice(0, 5)}`
+                : demande.horaires ?? "—"}</dd>
+              <dt>Mairie</dt><dd>{demande.lieu_mairie ?? "—"}</dd>
+              <dt>Cérémonie</dt><dd>{demande.lieu_ceremonie ?? "—"}</dd>
+              <dt>Domaine / salle</dt><dd>{demande.lieu_reception ?? "—"}</dd>
+              <dt>Lieu (texte libre)</dt><dd>{demande.lieu ?? "—"}</dd>
               <dt>Ville</dt><dd>{demande.ville ?? "—"}</dd>
               <dt>Département</dt><dd>{demande.departement ?? "—"}</dd>
               <dt>Invités</dt><dd>{demande.invites_estimes ?? "—"}</dd>
-              <dt>Horaires</dt><dd>{demande.horaires ?? "—"}</dd>
+              <dt>Source</dt>
+              <dd>{demande.origine === "manuel" ? "Saisie manuelle" : "Formulaire du site"}</dd>
+              <dt>Photobooth 360</dt>
+              <dd>{demande.photobooth_360
+                ? (demande.photobooth_prix_cents === null
+                    ? "Oui — sur devis"
+                    : `Oui — ${formaterPrix(demande.photobooth_prix_cents)} TTC`)
+                : "Non"}</dd>
             </dl>
+
+            {/* ⚠️ UNE OPTION VENDUE SANS PERSONNE POUR L'EXÉCUTER EST UN
+                OUBLI QUI SE VOIT LE JOUR DU MARIAGE. On le dit ici, pas le
+                matin même. La transmission reste manuelle et n'a lieu
+                qu'après confirmation du dossier. */}
+            {demande.photobooth_360
+              && !propositions.some((pr) => pr.statut === "acceptee") ? (
+              <p className="admin-alerte" style={{ marginTop: "0.9rem" }}>
+                Photobooth sélectionné — collaborateur à assigner.
+                {!demande.mariage_id
+                  ? " Le dossier doit d'abord être confirmé."
+                  : null}
+              </p>
+            ) : null}
           </section>
 
           <section className="admin-bloc">
@@ -422,17 +703,51 @@ export default async function FicheDemande({ params }) {
 
           {peutEcrire ? (
             <section className="admin-bloc">
-              <h2 className="display t-carte">Compléter le dossier</h2>
+              <h2 className="display t-carte">Modifier le dossier</h2>
               <p className="recap__note">
-                Ce que vous apprenez au téléphone se note ici. Les informations
-                soumises par le client restent conservées à part, intactes.
+                Tout se modifie ici — noms, date, horaires, lieux, prix,
+                échéancier. La date écrite ici est celle que verront le tableau
+                de bord, la saison, Apple Calendar et vos collaborateurs : il
+                n&apos;existe pas de copie à resynchroniser. Ce que le client a
+                soumis reste conservé à part, intact.
               </p>
-              <form action={completer} className="formulaire" style={{ marginTop: "1rem" }}>
+              <form action={modifier} className="formulaire" style={{ marginTop: "1rem" }}>
                 <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="nom_1">Personne 1</label>
+                    <input id="nom_1" name="nom_1" type="text"
+                           defaultValue={demande.contact_nom ?? ""} />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="nom_2">Personne 2</label>
+                    <input id="nom_2" name="nom_2" type="text"
+                           defaultValue={demande.contact_nom_2 ?? ""} />
+                  </div>
+                </div>
+                <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="email">E-mail</label>
+                    <input id="email" name="email" type="email"
+                           defaultValue={String(demande.contact_email).endsWith("@jokswed.invalid")
+                             ? "" : demande.contact_email} />
+                  </div>
                   <div className="champ">
                     <label htmlFor="telephone">Téléphone</label>
                     <input id="telephone" name="telephone" type="tel"
                            defaultValue={demande.contact_telephone ?? ""} />
+                  </div>
+                </div>
+                <div className="champ">
+                  <label htmlFor="adresse">Adresse</label>
+                  <input id="adresse" name="adresse" type="text"
+                         defaultValue={demande.contact_adresse ?? ""} />
+                </div>
+
+                <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="date_mariage">Date du mariage</label>
+                    <input id="date_mariage" name="date_mariage" type="date"
+                           defaultValue={demande.date_mariage ?? ""} />
                   </div>
                   <div className="champ">
                     <label htmlFor="invites">Nombre d&apos;invités</label>
@@ -442,8 +757,41 @@ export default async function FicheDemande({ params }) {
                 </div>
                 <div className="formulaire__deux">
                   <div className="champ">
+                    <label htmlFor="heure_debut">Heure de début</label>
+                    <input id="heure_debut" name="heure_debut" type="time"
+                           defaultValue={String(demande.heure_debut ?? "").slice(0, 5)} />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="heure_fin">Heure de fin</label>
+                    <input id="heure_fin" name="heure_fin" type="time"
+                           defaultValue={String(demande.heure_fin ?? "").slice(0, 5)} />
+                  </div>
+                </div>
+                <div className="champ">
+                  <label htmlFor="mairie">Mairie — adresse</label>
+                  <input id="mairie" name="mairie" type="text"
+                         defaultValue={demande.lieu_mairie ?? ""} />
+                </div>
+                <div className="champ">
+                  <label htmlFor="ceremonie">Cérémonie / église — adresse</label>
+                  <input id="ceremonie" name="ceremonie" type="text"
+                         defaultValue={demande.lieu_ceremonie ?? ""} />
+                </div>
+                <div className="champ">
+                  <label htmlFor="domaine">Domaine / salle — adresse</label>
+                  <input id="domaine" name="domaine" type="text"
+                         defaultValue={demande.lieu_reception ?? ""} />
+                </div>
+                <div className="champ">
+                  <label htmlFor="lieu">Lieu (texte libre)</label>
+                  <input id="lieu" name="lieu" type="text"
+                         defaultValue={demande.lieu ?? ""} />
+                </div>
+                <div className="formulaire__deux">
+                  <div className="champ">
                     <label htmlFor="ville">Ville</label>
-                    <input id="ville" name="ville" type="text" defaultValue={demande.ville ?? ""} />
+                    <input id="ville" name="ville" type="text"
+                           defaultValue={demande.ville ?? ""} />
                   </div>
                   <div className="champ">
                     <label htmlFor="departement">Département</label>
@@ -452,23 +800,243 @@ export default async function FicheDemande({ params }) {
                   </div>
                 </div>
                 <div className="champ">
-                  <label htmlFor="lieu">Lieux</label>
-                  <input id="lieu" name="lieu" type="text" defaultValue={demande.lieu ?? ""} />
-                </div>
-                <div className="champ">
-                  <label htmlFor="horaires">Horaires connus</label>
+                  <label htmlFor="horaires">Horaires connus (texte libre)</label>
                   <input id="horaires" name="horaires" type="text"
                          defaultValue={demande.horaires ?? ""} />
                 </div>
+
+                <div className="formulaire__deux">
+                  <div className="champ">
+                    <label htmlFor="formule_nom">Formule / libellé du tarif</label>
+                    <input id="formule_nom" name="formule_nom" type="text"
+                           defaultValue={demande.formule_nom ?? ""} />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="prix_total">Prix total convenu (€ TTC)</label>
+                    <input id="prix_total" name="prix_total" type="text"
+                           inputMode="decimal"
+                           defaultValue={demande.prix_total_cents === null ? ""
+                             : (demande.prix_total_cents / 100).toFixed(2).replace(".", ",")} />
+                  </div>
+                </div>
+                <div className="champ">
+                  <label htmlFor="echeances-modif">Échéancier</label>
+                  <select id="echeances-modif" name="echeances"
+                          defaultValue={String(demande.nombre_echeances ?? 1)}>
+                    <option value="1">Paiement unique</option>
+                    <option value="2">2 fois</option>
+                    <option value="3">3 fois</option>
+                  </select>
+                </div>
+
+                <fieldset className="champ">
+                  <legend>Photobooth 360</legend>
+                  <label className="admin-case">
+                    <input type="checkbox" name="photobooth" value="1"
+                           defaultChecked={demande.photobooth_360} />
+                    Photobooth 360 retenu
+                  </label>
+                  <label htmlFor="photobooth_prix">Prix convenu (€ TTC)</label>
+                  <input id="photobooth_prix" name="photobooth_prix" type="text"
+                         inputMode="decimal"
+                         defaultValue={demande.photobooth_prix_cents === null ? ""
+                           : (demande.photobooth_prix_cents / 100).toFixed(2).replace(".", ",")} />
+                  {/* ⚠️ VIDE = « SUR DEVIS », PAS « GRATUIT ».
+                      Aucun tarif Photobooth n'a été arrêté : rien n'est
+                      pré-rempli, et l'affichage dit « sur devis » tant que ce
+                      champ reste vide. */}
+                  <p className="recap__note">
+                    Laissé vide, le Photobooth reste affiché « sur devis ».
+                  </p>
+                </fieldset>
+
                 <div className="champ">
                   <label htmlFor="complements">Informations complémentaires</label>
-                  <textarea id="complements" name="complements"
+                  <textarea id="complements" name="complements" rows={3}
                             defaultValue={demande.complements ?? ""} />
                 </div>
+
+                {/* ⚠️ « ENREGISTRER » N'ENVOIE RIEN AU CLIENT.
+                    Écrire au couple est un geste distinct, en haut de page. */}
                 <button type="submit" className="btn">Enregistrer</button>
+                <p className="recap__note">
+                  Enregistrer ne prévient personne. Pour écrire au couple,
+                  utilisez « Répondre au client ».
+                </p>
               </form>
             </section>
           ) : null}
+
+          {/* ═══ PLANNING ═══ */}
+          <section className="admin-bloc">
+            <h2 className="display t-carte">Planning</h2>
+            {planning.length === 0 ? (
+              <p className="recap__note">Aucune étape. Préparatifs, mairie, cocktail…</p>
+            ) : (
+              <ul className="admin-liste">
+                {planning.map((e) => (
+                  <li key={e.id} style={{ flexWrap: "wrap" }}>
+                    {acces.permissions.has("planning.ecrire") ? (
+                      /* ⚠️ MODIFIER SUR PLACE, SANS SECOND ÉCRAN.
+                         Une étape se corrige au téléphone, en même temps qu'on
+                         parle au couple. Le rang se saisit : c'est le
+                         réordonnancement, avec les champs que la page a déjà,
+                         plutôt qu'un glisser-déposer à écrire et à maintenir. */
+                      <form action={enregistrerEtape} className="admin-ligne-actions"
+                        style={{ flexBasis: "100%", flexWrap: "wrap" }}>
+                        <input type="hidden" name="etape" value={e.id} />
+                        <input type="number" name="ordre" min="1" defaultValue={e.ordre}
+                          aria-label={`Rang de l'étape ${e.titre}`} style={{ width: "4.5rem" }} />
+                        <input type="time" name="heure"
+                          defaultValue={String(e.heure ?? "").slice(0, 5)}
+                          aria-label={`Heure de l'étape ${e.titre}`} />
+                        <input type="text" name="titre" defaultValue={e.titre} required
+                          aria-label="Intitulé de l'étape" style={{ flex: "1 1 9rem" }} />
+                        <input type="text" name="lieu" defaultValue={e.lieu ?? ""}
+                          aria-label="Lieu de l'étape" style={{ flex: "1 1 9rem" }} />
+                        <input type="text" name="notes" defaultValue={e.notes ?? ""}
+                          aria-label="Notes de l'étape" style={{ flex: "1 1 9rem" }} />
+                        <button type="submit" className="btn btn--fantome btn--petit">
+                          Enregistrer
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <strong>{e.heure ? String(e.heure).slice(0, 5) : "—"}</strong>
+                        <span>{e.titre}</span>
+                        {e.lieu ? <span>{e.lieu}</span> : null}
+                        {e.notes ? (
+                          <span style={{ flexBasis: "100%", color: "var(--encre-douce)" }}>
+                            {e.notes}
+                          </span>
+                        ) : null}
+                      </>
+                    )}
+                    {acces.permissions.has("planning.ecrire") ? (
+                      <form action={supprimerEtape} style={{ marginLeft: "auto" }}>
+                        <input type="hidden" name="etape" value={e.id} />
+                        <button type="submit" className="btn btn--fantome btn--petit">
+                          Retirer
+                        </button>
+                      </form>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {acces.permissions.has("planning.ecrire") ? (
+              <form action={enregistrerEtape} className="formulaire"
+                style={{ marginTop: "1rem" }}>
+                <div className="admin-grille-champs">
+                  <div className="champ">
+                    <label htmlFor="etape-heure">Heure</label>
+                    <input id="etape-heure" name="heure" type="time" />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="etape-titre">Étape</label>
+                    <input id="etape-titre" name="titre" type="text"
+                           placeholder="Préparatifs" required />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="etape-lieu">Lieu / adresse</label>
+                    <input id="etape-lieu" name="lieu" type="text" />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="etape-ordre">Rang</label>
+                    <input id="etape-ordre" name="ordre" type="number" min="1"
+                           placeholder="auto" />
+                  </div>
+                  <div className="champ pleine">
+                    <label htmlFor="etape-notes">Notes</label>
+                    <input id="etape-notes" name="notes" type="text" />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn--fantome">
+                  Ajouter l&apos;étape
+                </button>
+                <p className="recap__note">
+                  Le planning est ce qu&apos;un collaborateur affecté peut voir,
+                  si vous le lui avez partagé. Jamais les montants.
+                </p>
+              </form>
+            ) : null}
+          </section>
+
+          {/* ═══ FICHIERS ═══ */}
+          <section className="admin-bloc">
+            <h2 className="display t-carte">Fichiers / Documents</h2>
+            {fichiers.length === 0 ? (
+              <p className="recap__note">Aucun fichier déposé.</p>
+            ) : (
+              <ul className="admin-liste">
+                {fichiers.map((f) => (
+                  <li key={f.id} style={{ flexWrap: "wrap" }}>
+                    <strong>
+                      <a className="lien" href={`/api/admin/fichiers/${f.id}`}>{f.nom}</a>
+                    </strong>
+                    <span className="admin-jeton">
+                      {CATEGORIES_FICHIER.find(([c]) => c === f.categorie)?.[1]
+                        ?? f.categorie}
+                    </span>
+                    <span>{f.type_mime}</span>
+                    <span>{Math.max(1, Math.round(f.taille_octets / 1024))} Ko</span>
+                    <span>{new Date(f.cree_le).toLocaleDateString("fr-FR")}</span>
+                    <span className={`admin-pastille${f.partage ? " admin-pastille--emis" : ""}`}>
+                      {f.partage ? "partagé" : "privé"}
+                    </span>
+                    {peutEcrire ? (
+                      <>
+                        <form action={basculerPartageFichier}>
+                          <input type="hidden" name="fichier" value={f.id} />
+                          <input type="hidden" name="partage" value={f.partage ? "0" : "1"} />
+                          <button type="submit" className="btn btn--fantome btn--petit">
+                            {f.partage ? "Ne plus partager" : "Partager"}
+                          </button>
+                        </form>
+                        <form action={supprimerFichier}>
+                          <input type="hidden" name="fichier" value={f.id} />
+                          <button type="submit" className="btn btn--fantome btn--petit">
+                            Supprimer
+                          </button>
+                        </form>
+                      </>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {peutEcrire ? (
+              <form action={deposerFichier} className="formulaire"
+                style={{ marginTop: "1rem" }}>
+                <div className="admin-grille-champs">
+                  <div className="champ">
+                    <label htmlFor="fichier">Fichier</label>
+                    <input id="fichier" name="fichier" type="file" required
+                           accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" />
+                  </div>
+                  <div className="champ">
+                    <label htmlFor="categorie">Catégorie</label>
+                    <select id="categorie" name="categorie" defaultValue="autre">
+                      {CATEGORIES_FICHIER.map(([c, libelle]) => (
+                        <option key={c} value={c}>{libelle}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <label className="admin-case">
+                  <input type="checkbox" name="partage" value="1" />
+                  Visible des collaborateurs affectés
+                </label>
+                <button type="submit" className="btn btn--fantome">Déposer</button>
+                <p className="recap__note">
+                  PDF, JPEG, PNG, WebP ou HEIC, 8 Mio au plus. Par défaut, un
+                  fichier reste privé : le partage est un geste explicite.
+                </p>
+              </form>
+            ) : null}
+          </section>
         </div>
 
         <div className="admin-colonne">
@@ -598,16 +1166,25 @@ export default async function FicheDemande({ params }) {
                     <label htmlFor="partenaire">Partenaire</label>
                     <select id="partenaire" name="partenaire" required>
                       {partenaires.map((p) => (
-                        <option key={p.id} value={p.id}>{p.nom_commercial}</option>
+                        <option key={p.id} value={p.id}>
+                          {p.nom_commercial}
+                          {p.service_partenaire ? ` — ${p.service_partenaire}` : ""}
+                        </option>
                       ))}
                     </select>
                   </div>
                   <div className="champ">
                     <label htmlFor="prestation">Prestation</label>
+                    {/* ⚠️ TROIS VALEURS, PAS QUATRE.
+                        `dossiers.prestation` n'accepte que `photo`, `video` ou
+                        `autre` : c'est la nature COMMERCIALE du dossier, dont
+                        dépendent les gabarits et les totaux. Le photobooth est
+                        donc une prestation « autre » — le métier du
+                        prestataire, lui, est déclaré sur sa structure. */}
                     <select id="prestation" name="prestation" defaultValue="video">
                       <option value="video">Vidéo</option>
                       <option value="photo">Photo</option>
-                      <option value="autre">Autre</option>
+                      <option value="autre">Photobooth / autre</option>
                     </select>
                   </div>
                   <div className="champ pleine">
@@ -778,8 +1355,14 @@ export default async function FicheDemande({ params }) {
                 {/* ⚠️ TROIS MESURES DISTINCTES, JAMAIS CONFONDUES.
                     Émettre une facture n'encaisse rien ; encaisser ne facture
                     rien. Les afficher séparément évite de facturer deux fois. */}
+                {/* ⚠️ LE TOTAL N'EST PLUS « LE DEVIS » MAIS « LE TOTAL ».
+                    Un dossier saisi à la main n'a pas de devis émis : son
+                    total est le prix convenu. Sans ce repli, le total sortait
+                    à 0 €, le reste dû devenait négatif à chaque encaissement,
+                    et le garde-fou qui refuse d'encaisser plus que dû était
+                    désactivé par sa propre condition. */}
                 <p className="recap__ligne">
-                  <span>Prestation (devis émis)</span>
+                  <span>Total</span>
                   <span>{formaterPrix(situation.total_prestation_cents)}</span>
                 </p>
                 <p className="recap__ligne">
@@ -787,11 +1370,11 @@ export default async function FicheDemande({ params }) {
                   <span>{formaterPrix(situation.facture_cents - situation.avoirs_cents)}</span>
                 </p>
                 <p className="recap__ligne">
-                  <span>Encaissé (paiements confirmés)</span>
+                  <span>Payé (paiements confirmés)</span>
                   <span>{formaterPrix(situation.encaisse_cents)}</span>
                 </p>
                 <p className="recap__ligne recap__ligne--total">
-                  <span>Reste dû</span>
+                  <span>Reste</span>
                   <span>{formaterPrix(situation.reste_du_cents)}</span>
                 </p>
               </div>
@@ -816,6 +1399,83 @@ export default async function FicheDemande({ params }) {
                 </p>
               </div>
             ) : null}
+
+          {/* ═══ ÉCHÉANCIER ═══ */}
+          {acces.permissions.has("finance.lire") ? (
+            <section className="admin-bloc">
+              <h2 className="display t-carte">Échéancier</h2>
+              {echeancier.length === 0 ? (
+                <p className="recap__note">
+                  Aucun échéancier. Saisissez le prix total et le nombre de
+                  versements : la répartition se fait en centimes entiers.
+                </p>
+              ) : (
+                <ul className="admin-paiements">
+                  {echeancier.map((e) => (
+                    <li key={e.echeance_id} className={`admin-paiement admin-paiement--${
+                      e.etat === "recu" ? "confirme" : "declare"}`}>
+                      <div className="admin-paiement__haut">
+                        <span className="admin-paiement__montant">
+                          {formaterPrix(e.montant_cents)}
+                        </span>
+                        <span className="admin-pastille">{e.nature}</span>
+                        <span className={`admin-pastille${
+                          e.etat === "recu" ? " admin-pastille--emis" : ""}`}>
+                          {{ a_recevoir: "à recevoir", declare: "déclaré",
+                             partiel: "partiellement reçu", recu: "reçu" }[e.etat]}
+                        </span>
+                      </div>
+                      <p className="admin-paiement__meta">
+                        {e.libelle}
+                        {e.recu_cents > 0 ? ` · reçu ${formaterPrix(e.recu_cents)}` : null}
+                        {e.declare_cents > 0 ? ` · déclaré ${formaterPrix(e.declare_cents)}` : null}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {peutEcrire ? (
+                <form action={definirEcheancier} className="formulaire"
+                  style={{ marginTop: "1rem" }}>
+                  <div className="admin-grille-champs">
+                    <div className="champ">
+                      <label htmlFor="ech-total">Prix total (€ TTC)</label>
+                      <input id="ech-total" name="total" type="text" inputMode="decimal"
+                             required placeholder="1300"
+                             defaultValue={demande.prix_total_cents === null ? ""
+                               : (demande.prix_total_cents / 100).toFixed(2).replace(".", ",")} />
+                    </div>
+                    <div className="champ">
+                      <label htmlFor="ech-nombre">Nombre de versements</label>
+                      <select id="ech-nombre" name="nombre"
+                              defaultValue={String(demande.nombre_echeances ?? 1)}>
+                        <option value="1">1 fois</option>
+                        <option value="2">2 fois</option>
+                        <option value="3">3 fois</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button type="submit" className="btn btn--fantome btn--bloc">
+                    Définir l&apos;échéancier
+                  </button>
+                  {/* ⚠️ UN ENCAISSEMENT NE SE RECALCULE JAMAIS.
+                      Si le prix change après un acompte reçu, les échéances
+                      déjà couvertes gardent leur montant : seul le restant
+                      est réparti à nouveau. */}
+                  {/* Aucun montant d'exemple ici : un prix écrit dans une
+                      page finit par être lu comme un tarif. Le contrôle de
+                      cohérence le refuse, et il a raison. */}
+                  <p className="recap__note">
+                    La répartition se fait en centimes entiers ; le centime
+                    restant va sur la dernière échéance, pour que la somme des
+                    versements fasse exactement le total. Une échéance déjà
+                    encaissée n&apos;est jamais recalculée.
+                  </p>
+                </form>
+              ) : null}
+            </section>
+          ) : null}
 
           {/* ═══ PAIEMENTS ═══ */}
           {acces.permissions.has("finance.lire") ? (
@@ -918,6 +1578,22 @@ export default async function FicheDemande({ params }) {
                       <label htmlFor="recu_le">Date de réception</label>
                       <input id="recu_le" name="recu_le" type="date" />
                     </div>
+                    {/* ⚠️ RATTACHER L'ÉCHÉANCE, C'EST CE QUI FAIT L'ÉTAT.
+                        « reçu » ou « à recevoir » se déduit des paiements
+                        rattachés : sans ce lien, l'échéancier resterait
+                        éternellement « à recevoir » malgré l'argent encaissé. */}
+                    <div className="champ">
+                      <label htmlFor="echeance">Échéance</label>
+                      <select id="echeance" name="echeance" defaultValue="">
+                        <option value="">Aucune</option>
+                        {echeancier.map((e) => (
+                          <option key={e.echeance_id} value={e.echeance_id}>
+                            {e.libelle} — {formaterPrix(e.montant_cents)}
+                            {e.etat === "recu" ? " (reçu)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="champ">
                       <label htmlFor="reference">Référence</label>
                       <input id="reference" name="reference" type="text" />
@@ -934,6 +1610,64 @@ export default async function FicheDemande({ params }) {
           ) : null}
 
           </section>
+
+          {/* ═══ COLLABORATEURS AFFECTÉS ═══ */}
+          {demande.dossier_id ? (
+            <section className="admin-bloc">
+              <h2 className="display t-carte">Collaborateurs affectés</h2>
+              {affectes.length === 0 ? (
+                <p className="recap__note">
+                  Personne n&apos;est affecté à cette journée.
+                </p>
+              ) : (
+                <ul className="admin-liste">
+                  {affectes.map((a) => (
+                    <li key={a.id}>
+                      <strong>{a.prenom} {a.nom}</strong>
+                      <span className="admin-jeton">{a.mission}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="recap__note">
+                Un prestataire extérieur — vidéaste, photobooth — passe par
+                « Collaboration » ci-dessus : il reçoit son propre dossier, et
+                ne voit ni les autres mariages, ni les montants.
+              </p>
+            </section>
+          ) : null}
+
+          {/* ═══ SUPPRESSION ═══ */}
+          {peutEcrire ? (
+            <section className="admin-bloc">
+              <h2 className="display t-carte">Clore ou supprimer</h2>
+              <p className="recap__note">
+                Annuler et archiver se font par le statut, en haut de cette
+                colonne : le dossier reste consultable. La suppression
+                définitive, elle, ne se rattrape pas.
+              </p>
+              {/* ⚠️ IL FAUT RECOPIER LA RÉFÉRENCE.
+                  Un bouton seul se clique par accident, et un carnet de
+                  mariages ne se répare pas d'un Ctrl-Z. La base refuse de
+                  toute façon dès qu'il existe un encaissement confirmé ou un
+                  document émis : une recette et un numéro de facture ne se
+                  suppriment pas. */}
+              <form action={supprimerDossier} className="formulaire"
+                style={{ marginTop: "1rem" }}>
+                <div className="champ">
+                  <label htmlFor="confirmation">
+                    Pour supprimer définitivement, recopiez{" "}
+                    <strong>{demande.reference}</strong>
+                  </label>
+                  <input id="confirmation" name="confirmation" type="text"
+                         autoComplete="off" placeholder={demande.reference} />
+                </div>
+                <button type="submit" className="btn btn--fantome">
+                  Supprimer définitivement
+                </button>
+              </form>
+            </section>
+          ) : null}
         </div>
       </div>
     </main>

@@ -141,6 +141,10 @@ export async function deposerDemande(charge: ChargeDemande): Promise<ResultatDep
     formule_nom: formule ? `${formule.nom} — ${formule.surnom}` : null,
     formule_prix_cents: formule?.prixCents ?? null,
     video_demandee: videoDemandee,
+    /* Le Photobooth 360 reste attaché au dossier comme un OUI/NON, en plus de
+       sa ligne de catalogue : la fiche, la saison et l'alerte « collaborateur
+       à assigner » le lisent sans avoir à relire les lignes. */
+    photobooth_360: charge.supplementsCles.includes("photobooth-360"),
     message: charge.message,
     ip_tronquee: charge.ipTronquee,
     lignes,

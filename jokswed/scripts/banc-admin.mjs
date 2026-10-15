@@ -930,6 +930,65 @@ try {
   v("Les journaux ne contiennent pas le message du client",
     !journal.includes("Nous aimerions un reportage complet"));
 
+  /* ═══════════ 9. LES ÉCRANS ET LES ROUTES DU CRM ═══════════ */
+  /* ⚠️ ON LES DEMANDE VRAIMENT, EN HTTP.
+     Un composant qui compile n'est pas un écran qui s'affiche : la 500 de
+     l'espace collaborateur venait d'un identifiant jamais déclaré, que ni le
+     build ni le typage n'ont vu. Seule une requête réelle le montre. */
+  const nouveau = await proprio.fetch("/admin/demandes/nouveau");
+  const htmlNouveau = await nouveau.text();
+  v("L'écran « Nouveau dossier » répond",
+    nouveau.status === 200 && htmlNouveau.includes("Nouveau dossier"),
+    `HTTP ${nouveau.status}`);
+  v("…et propose l'échéancier et le Photobooth 360",
+    htmlNouveau.includes("Photobooth 360") && /2 fois[\s\S]{0,200}3 fois/.test(htmlNouveau));
+
+  /* ⚠️ LA FICHE S'OUVRE, ET L'ESPACE COLLABORATEUR AUSSI.
+     Ce dernier levait une ReferenceError dès qu'un dossier était déplié. */
+  const { rows: [uneDemande] } = await verite2.query(
+    "SELECT id FROM demandes ORDER BY cree_le LIMIT 1");
+  if (uneDemande) {
+    const fiche = await proprio.fetch(`/admin/demandes/${uneDemande.id}`);
+    const htmlFiche = await fiche.text();
+    v("La fiche d'un dossier s'ouvre", fiche.status === 200, `HTTP ${fiche.status}`);
+    v("…avec l'échéancier, le planning et les fichiers",
+      htmlFiche.includes("Échéancier") && htmlFiche.includes("Planning")
+        && htmlFiche.includes("Fichiers / Documents"));
+  }
+  const { rows: [unDossier] } = await verite2.query(
+    "SELECT id FROM dossiers ORDER BY cree_le LIMIT 1");
+  if (unDossier) {
+    const espace = await proprio.fetch(`/admin/dossiers?dossier=${unDossier.id}`);
+    v("Un dossier DÉPLIÉ dans l'espace collaborateur ne lève plus de 500",
+      espace.status === 200, `HTTP ${espace.status}`);
+  }
+
+  /* Le flux de calendrier : un jeton inventé rend un calendrier VIDE, pas une
+     erreur — sinon la route devient un oracle, et Apple Calendar désactive un
+     abonnement qui répond en erreur. */
+  const flux = await fetch(`${BASE}/api/calendrier/jeton-totalement-invente-0123456789.ics`);
+  const corpsFlux = await flux.text();
+  v("Le flux iCalendar répond en text/calendar",
+    flux.status === 200 && (flux.headers.get("content-type") ?? "").includes("text/calendar"),
+    `HTTP ${flux.status} ${flux.headers.get("content-type")}`);
+  v("⚠️ Un jeton inventé rend un calendrier vide, pas une erreur",
+    corpsFlux.startsWith("BEGIN:VCALENDAR") && !corpsFlux.includes("BEGIN:VEVENT"));
+  v("⚠️ Le flux n'est pas indexable", /noindex/.test(flux.headers.get("x-robots-tag") ?? ""));
+
+  /* Un fichier de dossier sans session : 401, jamais un octet. */
+  const fichierAnonyme = await fetch(
+    `${BASE}/api/admin/fichiers/00000000-0000-0000-0000-000000000000`);
+  v("⚠️ Un fichier de dossier n'est pas servi sans session",
+    fichierAnonyme.status === 401, `HTTP ${fichierAnonyme.status}`);
+
+  /* L'option publique, sur le parcours de demande. */
+  const accueil = await fetch(`${BASE}/`);
+  const htmlAccueil = await accueil.text();
+  v("Photobooth 360 est proposé sur le parcours public",
+    htmlAccueil.includes("Photobooth 360"), `HTTP ${accueil.status}`);
+  v("⚠️ …et sans tarif inventé",
+    /Photobooth 360[\s\S]{0,600}Sur devis/.test(htmlAccueil));
+
   await verite2.end();
 } catch (e) {
   console.error("\n✗ Le banc s'est interrompu :", e?.message ?? e);

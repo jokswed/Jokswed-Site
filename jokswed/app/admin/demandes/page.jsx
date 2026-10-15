@@ -16,6 +16,7 @@ const GROUPES = [
     statuts: ["attente_client", "attente_collaborateur", "devis_envoye"],
   },
   { cle: "confirmees", titre: "Confirmées", statuts: ["confirmee"] },
+  { cle: "closes", titre: "Closes", statuts: ["close", "annulee", "refusee", "archivee"] },
 ];
 
 export const LIBELLES_STATUT = {
@@ -27,6 +28,8 @@ export const LIBELLES_STATUT = {
   devis_envoye: "Devis envoyé",
   confirmee: "Confirmée",
   refusee: "Refusée",
+  annulee: "Annulée",
+  close: "Terminée",
   archivee: "Archivée",
 };
 
@@ -38,13 +41,26 @@ export default async function Demandes({ searchParams }) {
 
   const demandes = await acces.executer(async (q) => {
     const { rows } = await q(
-      `SELECT d.id, d.reference, d.statut, d.contact_nom, d.ville, d.lieu,
-              d.date_mariage, d.formule_nom, d.formule_prix_cents,
-              d.video_demandee, d.cree_le, d.lue_le,
+      /* ⚠️ PAR DATE DE MARIAGE, PAS PAR DATE DE RÉCEPTION.
+         Un carnet se lit par la journée qui approche. L'ordre exact :
+         les mariages À VENIR du plus proche au plus lointain, puis les
+         mariages PASSÉS du plus récent au plus ancien, puis ceux qui n'ont
+         pas encore de date. `reference` ferme l'ordre : deux mariages le
+         même jour sortent toujours dans la même suite, jamais dans celle
+         que PostgreSQL trouve la moins coûteuse ce jour-là. */
+      `SELECT d.id, d.reference, d.statut, d.contact_nom, d.contact_nom_2,
+              d.ville, d.lieu, d.date_mariage, d.formule_nom,
+              d.formule_prix_cents, d.prix_total_cents, d.origine,
+              d.video_demandee, d.photobooth_360, d.cree_le, d.lue_le,
+              d.mariage_id,
               (SELECT count(*)::int FROM notes_internes n WHERE n.demande_id = d.id) AS notes
          FROM demandes d
         WHERE d.entreprise_destinataire_id = $1
-        ORDER BY d.cree_le DESC
+        ORDER BY (d.date_mariage IS NULL),
+                 (d.date_mariage < current_date),
+                 CASE WHEN d.date_mariage >= current_date THEN d.date_mariage END ASC,
+                 CASE WHEN d.date_mariage <  current_date THEN d.date_mariage END DESC,
+                 d.reference
         LIMIT 200`,
       [entreprise.id],
     );
@@ -66,7 +82,10 @@ export default async function Demandes({ searchParams }) {
           <h1 className="display t-section">Demandes</h1>
           <p className="recap__note">{demandes.length} demande(s) reçue(s)</p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <div className="admin-actions">
+          <Link href="/admin/demandes/nouveau" className="btn">+ Nouveau dossier</Link>
+          <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        </div>
       </header>
 
       <nav className="admin-filtres" aria-label="Filtrer par état">
@@ -96,21 +115,30 @@ export default async function Demandes({ searchParams }) {
             <li key={d.id}>
               <Link href={`/admin/demandes/${d.id}`} className="admin-carte">
                 <span className="admin-carte__haut">
-                  <strong>{d.contact_nom}</strong>
+                  <strong>
+                    {d.contact_nom}
+                    {d.contact_nom_2 ? ` & ${d.contact_nom_2}` : ""}
+                  </strong>
                   <span className={`admin-pastille admin-pastille--${d.statut}`}>
                     {LIBELLES_STATUT[d.statut] ?? d.statut}
                   </span>
                 </span>
                 <span className="admin-carte__ligne">
-                  {d.reference} · {formaterDateSql(d.date_mariage)}
+                  {d.reference} ·{" "}
+                  {d.date_mariage ? formaterDateSql(d.date_mariage) : "date à définir"}
                   {d.ville ? ` · ${d.ville}` : ""}
                 </span>
                 <span className="admin-carte__ligne">
                   {d.formule_nom ?? "Formule à définir"}
-                  {d.formule_prix_cents ? ` — ${formaterPrix(d.formule_prix_cents)} TTC` : ""}
+                  {/* Le prix convenu prime : c'est lui qui pilote l'échéancier. */}
+                  {d.prix_total_cents ?? d.formule_prix_cents
+                    ? ` — ${formaterPrix(d.prix_total_cents ?? d.formule_prix_cents)} TTC`
+                    : ""}
                 </span>
                 <span className="admin-carte__bas">
+                  {d.origine === "manuel" ? <span className="admin-jeton">Manuel</span> : null}
                   {d.video_demandee ? <span className="admin-jeton">Vidéo</span> : null}
+                  {d.photobooth_360 ? <span className="admin-jeton">Photobooth 360</span> : null}
                   {d.notes > 0 ? <span className="admin-jeton">{d.notes} note(s)</span> : null}
                   {!d.lue_le ? <span className="admin-jeton admin-jeton--vif">Non lue</span> : null}
                 </span>

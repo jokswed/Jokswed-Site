@@ -129,7 +129,14 @@ export default async function Saison({ searchParams }) {
             {voitFinances ? ` · ${euros(total)} au total, ${euros(encaisse)} encaissés` : null}
           </p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <div className="admin-actions">
+          {/* Le flux Apple Calendar se règle avec les autres réglages de
+              l'entreprise : on y renvoie plutôt que de dupliquer le bouton. */}
+          <Link href="/admin/entreprise" className="btn btn--fantome">
+            Flux Apple Calendar
+          </Link>
+          <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        </div>
       </header>
 
       <nav className="admin-filtres" aria-label="Affichage et filtres">

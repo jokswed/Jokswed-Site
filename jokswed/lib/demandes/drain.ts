@@ -124,7 +124,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
           await notifierEquipe(q, entreprise_id, demande_id, reference, video_demandee);
           try {
             await envoyerPushNouvelleDemande(
-              q, entreprise_id, demande_id, reference,
+              q, evenement.id, demande_id, reference,
             );
           } catch (erreur) {
             console.error(

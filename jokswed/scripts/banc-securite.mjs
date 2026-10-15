@@ -292,15 +292,39 @@ try {
          demande. L'identifiant seul ne suffit pas : la page exige en plus un
          jeton signé (`verifierSuiviDemande`) avant de l'appeler.
 
-       · `push_abonnements_entreprise` est appelée par le chemin de
-         notification, qui n'a pas davantage d'acteur. Elle ne rend que les
-         abonnements des membres ACTIFS portant `dossier.lire`.
-         shortcut: elle ne vérifie pas l'appelant, donc toute exécution SQL
-         sous le rôle métier pourrait lire les abonnements d'une AUTRE
-         entreprise — soit de quoi lui pousser des notifications, pas de quoi
-         lire ses données. À reprendre le jour où le drain aura son propre
-         rôle, comme `jokswed_auth` pour l'authentification. */
-    "demande_suivi_public","push_abonnements_entreprise",
+       · Le chemin de notification n'a pas davantage d'acteur. Sa fonction
+         s'appelle désormais `push_abonnements_evenement` : le palier 062 a
+         remplacé le paramètre « entreprise » par l'identifiant de
+         l'événement, ce qui a fermé la limite documentée ici auparavant. */
+    "demande_suivi_public",
+    /* Palier 062 — l'événement est devenu la capacité.
+       `push_abonnements_evenement` ne prend plus une entreprise mais
+       l'identifiant de l'événement en cours de traitement, dont elle déduit
+       l'entreprise. `evenements` étant retirée au rôle métier, le seul moyen
+       d'obtenir un tel identifiant est `evenements_a_traiter()` — la porte du
+       drain. Il n'existe plus de chemin par lequel le rôle métier désigne les
+       abonnements d'une AUTRE entreprise. Un banc le vérifie plus bas. */
+    "push_abonnements_evenement",
+    /* CRM (paliers 060-061) — un dossier saisi à la main, modifié, chiffré,
+       planifié. Chacune vérifie sa permission en PREMIÈRE ligne par
+       `app.exiger`, et `SECURITY DEFINER` n'est là que pour ce que le rôle
+       métier ne doit PAS pouvoir faire seul : avancer la série de références
+       (`demande_series` lui est retirée), écrire le mariage du pilote,
+       supprimer un paiement déclaré.
+
+       · `planning_du_dossier`, `fichiers_du_dossier`, `fichier_du_dossier`
+         servent l'espace d'un collaborateur : elles exigent `dossier.lire`
+         SUR SON entreprise, puis un partage explicite du mariage. Aucune
+         colonne financière n'en sort.
+       · `calendrier_entreprise` n'a pas d'acteur — un flux iCalendar est lu
+         par Apple Calendar, pas par une session. Son seul argument est
+         l'EMPREINTE d'un jeton indevinable, et elle ne rend aucun montant. */
+    "creer_demande_manuelle","maj_demande","definir_echeancier",
+    "definir_statut_demande","enregistrer_paiement_echeance",
+    "confirmer_paiement_et_dossier","supprimer_demande",
+    "planning_du_dossier","fichiers_du_dossier","fichier_du_dossier",
+    "reordonner_etape",
+    "definir_jeton_calendrier","calendrier_entreprise",
     /* Mise en service — PRÉDICATS D'AMORÇAGE, appelés par les POLITIQUES
        elles-mêmes. Ils doivent compter des lignes de `membres` et de
        `membres_roles` sans être filtrés par la politique qu'ils servent à

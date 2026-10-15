@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
+import { engendrerJeton, hacherJeton, chiffrer, dechiffrer } from "@/lib/auth/secrets";
+import CopierLien from "@/components/CopierLien";
 
 export const metadata = { title: "Mon entreprise" };
 export const dynamic = "force-dynamic";
@@ -85,7 +87,50 @@ export default async function MonEntreprise() {
     revalidatePath("/admin/entreprise");
   }
 
+  /* ── Le flux de calendrier ──
+     ⚠️ ON ENREGISTRE L'EMPREINTE *ET* UNE COPIE CHIFFRÉE.
+     L'empreinte authentifie le flux ; la copie chiffrée permet de RÉAFFICHER
+     l'URL — on l'enregistre sur le Mac, puis sur l'iPhone, parfois des
+     semaines plus tard. Sans elle, il fallait régénérer pour la revoir, ce
+     qui cassait l'abonnement déjà posé sur l'autre appareil. */
+  async function regenererCalendrier() {
+    "use server";
+    const { entreprise: ent } = await contexteAdmin();
+    const a = await accesPage(ent.id, ["entreprise.reglages"]);
+    const jeton = engendrerJeton();
+    await a.executer((q) => q("SELECT app.definir_jeton_calendrier($1,$2,$3)",
+      [ent.id, hacherJeton(jeton), chiffrer(jeton)]));
+    revalidatePath("/admin/entreprise");
+  }
+
+  async function revoquerCalendrier() {
+    "use server";
+    const { entreprise: ent } = await contexteAdmin();
+    const a = await accesPage(ent.id, ["entreprise.reglages"]);
+    await a.executer((q) => q("SELECT app.definir_jeton_calendrier($1,NULL,NULL)", [ent.id]));
+    revalidatePath("/admin/entreprise");
+  }
+
   const { e, regimes, verdict } = donnees;
+
+  /* ⚠️ LE DÉCHIFFREMENT PEUT ÉCHOUER, ET CE N'EST PAS UNE ERREUR 500.
+     Si `JOKSWED_CHIFFREMENT_CLE` a tourné, le paquet n'est plus lisible :
+     l'abonnement existant continue de fonctionner (c'est l'empreinte qui
+     l'authentifie), mais on ne peut plus réafficher l'URL. On le dit, et on
+     propose de régénérer. */
+  let urlFlux = null;
+  if (e.jeton_calendrier_chiffre) {
+    try {
+      const jeton = dechiffrer(Buffer.from(e.jeton_calendrier_chiffre));
+      const site = (process.env.SITE_URL ?? "https://jokswed.com").replace(/\/$/, "");
+      urlFlux = {
+        https: `${site}/api/calendrier/${jeton}.ics`,
+        webcal: `${site.replace(/^https?:/, "webcal:")}/api/calendrier/${jeton}.ics`,
+      };
+    } catch {
+      urlFlux = null;
+    }
+  }
   const actuel = regimes.find((r) => !r.fin_le);
 
   return (
@@ -190,6 +235,65 @@ export default async function MonEntreprise() {
             ))}
           </ul>
         ) : null}
+      </section>
+
+      <section className="admin-bloc">
+        <h2 className="display t-carte">Carnet dans Apple Calendar</h2>
+        <p className="recap__note">
+          Un flux privé à enregistrer une seule fois, sur le Mac et sur
+          l&apos;iPhone. Les mariages confirmés y apparaissent seuls ; une date
+          déplacée met à jour le MÊME événement, une annulation s&apos;y affiche
+          barrée. Aucun montant n&apos;y figure.
+        </p>
+
+        {!e.jeton_calendrier_hache ? (
+          <form action={regenererCalendrier} style={{ marginTop: "1rem" }}>
+            <button type="submit" className="btn">Activer le flux</button>
+          </form>
+        ) : (
+          <>
+            {urlFlux ? (
+              <>
+                <p className="label label--nu" style={{ marginTop: "1rem" }}>
+                  Sur Mac et iPhone — « S&apos;abonner à un calendrier »
+                </p>
+                <CopierLien valeur={urlFlux.webcal} />
+                <p className="label label--nu" style={{ marginTop: "0.8rem" }}>
+                  Adresse https équivalente
+                </p>
+                <CopierLien valeur={urlFlux.https} />
+              </>
+            ) : (
+              <p className="admin-alerte" style={{ marginTop: "1rem" }}>
+                Le flux est actif, mais son adresse n&apos;est plus lisible — la
+                clé de chiffrement a changé. Les abonnements existants
+                continuent de fonctionner ; pour en créer un nouveau, régénérez
+                le jeton.
+              </p>
+            )}
+            <p className="recap__note" style={{ marginTop: "0.8rem" }}>
+              Actif depuis le{" "}
+              {new Date(e.jeton_calendrier_le).toLocaleDateString("fr-FR")}.
+              {/* ⚠️ RÉGÉNÉRER CASSE LES ABONNEMENTS EXISTANTS, ET C'EST LE BUT.
+                  C'est ce qu'on fait si l'URL a fuité. Il faut alors
+                  réenregistrer le flux sur chaque appareil. */}
+              {" "}Régénérer remplace l&apos;adresse : les calendriers déjà
+              abonnés cessent de se mettre à jour et doivent être réenregistrés.
+            </p>
+            <div className="admin-actions" style={{ marginTop: "0.8rem" }}>
+              <form action={regenererCalendrier}>
+                <button type="submit" className="btn btn--fantome">
+                  Régénérer l&apos;adresse
+                </button>
+              </form>
+              <form action={revoquerCalendrier}>
+                <button type="submit" className="btn btn--fantome">
+                  Révoquer le flux
+                </button>
+              </form>
+            </div>
+          </>
+        )}
       </section>
     </main>
   );

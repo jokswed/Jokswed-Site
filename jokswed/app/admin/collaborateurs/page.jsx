@@ -7,6 +7,16 @@ import { chiffrer, engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
 export const metadata = { title: "Collaborateurs" };
 export const dynamic = "force-dynamic";
 
+/* Les métiers que la contrainte de `entreprises.service_partenaire` accepte :
+   une valeur absente d'ici serait refusée EN BASE, pas ici. */
+const SERVICES = [
+  ["photobooth", "Photobooth"],
+  ["videaste", "Vidéaste"],
+  ["photographe", "Photographe"],
+  ["second_shooter", "Second shooter"],
+  ["autre", "Autre"],
+];
+
 /* ⚠️ PRÉPARER ET ENVOYER SONT DEUX GESTES DISTINCTS.
 
    « Préparer » crée l'invitation en base — jeton haché, jeton chiffré au
@@ -54,7 +64,14 @@ export default async function Collaborateurs() {
                            'invitation.acceptee','membre.suspendu','membre.reactive',
                            'membre.revoque','membre.permissions','membre.roles')
         ORDER BY j.horodatage DESC LIMIT 25`, [entreprise.id]);
-    return { membres, invitations, roles, journal };
+    /* Les entreprises partenaires que je parraine. Pas un `SELECT … FROM
+       entreprises` : la politique ne rendrait que les miennes, et élargir la
+       politique exposerait SIRET, adresse et IBAN chiffré pour afficher un
+       nom (palier 012). La fonction rend trois champs. */
+    const partenaires = acces.permissions.has("collaboration.proposer")
+      ? (await q("SELECT * FROM app.partenaires_disponibles($1)", [entreprise.id])).rows
+      : [];
+    return { membres, invitations, roles, journal, partenaires };
   });
 
   async function preparerInvitation(formulaire) {
@@ -163,6 +180,39 @@ export default async function Collaborateurs() {
     const roles = formulaire.getAll("role").map(String).filter(Boolean);
     await a.executer((q) => q("SELECT app.admin_definir_roles($1,$2::uuid[])",
       [String(formulaire.get("membre")), roles]));
+    revalidatePath("/admin/collaborateurs");
+  }
+
+  /* ── Un prestataire extérieur ──
+     ⚠️ CE N'EST PAS UN MEMBRE DE PLUS : C'EST UNE ENTREPRISE À PART.
+     Un vidéaste ou un prestataire photobooth ne doit PAS devenir membre de
+     JoksWed — il verrait alors tous les dossiers, toutes les demandes et tous
+     les montants, puisque la RLS cloisonne par entreprise et non par
+     affectation. On lui crée donc SA structure : il ne voit que les dossiers
+     qu'on lui confie, et aucun de mes chiffres.
+
+     ⚠️ ET LA CRÉATION NE TRANSMET AUCUN DOSSIER.
+     Elle ouvre une structure, rien d'autre. La transmission d'un mariage se
+     fait depuis la fiche, et seulement après confirmation. */
+  async function creerPartenaire(formulaire) {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await exigerAcces(e.id, ["membre.inviter"]);
+    const nom = String(formulaire.get("nom") ?? "").trim();
+    const email = String(formulaire.get("email") ?? "").trim().toLowerCase();
+    const service = String(formulaire.get("service") ?? "autre");
+    if (!nom || !email || !SERVICES.some(([c]) => c === service)) return;
+
+    /* Le slug sert de clé d'idempotence : recréer le même prestataire ne
+       fabrique pas une seconde structure. */
+    const slug = `${service}-${nom}`.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+    if (!slug) return;
+
+    await a.executer((q) => q(
+      "SELECT app.creer_entreprise_partenaire($1,$2,$3,$4::citext,$5)",
+      [e.id, slug, nom, email, service]));
     revalidatePath("/admin/collaborateurs");
   }
 
@@ -354,6 +404,56 @@ export default async function Collaborateurs() {
           Qui a invité, qui a suspendu, qui a changé des rôles, et quand. Si
           un accès a existé, il en reste une trace — c'est ce qui permet de
           répondre à « depuis quand voyait-il ce dossier ? ». */}
+      {acces.permissions.has("membre.inviter") ? (
+        <section style={{ marginTop: "2.5rem" }}>
+          <h2 className="display t-carte">Prestataires partenaires</h2>
+          <p className="recap__note">
+            Vidéaste, second photographe, photobooth… Chacun reçoit sa propre
+            structure : il ne voit que les mariages qu&apos;on lui confie, et
+            jamais mes montants. Le créer ne lui transmet rien — la
+            transmission se fait depuis la fiche, après confirmation du dossier.
+          </p>
+
+          {donnees.partenaires.length > 0 ? (
+            <ul className="admin-liste" style={{ marginTop: "1rem" }}>
+              {donnees.partenaires.map((p) => (
+                <li key={p.id}>
+                  <strong>{p.nom_commercial}</strong>
+                  <span className="admin-jeton">
+                    {SERVICES.find(([c]) => c === p.service_partenaire)?.[1]
+                      ?? "métier non précisé"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <form action={creerPartenaire} className="formulaire" style={{ marginTop: "1rem" }}>
+            <div className="admin-grille-champs">
+              <div className="champ">
+                <label htmlFor="partenaire-nom">Nom commercial</label>
+                <input id="partenaire-nom" name="nom" type="text" required />
+              </div>
+              <div className="champ">
+                <label htmlFor="partenaire-service">Métier</label>
+                <select id="partenaire-service" name="service" defaultValue="photobooth">
+                  {SERVICES.map(([c, libelle]) => (
+                    <option key={c} value={c}>{libelle}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="champ">
+                <label htmlFor="partenaire-email">E-mail professionnel</label>
+                <input id="partenaire-email" name="email" type="email" required />
+              </div>
+            </div>
+            <button type="submit" className="btn btn--fantome">
+              Créer le prestataire
+            </button>
+          </form>
+        </section>
+      ) : null}
+
       {acces.permissions.has("audit.lire") && donnees.journal.length > 0 ? (
         <section style={{ marginTop: "2.5rem" }}>
           <h2 className="display t-carte">Journal des accès</h2>

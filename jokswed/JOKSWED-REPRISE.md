@@ -3,6 +3,48 @@
 > À lire en premier dans une nouvelle session. L'état détaillé est dans
 > **JOKSWED-ETAT-PROJET.md**.
 
+## CRM — fait le 15 octobre 2026
+
+Paliers **060 à 065** : dossier manuel (`demandes.origine = 'manuel'`, même
+table, mêmes écrans), échéancier 1×/2×/3× en centimes entiers, planning,
+fichiers (`bytea`, liste blanche MIME, 8 Mio), flux iCalendar privé,
+Photobooth 360 « sur devis », métier du prestataire partenaire. Le palier
+**062** ferme la limite documentée du banc de sécurité :
+`push_abonnements_evenement` remplace `push_abonnements_entreprise` — le rôle
+métier ne désigne plus l'entreprise dont il veut les abonnements.
+
+Palier **066** : réordonner une étape de planning est un ÉCHANGE de rangs —
+écrire un rang déjà occupé levait une violation de `etape_ordre_unique`, donc
+une 500 sur la fiche.
+
+`npm run suite` = **764 vérifications vertes** (dont le nouveau banc CRM,
+102 épreuves). Schéma appliqué sur les branches Neon **production** et
+**preview** : 64 paliers chacune.
+
+⚠️ **Il reste UNE action, et elle revient à John** : la branche
+`preview-crm-20261015` est poussée et déployée en Preview — vérifiée par
+`npx vercel curl` (accueil avec Photobooth 360 « sur devis », `/admin` fermé
+en 307, flux `.ics` en `text/calendar`). La fusion vers `main` — donc la mise
+en production — a été refusée par la garde de l'outil. La commande est :
+
+```bash
+cd ../jokswed-preview && git push origin HEAD:refs/heads/main
+```
+
+Le schéma de production est DÉJÀ à jour : le code de production, lui, est
+encore celui d'avant. Conséquence unique et sans perte : le drain ne peut pas
+envoyer de notification *push* (l'appel est dans un `try/catch`, les e-mails
+partent normalement) jusqu'à cette fusion.
+
+⚠️ Deux pièges rencontrés, à ne pas redécouvrir :
+- `origin/preview` a divergé : `preparer-preview.sh` reconstruit la branche
+  depuis `origin/main`, donc `git push -u origin preview` est refusé en
+  non-fast-forward. Pousser un nom daté (`preview-crm-<date>`).
+- Les déploiements Preview sont derrière l'authentification Vercel :
+  `npm run verifier:prod -- <url-preview>` rend 2/29, tout en 302 vers
+  `vercel.com/sso-api`. Ce n'est pas une panne. Vérifier avec
+  `npx vercel curl <url>`.
+
 ## Où l'on en est
 
 JoksWed est fonctionnellement **complet de la V1 à la V7** et gelé : plus de
@@ -118,3 +160,31 @@ npm run verifier:neon-prod    # 8 contrôles, lecture seule, aucune écriture
 npm run verifier:prod -- URL  # 28 contrôles externes sur une URL déployée
 npm run preparer:preview      # reconstruit la branche `preview` depuis la branche de travail
 ```
+
+## 15 octobre 2026 — production en ligne
+
+`jokswed.com` sert la V2, commit `9e2f911` sur `main`. 29/29 contrôles externes.
+
+- **Collision de migrations réglée.** Deux paliers portaient le numéro 057.
+  Celui enregistré en production (`057_workflow_demande_suivi_push`) garde son
+  numéro ; les deux paliers agenda/signature de la branche
+  `correctifs-jokswed-tarifs-20261010` sont passés à **058** et **059**, et les
+  deux lignes correspondantes de `schema_migrations` ont été renommées dans
+  Preview — sans rejouer le DDL. `migrer.mjs` était déjà atomique : le DDL et
+  l'inscription dans `schema_migrations` partagent une transaction.
+- **Schémas.** Production : 056 + 057_workflow — exactement ce qu'attend le
+  code déployé. Preview : 056 + 058_agenda + 059_rls, et il lui manque
+  057_workflow, que `migrer` posera au prochain passage.
+- **Sécurité 88/88.** Les deux fonctions `SECURITY DEFINER` du palier 057 ont
+  été relues puis inscrites dans la liste blanche, avec la limite de
+  `push_abonnements_entreprise` écrite noir sur blanc : elle ne vérifie pas son
+  appelant.
+- **Performance.** `sessionCourante()` et le couple appartenance + permissions
+  sont mémoïsés par requête (`cache()` de React). Mesuré : aucune requête
+  lente, tout le coût est en allers-retours et en réveils.
+
+### Le seul geste manuel restant
+
+Neon → projet `jokswed` → branche `production` → Compute → **« Suspend compute
+after a period of inactivity » = 1 heure**. C'est le facteur dominant de
+lenteur ressentie ; je n'ai pas de clé d'API Neon pour le faire.

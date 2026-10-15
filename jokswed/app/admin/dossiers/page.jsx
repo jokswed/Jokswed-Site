@@ -53,7 +53,24 @@ export default async function MesDossiers({ searchParams }) {
         ORDER BY recu_le DESC`, [entreprise.id]);
     const { rows: [verdict] } = await q(
       "SELECT * FROM app.verdict_emission($1,'devis')", [entreprise.id]);
-    return { dossiers, documents, paiements, verdict };
+
+    /* ⚠️ LE PLANNING ET LES FICHIERS NE SONT PAS RECOPIÉS ICI.
+       Ces deux fonctions lisent la demande du PILOTE à travers un contrôle :
+       il faut avoir un dossier sur ce mariage, et la catégorie doit avoir été
+       partagée. Sans partage, elles ne rendent rien — et aucune colonne
+       financière n'en sort, jamais.
+
+       Une requête par dossier ouvert seulement : la liste n'en déclenche
+       aucune. C'est ce qui évite un N+1 sur une page qui affiche vingt
+       dossiers dont un seul est déplié. */
+    const ouvertId = params?.dossier;
+    const planning = ouvertId
+      ? (await q("SELECT * FROM app.planning_du_dossier($1)", [ouvertId])).rows
+      : [];
+    const fichiers = ouvertId
+      ? (await q("SELECT * FROM app.fichiers_du_dossier($1)", [ouvertId])).rows
+      : [];
+    return { dossiers, documents, paiements, verdict, planning, fichiers };
   });
 
   async function creerDevis(formulaire) {
@@ -161,7 +178,7 @@ export default async function MesDossiers({ searchParams }) {
     revalidatePath("/admin/dossiers");
   }
 
-  const { dossiers, documents, paiements, verdict } = donnees;
+  const { dossiers, documents, paiements, verdict, planning, fichiers } = donnees;
   const ouvert = params?.dossier;
   const peutRediger = acces.permissions.has("document.rediger");
   const voitFinances = acces.permissions.has("finance.lire");
@@ -244,7 +261,15 @@ export default async function MesDossiers({ searchParams }) {
                   ) : (
                     <>
                       {/* ── Écrire au couple ── */}
-                      {peutEcrire && acces.permissions.has("message.envoyer") ? (
+                      {/* ⚠️ `peutEcrire` N'EXISTAIT PAS.
+                          La condition portait un identifiant jamais déclaré :
+                          ouvrir un dossier levait une ReferenceError, donc une
+                          500, sur TOUT l'espace collaborateur. Le bloc n'était
+                          évalué qu'une fois le dossier ouvert — c'est pourquoi
+                          la liste, elle, s'affichait très bien.
+                          La permission `message.envoyer` suffit, et c'est
+                          elle qu'on voulait. */}
+                      {acces.permissions.has("message.envoyer") ? (
                         d.coordonnees_partagees ? (
                           <form action={ecrireAuCouple} className="admin-ligne-actions"
                             style={{ marginTop: "0.8rem" }}>
@@ -262,6 +287,54 @@ export default async function MesDossiers({ searchParams }) {
                             coordonnées au photographe.
                           </p>
                         )
+                      ) : null}
+
+                      {/* ── Le planning de la journée ── */}
+                      {planning.length > 0 ? (
+                        <div style={{ marginTop: "1.2rem" }}>
+                          <p className="label label--nu">Planning de la journée</p>
+                          <ul className="admin-liste">
+                            {planning.map((e) => (
+                              <li key={`${e.ordre}-${e.titre}`} style={{ flexWrap: "wrap" }}>
+                                <strong>
+                                  {e.heure ? String(e.heure).slice(0, 5) : "—"}
+                                </strong>
+                                <span>{e.titre}</span>
+                                {e.lieu ? <span>{e.lieu}</span> : null}
+                                {e.notes ? (
+                                  <span style={{ flexBasis: "100%", color: "var(--encre-douce)" }}>
+                                    {e.notes}
+                                  </span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+
+                      {/* ── Les fichiers qu'on m'a partagés ── */}
+                      {fichiers.length > 0 ? (
+                        <div style={{ marginTop: "1.2rem" }}>
+                          <p className="label label--nu">Fichiers partagés</p>
+                          <ul className="admin-liste">
+                            {fichiers.map((f) => (
+                              <li key={f.fichier_id}>
+                                <strong>
+                                  {/* ⚠️ LE DOSSIER VOYAGE AVEC LA DEMANDE.
+                                      La route redemande en base au nom de CE
+                                      dossier : l'identifiant du fichier seul
+                                      ne suffit pas à l'obtenir. */}
+                                  <a className="lien"
+                                     href={`/api/admin/fichiers/${f.fichier_id}?dossier=${d.dossier_id}`}>
+                                    {f.nom}
+                                  </a>
+                                </strong>
+                                <span className="admin-jeton">{f.categorie}</span>
+                                <span>{Math.max(1, Math.round(f.taille_octets / 1024))} Ko</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
                       ) : null}
 
                       {/* ── Documents ── */}

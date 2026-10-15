@@ -17,12 +17,16 @@ function configurer() {
   return true;
 }
 
-export async function envoyerPushNouvelleDemande(q, entrepriseId, demandeId, reference) {
+/* ⚠️ ON PASSE L'ÉVÉNEMENT, PAS L'ENTREPRISE — VOIR LE PALIER 062.
+   La fonction en base déduit l'entreprise de l'événement qu'elle reçoit, et
+   n'accepte qu'un événement réclamé et non traité. Le drain ne peut donc plus
+   désigner les abonnements push d'une entreprise quelconque. */
+export async function envoyerPushNouvelleDemande(q, evenementId, demandeId, reference) {
   if (!configurer()) return { envoyes: 0, inhibe: true };
 
   const { rows } = await q(
-    "SELECT * FROM app.push_abonnements_entreprise($1)",
-    [entrepriseId],
+    "SELECT * FROM app.push_abonnements_evenement($1)",
+    [evenementId],
   );
 
   let envoyes = 0;
