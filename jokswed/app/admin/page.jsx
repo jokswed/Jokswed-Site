@@ -2,6 +2,7 @@ import Link from "next/link";
 import { contexteAdmin } from "@/lib/admin/garde";
 import { formaterDateSql } from "@/lib/dates";
 import { exigerAcces } from "@/lib/auth/acces";
+import PushAdmin from "@/components/PushAdmin";
 
 export const metadata = { title: "Tableau de bord" };
 export const dynamic = "force-dynamic";
@@ -72,6 +73,8 @@ export default async function TableauDeBord({ searchParams }) {
           <button type="submit" className="btn btn--fantome">Changer</button>
         </form>
       ) : null}
+
+      <PushAdmin />
 
       <section className="admin-chiffres">
         {[

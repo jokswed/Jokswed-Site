@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { adresseReponse, domaineReponse } from "@/lib/messagerie/adresses";
 import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie/modeles";
+import { drainer } from "@/lib/demandes/drain";
 
 export const metadata = { title: "Conversation" };
 export const dynamic = "force-dynamic";
@@ -102,6 +104,18 @@ export default async function Conversation({ params, searchParams }) {
         await q("SELECT app.joindre_document($1,$2)", [messageId, doc]);
       }
     });
+
+    if (!interne) {
+      after(async () => {
+        try {
+          await drainer();
+        } catch (erreur) {
+          console.error(
+            `[messagerie] drain différé : ${erreur instanceof Error ? erreur.name : "erreur"}`,
+          );
+        }
+      });
+    }
     revalidatePath(`/admin/messagerie/${id}`);
   }
 

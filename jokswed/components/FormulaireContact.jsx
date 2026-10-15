@@ -50,7 +50,7 @@ const styleConsentement = {
  * @param {React.ReactNode} [props.children] Récapitulatif affiché en tête.
  */
 export default function FormulaireContact({ formule = "", supplements = [], children }) {
-  const [envoye, setEnvoye] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState("");
   const idBase = useId();
@@ -109,9 +109,17 @@ export default function FormulaireContact({ formule = "", supplements = [], chil
       if (!reponse.ok || !resultat.ok) {
         throw new Error(resultat.message || "Le message n'a pas pu être envoyé.");
       }
+      if (!resultat.reference) {
+        throw new Error(
+          "La demande n’a pas reçu de référence. Merci de réessayer ou de me contacter directement.",
+        );
+      }
 
       formulaire.reset();
-      setEnvoye(true);
+      setConfirmation({
+        reference: resultat.reference,
+        suiviUrl: resultat.suiviUrl || null,
+      });
     } catch (err) {
       setErreur(
         err instanceof Error
@@ -123,30 +131,74 @@ export default function FormulaireContact({ formule = "", supplements = [], chil
     }
   }
 
-  if (envoye) {
+  if (confirmation) {
     return (
-      <div className="formulaire" role="status" aria-live="polite">
-        <h3 className="display t-carte">Merci.</h3>
-        <p className="texte">
-          Votre demande a bien été envoyée. Je vous réponds personnellement,
-          généralement sous 48 heures. À très vite !
-        </p>
-        {/* ⚠️ Pas de « votre date est réservée » : une demande n'est pas une
-            réservation. La date n'est bloquée qu'au contrat signé et à
-            l'acompte encaissé (article 2 du contrat). */}
-        <button
-          type="button"
-          className="btn"
-          onClick={() => {
-            cleIdempotence.current =
-              typeof crypto !== "undefined" && crypto.randomUUID
-                ? crypto.randomUUID()
-                : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-            setEnvoye(false);
-          }}
-        >
-          Envoyer une autre demande
-        </button>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9999,
+          minHeight: "100dvh",
+          background: "var(--papier, #fbfaf8)",
+          display: "grid",
+          placeItems: "center",
+          padding: "1.2rem",
+          overflow: "auto",
+        }}
+      >
+        <div style={{
+          width: "min(680px, 100%)",
+          textAlign: "center",
+          background: "#fff",
+          border: "1px solid #e8e5df",
+          padding: "clamp(2rem, 7vw, 4.5rem)",
+        }}>
+          <p className="label label--nu">Demande envoyée</p>
+          <h2 className="display t-section" style={{ marginTop: "0.8rem" }}>
+            Merci, votre demande est bien arrivée.
+          </h2>
+          <p className="texte" style={{ margin: "1.2rem auto 0", maxWidth: 540 }}>
+            Elle est maintenant enregistrée dans JoksWed. Vous recevrez également
+            un e-mail de confirmation et je reviendrai vers vous personnellement.
+          </p>
+          <p className="texte" style={{ marginTop: "1rem" }}>
+            Référence : <strong>{confirmation.reference}</strong>
+          </p>
+
+          <div style={{
+            display: "flex",
+            justifyContent: "center",
+            gap: "0.8rem",
+            flexWrap: "wrap",
+            marginTop: "2rem",
+          }}>
+            {confirmation.suiviUrl ? (
+              <a className="btn" href={confirmation.suiviUrl}>
+                Suivre ma demande
+              </a>
+            ) : null}
+            <a className="btn btn--fantome" href="/">
+              Retour au site
+            </a>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn--fantome"
+            style={{ marginTop: "1rem" }}
+            onClick={() => {
+              cleIdempotence.current =
+                typeof crypto !== "undefined" && crypto.randomUUID
+                  ? crypto.randomUUID()
+                  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+              setConfirmation(null);
+            }}
+          >
+            Envoyer une autre demande
+          </button>
+        </div>
       </div>
     );
   }

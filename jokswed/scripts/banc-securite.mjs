@@ -282,6 +282,25 @@ try {
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
     "documents_emis_complets",
+    /* V8 — suivi public d'une demande et notifications push. Relues avant
+       inscription ici, et non ajoutées pour faire taire le banc :
+
+       · `demande_suivi_public` sert la page `/suivi/[id]`, qui n'a aucun
+         acteur : la RLS lui rendrait zéro ligne. Elle est STABLE, son
+         `search_path` est figé, elle est retirée à PUBLIC et accordée au seul
+         rôle métier, elle n'écrit rien et ne prend qu'un identifiant de
+         demande. L'identifiant seul ne suffit pas : la page exige en plus un
+         jeton signé (`verifierSuiviDemande`) avant de l'appeler.
+
+       · `push_abonnements_entreprise` est appelée par le chemin de
+         notification, qui n'a pas davantage d'acteur. Elle ne rend que les
+         abonnements des membres ACTIFS portant `dossier.lire`.
+         shortcut: elle ne vérifie pas l'appelant, donc toute exécution SQL
+         sous le rôle métier pourrait lire les abonnements d'une AUTRE
+         entreprise — soit de quoi lui pousser des notifications, pas de quoi
+         lire ses données. À reprendre le jour où le drain aura son propre
+         rôle, comme `jokswed_auth` pour l'authentification. */
+    "demande_suivi_public","push_abonnements_entreprise",
     /* Mise en service — PRÉDICATS D'AMORÇAGE, appelés par les POLITIQUES
        elles-mêmes. Ils doivent compter des lignes de `membres` et de
        `membres_roles` sans être filtrés par la politique qu'ils servent à

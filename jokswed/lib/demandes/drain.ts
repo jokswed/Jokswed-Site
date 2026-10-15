@@ -10,6 +10,8 @@ import { adresseReponse } from "@/lib/messagerie/adresses";
 import { texteVersHtml } from "@/lib/messagerie/modeles";
 import { rendrePdf } from "@/lib/documents/generer";
 import { formaterDateSql } from "@/lib/dates";
+import { lienSuiviDemande } from "@/lib/suivi/demande";
+import { envoyerPushNouvelleDemande } from "@/lib/push/envoyer";
 
 /* =============================================================================
    DRAIN DE LA FILE D'ÉVÉNEMENTS
@@ -120,6 +122,15 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
             evenement.charge_utile;
 
           await notifierEquipe(q, entreprise_id, demande_id, reference, video_demandee);
+          try {
+            await envoyerPushNouvelleDemande(
+              q, entreprise_id, demande_id, reference,
+            );
+          } catch (erreur) {
+            console.error(
+              `[push] notification différée : ${erreur instanceof Error ? erreur.name : "erreur"}`,
+            );
+          }
 
           /* ⚠️ PAR UNE FONCTION, PAS PAR UN SELECT ORDINAIRE.
              Le drain n'a pas d'acteur : la politique de `demandes` lui rendait
@@ -140,6 +151,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               reference,
               dateMariage: d.date_mariage ? formaterDateSql(d.date_mariage) : null,
               formule: d.formule_nom,
+              lienSuivi: lienSuiviDemande(demande_id),
             });
             const r1 = await envoyer({
               destinataire: d.contact_email,

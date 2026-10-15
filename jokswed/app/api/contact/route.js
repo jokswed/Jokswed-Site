@@ -47,13 +47,14 @@
       base avec `tentatives_connexion`, qui en porte déjà le patron.
    ============================================================================= */
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { cleDepuisRequete } from "@/lib/limite-debit";
 import { verifierLimite } from "@/lib/public/limite";
 import { formules, supplements, statutSupplement } from "@/content/offres";
 import { deposerDemande } from "@/lib/demandes/depot";
 import { drainer } from "@/lib/demandes/drain";
 import { tronquerIp } from "@/lib/auth/secrets";
+import { lienSuiviDemande } from "@/lib/suivi/demande";
 
 export const runtime = "nodejs";
 
@@ -306,27 +307,30 @@ export async function POST(request) {
       );
     }
 
-    /* Rejeu d'une clé déjà vue : même réponse, aucune seconde demande. */
+    const suiviUrl = lienSuiviDemande(depot.demandeId);
+
+    after(async () => {
+      try {
+        await drainer();
+      } catch (erreur) {
+        console.error(
+          `[contact] drain différé (trace=${trace}) : ${
+            erreur instanceof Error ? erreur.name : "inconnue"
+          }`,
+        );
+      }
+    });
+
     if (depot.rejeu) {
-      return NextResponse.json({ ok: true, reference: depot.reference, rejeu: true });
+      return NextResponse.json({
+        ok: true,
+        reference: depot.reference,
+        suiviUrl,
+        rejeu: true,
+      });
     }
 
-    /* Le drain pose les notifications internes. Son échec ne doit PAS faire
-       échouer la demande : elle est déjà enregistrée, et l'événement reste en
-       file avec son report. */
-    try {
-      await drainer();
-    } catch (erreur) {
-      console.error(
-        `[contact] drain différé (trace=${trace}) : ${
-          erreur instanceof Error ? erreur.name : "inconnue"
-        }`,
-      );
-    }
-
-    /* On renvoie la RÉFÉRENCE : le couple peut la citer s'il m'écrit, et
-       elle prouve que la demande existe bien en base. */
-    return NextResponse.json({ ok: true, reference: depot.reference });
+    return NextResponse.json({ ok: true, reference: depot.reference, suiviUrl });
   } catch (erreur) {
     console.error(
       `[contact] erreur inattendue (trace=${trace}) : ${

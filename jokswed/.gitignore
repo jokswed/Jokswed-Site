@@ -11,3 +11,4 @@ out/
 
 # Scripts jetables d'investigation : jamais versionnés.
 .scratch/
+.env*

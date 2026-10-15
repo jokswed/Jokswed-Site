@@ -39,6 +39,7 @@ export default async function Messagerie({ searchParams }) {
 
   const recherche = String(params?.q ?? "").trim();
   const archivees = params?.vue === "archivees";
+  const demandePreferee = typeof params?.demande === "string" ? params.demande : "";
 
   const donnees = await acces.executer(async (q) => {
     const { rows: conversations } = await q(
@@ -84,6 +85,7 @@ export default async function Messagerie({ searchParams }) {
   }
 
   const { conversations, demandes, orphelins } = donnees;
+  const demandeInitiale = demandes.find((d) => d.id === demandePreferee) ?? null;
   const totalNonLus = conversations.reduce((t, c) => t + c.non_lus, 0);
   const receptionPrete = Boolean(domaineReponse());
 
@@ -192,7 +194,7 @@ export default async function Messagerie({ searchParams }) {
               </div>
               <div className="champ">
                 <label htmlFor="demande">Dossier</label>
-                <select id="demande" name="demande" defaultValue="">
+                <select id="demande" name="demande" defaultValue={demandeInitiale?.id ?? ""}>
                   <option value="">— aucun —</option>
                   {demandes.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -204,6 +206,7 @@ export default async function Messagerie({ searchParams }) {
               <div className="champ pleine">
                 <label htmlFor="sujet">Sujet</label>
                 <input id="sujet" name="sujet" type="text" required
+                  defaultValue={demandeInitiale ? `Votre demande ${demandeInitiale.reference}` : ""}
                   placeholder="Votre mariage du 13 juin" />
               </div>
             </div>

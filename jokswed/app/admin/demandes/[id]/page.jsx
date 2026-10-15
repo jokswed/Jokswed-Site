@@ -346,7 +346,14 @@ export default async function FicheDemande({ params }) {
             {LIBELLES_STATUT[demande.statut] ?? demande.statut}
           </p>
         </div>
-        <Link href="/admin/demandes" className="btn btn--fantome">Retour</Link>
+        <div className="admin-actions">
+          {acces.permissions.has("message.envoyer") ? (
+            <Link href={`/admin/messagerie?demande=${id}`} className="btn">
+              Répondre au client
+            </Link>
+          ) : null}
+          <Link href="/admin/demandes" className="btn btn--fantome">Retour</Link>
+        </div>
       </header>
 
       <div className="admin-colonnes">

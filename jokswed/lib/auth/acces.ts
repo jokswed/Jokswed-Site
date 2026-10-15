@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { avecActeur, type Requete } from "@/lib/db/client";
 import { sessionCourante, type SessionActive } from "./session";
 
@@ -63,6 +64,42 @@ export async function mesEntreprises(session: SessionActive) {
 }
 
 /**
+ * Appartenance et permissions, pour UNE requête.
+ *
+ * ⚠️ MÉMOÏSÉ PAR REQUÊTE, ET CLÉ SUR L'EMPREINTE DE SESSION.
+ *
+ * Une page appelle `exigerAcces()` plusieurs fois — une fois pour le rendu,
+ * une fois par action de formulaire. Chaque appel ouvrait une transaction
+ * complète : BEGIN, `set_config`, contrôle d'appartenance,
+ * `permissions_effectives`, COMMIT — cinq allers-retours, pour un résultat
+ * identique à la milliseconde près.
+ *
+ * `cache()` de React mémoïse pour la durée d'UNE requête, jamais au-delà. La
+ * clé porte l'empreinte du jeton : deux identités ne peuvent pas se partager
+ * une entrée, même si un jour deux requêtes se croisaient dans le même
+ * contexte de rendu. Rien n'est mis en cache entre deux visiteurs, ni entre
+ * deux clics : une révocation prend effet au clic suivant, comme avant.
+ *
+ * Le refus reste une EXCEPTION et non un ensemble vide : une page qui oublie
+ * de vérifier échoue bruyamment.
+ */
+const permissionsDe = cache(async (
+  _jetonHache: string, utilisateurId: string, entrepriseId: string,
+): Promise<Set<string>> =>
+  avecActeur({ utilisateurId, jetonHache: _jetonHache }, async (q) => {
+    const { rows: membre } = await q(
+      `SELECT 1 FROM membres
+        WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL`,
+      [utilisateurId, entrepriseId],
+    );
+    if (membre.length === 0) throw new AccesRefuse("non membre de cette entreprise");
+    const { rows } = await q("SELECT permission_cle FROM app.permissions_effectives($1)", [
+      entrepriseId,
+    ]);
+    return new Set<string>(rows.map((r) => r.permission_cle));
+  }));
+
+/**
  * Ouvre un contexte autorisé pour une entreprise, et exige les permissions
  * demandées. Lève plutôt que de rendre un résultat vide : une route qui
  * oublie de vérifier le retour échoue bruyamment au lieu d'afficher une page
@@ -73,19 +110,7 @@ export async function exigerAcces(
   requises: string[] = [],
 ): Promise<Omit<Contexte, "q"> & { executer: <T>(t: (q: Requete) => Promise<T>) => Promise<T> }> {
   const session = await exigerSession();
-
-  const permissions = await avecActeur({ utilisateurId: session.utilisateurId, jetonHache: session.jetonHache }, async (q) => {
-    const { rows: membre } = await q(
-      `SELECT 1 FROM membres
-        WHERE utilisateur_id = $1 AND entreprise_id = $2 AND retire_le IS NULL`,
-      [session.utilisateurId, entrepriseId],
-    );
-    if (membre.length === 0) throw new AccesRefuse("non membre de cette entreprise");
-    const { rows } = await q("SELECT permission_cle FROM app.permissions_effectives($1)", [
-      entrepriseId,
-    ]);
-    return new Set<string>(rows.map((r) => r.permission_cle));
-  });
+  const permissions = await permissionsDe(session.jetonHache, session.utilisateurId, entrepriseId);
 
   for (const p of requises) {
     if (!permissions.has(p)) throw new AccesRefuse(`permission manquante : ${p}`);
