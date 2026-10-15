@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { avecAuth, sansIdentite } from "@/lib/db/client";
 import { engendrerJeton, hacherJeton, verifierMotDePasse, tronquerIp } from "./secrets";
@@ -26,8 +27,23 @@ export interface SessionActive {
   jetonHache: string;
 }
 
-/** Résout la session depuis le cookie. `null` si absente, expirée ou révoquée. */
-export async function sessionCourante(): Promise<SessionActive | null> {
+/**
+ * Résout la session depuis le cookie. `null` si absente, expirée ou révoquée.
+ *
+ * ⚠️ MÉMOÏSÉE POUR LA DURÉE D'UNE SEULE REQUÊTE — `cache()` de React.
+ *
+ * Mesuré sur la production : `contexteAdmin()` résout la session, puis chaque
+ * `exigerAcces()` la résolvait À NOUVEAU. Chaque résolution coûte une
+ * transaction complète sur le pool d'authentification — BEGIN, appel,
+ * COMMIT — soit trois allers-retours. `app/admin/demandes/[id]/page.jsx`
+ * enchaîne quinze appels de ce type.
+ *
+ * `cache()` mémoïse par REQUÊTE, pas globalement : le cookie est lu une fois,
+ * et rien ne survit à la réponse. Un cache de module, lui, aurait fait hériter
+ * la session d'un visiteur à la requête du suivant — exactement la faute que
+ * `set_config(..., true)` évite côté base.
+ */
+export const sessionCourante = cache(async function sessionCourante(): Promise<SessionActive | null> {
   const jeton = (await cookies()).get(NOM_COOKIE)?.value;
   if (!jeton) return null;
 
@@ -41,7 +57,7 @@ export async function sessionCourante(): Promise<SessionActive | null> {
     mfaValidee: rows[0].mfa_validee,
     jetonHache: hacherJeton(jeton),
   };
-}
+});
 
 export type ResultatConnexion =
   | { ok: true; mfaRequise: boolean; jeton: string; maxAge: number }
