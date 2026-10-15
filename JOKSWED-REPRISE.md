@@ -118,3 +118,31 @@ npm run verifier:neon-prod    # 8 contrôles, lecture seule, aucune écriture
 npm run verifier:prod -- URL  # 28 contrôles externes sur une URL déployée
 npm run preparer:preview      # reconstruit la branche `preview` depuis la branche de travail
 ```
+
+## 15 octobre 2026 — production en ligne
+
+`jokswed.com` sert la V2, commit `9e2f911` sur `main`. 29/29 contrôles externes.
+
+- **Collision de migrations réglée.** Deux paliers portaient le numéro 057.
+  Celui enregistré en production (`057_workflow_demande_suivi_push`) garde son
+  numéro ; les deux paliers agenda/signature de la branche
+  `correctifs-jokswed-tarifs-20261010` sont passés à **058** et **059**, et les
+  deux lignes correspondantes de `schema_migrations` ont été renommées dans
+  Preview — sans rejouer le DDL. `migrer.mjs` était déjà atomique : le DDL et
+  l'inscription dans `schema_migrations` partagent une transaction.
+- **Schémas.** Production : 056 + 057_workflow — exactement ce qu'attend le
+  code déployé. Preview : 056 + 058_agenda + 059_rls, et il lui manque
+  057_workflow, que `migrer` posera au prochain passage.
+- **Sécurité 88/88.** Les deux fonctions `SECURITY DEFINER` du palier 057 ont
+  été relues puis inscrites dans la liste blanche, avec la limite de
+  `push_abonnements_entreprise` écrite noir sur blanc : elle ne vérifie pas son
+  appelant.
+- **Performance.** `sessionCourante()` et le couple appartenance + permissions
+  sont mémoïsés par requête (`cache()` de React). Mesuré : aucune requête
+  lente, tout le coût est en allers-retours et en réveils.
+
+### Le seul geste manuel restant
+
+Neon → projet `jokswed` → branche `production` → Compute → **« Suspend compute
+after a period of inactivity » = 1 heure**. C'est le facteur dominant de
+lenteur ressentie ; je n'ai pas de clé d'API Neon pour le faire.
