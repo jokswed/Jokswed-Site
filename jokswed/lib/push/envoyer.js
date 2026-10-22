@@ -53,3 +53,62 @@ export async function envoyerPushNouvelleDemande(q, evenementId, demandeId, refe
   }
   return { envoyes, inhibe: false };
 }
+
+/* ⚠️ ON PASSE LA CONVERSATION, PAS L'ENTREPRISE — MÊME RAISON QU'AU-DESSUS.
+   `app.push_cible_conversation` déduit l'entreprise de la conversation, et ne
+   retient que ses membres actifs portant `message.lire` et n'ayant pas coupé
+   `message.recu`.
+
+   ⚠️ APPELÉ UNIQUEMENT POUR UN MESSAGE RÉELLEMENT ENREGISTRÉ, ET ENTRANT.
+   `app.recevoir_message` déduplique par `message_id_rfc` et rend « déjà reçu »
+   sur un webhook rejoué : l'appelant ne doit déclencher cet envoi que sur un
+   message neuf et rattaché. Nos propres envois, eux, ne passent jamais par ce
+   chemin — ils sont `sortant`, et c'est le drain qui les traite. */
+export async function envoyerPushReponseClient(q, conversationId) {
+  if (!configurer()) return { envoyes: 0, inhibe: true };
+
+  const { rows: sujet } = await q(
+    "SELECT * FROM app.push_sujet_conversation($1)", [conversationId]);
+  const s = sujet[0];
+  if (!s) return { envoyes: 0, inhibe: false };
+
+  const { rows } = await q(
+    "SELECT * FROM app.push_cible_conversation($1)", [conversationId]);
+
+  /* Le prénom suffit : le corps du message ne doit pas s'afficher sur un
+     écran verrouillé. */
+  const qui = String(s.expediteur ?? "Un client").split(/\s+/)[0];
+  const quand = s.date_mariage
+    ? ` concernant son mariage du ${new Date(`${s.date_mariage}T12:00:00Z`)
+        .toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`
+    : "";
+  const url = s.demande_id
+    ? `/admin/demandes/${s.demande_id}`
+    : `/admin/messagerie/${conversationId}`;
+
+  let envoyes = 0;
+  for (const abonnement of rows) {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: abonnement.endpoint,
+          keys: { p256dh: abonnement.p256dh, auth: abonnement.auth },
+        },
+        JSON.stringify({
+          title: "JoksWed — Nouvelle réponse client",
+          body: `${qui} vient de répondre à votre message${quand}.`,
+          url,
+          /* Le `tag` est la conversation : deux réponses d'affilée remplacent
+             la notification au lieu de s'empiler. */
+          tag: `conversation-${conversationId}`,
+        }),
+        { TTL: 600, urgency: "high" },
+      );
+      envoyes += 1;
+    } catch (erreur) {
+      const code = erreur?.statusCode ?? erreur?.status ?? "inconnu";
+      console.error(`[push] envoi impossible (HTTP ${code})`);
+    }
+  }
+  return { envoyes, inhibe: false };
+}

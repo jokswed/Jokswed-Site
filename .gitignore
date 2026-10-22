@@ -1,0 +1,14 @@
+# ⚠️ L'ARBORESCENCE A ÉTÉ IMBRIQUÉE SOUS `jokswed/` POUR VERCEL.
+# Le .gitignore de `jokswed/` ne couvre plus ce qui se trouve à la RACINE, et
+# un `git add -A` y balaye tout : un commit a ainsi emporté `.env.local` et
+# 9 951 fichiers de cache de build. Seule la limite de taille de GitHub l'a
+# arrêté. Ce fichier existe pour que cela ne se reproduise pas.
+.env
+.env.*
+!.env.example
+.next/
+.vercel/
+.pgdev/
+.scratch/
+node_modules/
+tsconfig.tsbuildinfo

@@ -1,4 +1,6 @@
+import { Fragment } from "react";
 import Link from "next/link";
+import CopierTexte from "@/components/admin/CopierTexte";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
@@ -584,6 +586,82 @@ export default async function FicheDemande({ params }) {
     revalidatePath(`/admin/demandes/${id}`);
   }
 
+  /* ═══════════ CE QUE LE CLIENT A TRANSMIS, SANS RIEN PERDRE ═══════════ */
+
+  /* ⚠️ UN CHAMP REMPLI PAR LE CLIENT NE DOIT PAS DEVENIR INVISIBLE.
+     `complements` et l'instantané contiennent ce que le formulaire a envoyé.
+     L'instantané porte aussi des éléments internes — clé d'idempotence,
+     adresse IP tronquée, consentements, identifiants — qui n'ont rien à faire
+     dans une fiche ni dans un texte qu'on collera ailleurs. On liste donc les
+     clés DÉJÀ affichées et les clés internes, et on montre tout le reste. */
+  const DEJA_AFFICHE = new Set([
+    "contactNom", "contactNom2", "contactEmail", "contactTelephone",
+    "contactPrefere", "contactAdresse", "dateMariage", "dateIncertaine",
+    "lieu", "ville", "departement", "invitesEstimes", "horaires",
+    "heureDebut", "heureFin", "lieuMairie", "lieuCeremonie", "lieuReception",
+    "formuleCle", "formuleNom", "formulePrixCents", "supplementsCles",
+    "message", "complements", "videoDemandee", "photobooth360",
+    "prixTotalCents", "nombreEcheances",
+  ]);
+  const INTERNE = new Set([
+    "cleIdempotence", "ipTronquee", "consentementDemande",
+    "consentementPartenaire", "entrepriseSlug", "id", "reference",
+  ]);
+  const autresInfos = Object.entries(demande.instantane ?? {})
+    .filter(([cle, valeur]) =>
+      !DEJA_AFFICHE.has(cle) && !INTERNE.has(cle)
+      && valeur !== null && valeur !== "" && valeur !== false
+      && !(Array.isArray(valeur) && valeur.length === 0))
+    .map(([cle, valeur]) => [
+      cle.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase()),
+      Array.isArray(valeur) ? valeur.join(", ")
+        : typeof valeur === "object" ? JSON.stringify(valeur)
+        : String(valeur),
+    ]);
+
+  const formuleLisible = demande.formule_nom ?? "Aucune formule choisie";
+  const emailReel = !String(demande.contact_email).endsWith("@jokswed.invalid");
+  const ouPas = (v) => (v === null || v === undefined || v === "" ? "Non renseigné" : v);
+
+  const texteCoordonnees = [
+    demande.contact_nom,
+    demande.contact_nom_2,
+    emailReel ? demande.contact_email : null,
+    demande.contact_telephone,
+    demande.contact_adresse,
+  ].filter(Boolean).join("\n");
+
+  /* ⚠️ CE TEXTE EST DESTINÉ À ÊTRE COLLÉ DANS UNE IA EXTERNE.
+     Il ne porte donc QUE ce qui sert à rédiger une réponse : aucun lien
+     d'administration, aucun jeton de suivi, aucun identifiant interne. Et il
+     n'est copié que si l'on clique — rien ne part d'ici tout seul. */
+  const texteIA = [
+    "DEMANDE CLIENT — JOKSWED",
+    `Référence : ${demande.reference}`,
+    `Client : ${ouPas(demande.contact_nom)}`,
+    demande.contact_nom_2 ? `Partenaire : ${demande.contact_nom_2}` : null,
+    `E-mail : ${emailReel ? demande.contact_email : "Non renseigné"}`,
+    `Téléphone : ${ouPas(demande.contact_telephone)}`,
+    demande.contact_adresse ? `Adresse : ${demande.contact_adresse}` : null,
+    `Date du mariage : ${demande.date_mariage ? formaterDateSql(demande.date_mariage) : (demande.date_incertaine ? "À définir" : "Non renseignée")}`,
+    `Lieu : ${ouPas(demande.lieu ?? demande.lieu_reception ?? demande.ville)}`,
+    demande.lieu_mairie ? `Mairie : ${demande.lieu_mairie}` : null,
+    demande.lieu_ceremonie ? `Cérémonie : ${demande.lieu_ceremonie}` : null,
+    demande.invites_estimes ? `Invités estimés : ${demande.invites_estimes}` : null,
+    `Formule : ${formuleLisible}`,
+    demande.prix_total_cents !== null ? `Montant retenu : ${formaterPrix(demande.prix_total_cents)} TTC` : null,
+    `Options : ${lignes.length === 0 ? "aucune" : lignes.map((l) => l.libelle).join(", ")}`,
+    demande.photobooth_360 ? "Photobooth 360 : oui" : null,
+    demande.video_demandee ? "Vidéaste demandé : oui" : null,
+    "",
+    "MESSAGE DU CLIENT :",
+    demande.message || "(aucun message)",
+    autresInfos.length > 0 || demande.complements ? "" : null,
+    autresInfos.length > 0 || demande.complements ? "AUTRES INFORMATIONS :" : null,
+    demande.complements || null,
+    ...autresInfos.map(([k, v]) => `${k} : ${v}`),
+  ].filter((l) => l !== null).join("\n");
+
   return (
     <main className="admin-page">
       <header className="admin-entete">
@@ -596,61 +674,156 @@ export default async function FicheDemande({ params }) {
           </p>
         </div>
         <div className="admin-actions">
-          {acces.permissions.has("message.envoyer") ? (
-            <Link href={`/admin/messagerie?demande=${id}`} className="btn">
-              Répondre au client
-            </Link>
-          ) : null}
           <Link href="/admin/demandes" className="btn btn--fantome">Retour</Link>
         </div>
       </header>
 
       <div className="admin-colonnes">
         <div className="admin-colonne">
+          {/* ═══════════ UNE SEULE FICHE, ET ELLE EST EN HAUT ═══════════ */}
+          {/* ⚠️ TROIS CARTES SÉPARÉES OBLIGEAIENT À DÉFILER POUR RÉUNIR CE
+              QU'UN SEUL REGARD DOIT SAISIR : qui écrit, quand, où, quelle
+              formule, et où en est le dossier. Les mêmes champs qu'avant, au
+              même endroit. Rien n'a été retiré ; `complements` et les champs
+              inattendus de l'instantané, eux, étaient invisibles et le sont
+              désormais. */}
           <section className="admin-bloc">
-            <h2 className="display t-carte">Le couple</h2>
-            <dl className="admin-dl">
-              <dt>Personne 1</dt><dd>{demande.contact_nom}</dd>
-              <dt>Personne 2</dt><dd>{demande.contact_nom_2 ?? "—"}</dd>
-              <dt>E-mail</dt>
-              <dd>{String(demande.contact_email).endsWith("@jokswed.invalid")
-                ? <span className="recap__note">adresse à renseigner</span>
-                : <a className="lien" href={`mailto:${demande.contact_email}`}>{demande.contact_email}</a>}</dd>
-              <dt>Téléphone</dt>
-              <dd>{demande.contact_telephone
-                ? <a className="lien" href={`tel:${demande.contact_telephone.replace(/\s/g, "")}`}>{demande.contact_telephone}</a>
-                : "—"}</dd>
-              <dt>Contact préféré</dt><dd>{demande.contact_prefere ?? "—"}</dd>
-              <dt>Adresse</dt><dd>{demande.contact_adresse ?? "—"}</dd>
-            </dl>
-          </section>
+            <div className="admin-ligne-actions"
+              style={{ justifyContent: "space-between", marginBottom: "1.1rem" }}>
+              <h2 className="display t-carte" style={{ margin: 0 }}>Récapitulatif</h2>
+              {texteCoordonnees ? (
+                <CopierTexte texte={texteCoordonnees} libelle="Coordonnées"
+                  titre="Copier les coordonnées du client" />
+              ) : null}
+            </div>
 
-          <section className="admin-bloc">
-            <h2 className="display t-carte">Le mariage</h2>
-            <dl className="admin-dl">
-              <dt>Date</dt>
-              <dd>{demande.date_incertaine && !demande.date_mariage
-                ? "À définir" : formaterDateSql(demande.date_mariage)}</dd>
-              <dt>Horaires</dt>
-              <dd>{demande.heure_debut || demande.heure_fin
-                ? `${String(demande.heure_debut ?? "?").slice(0, 5)} → ${String(demande.heure_fin ?? "?").slice(0, 5)}`
-                : demande.horaires ?? "—"}</dd>
-              <dt>Mairie</dt><dd>{demande.lieu_mairie ?? "—"}</dd>
-              <dt>Cérémonie</dt><dd>{demande.lieu_ceremonie ?? "—"}</dd>
-              <dt>Domaine / salle</dt><dd>{demande.lieu_reception ?? "—"}</dd>
-              <dt>Lieu (texte libre)</dt><dd>{demande.lieu ?? "—"}</dd>
-              <dt>Ville</dt><dd>{demande.ville ?? "—"}</dd>
-              <dt>Département</dt><dd>{demande.departement ?? "—"}</dd>
-              <dt>Invités</dt><dd>{demande.invites_estimes ?? "—"}</dd>
-              <dt>Source</dt>
-              <dd>{demande.origine === "manuel" ? "Saisie manuelle" : "Formulaire du site"}</dd>
-              <dt>Photobooth 360</dt>
-              <dd>{demande.photobooth_360
-                ? (demande.photobooth_prix_cents === null
-                    ? "Oui — sur devis"
-                    : `Oui — ${formaterPrix(demande.photobooth_prix_cents)} TTC`)
-                : "Non"}</dd>
-            </dl>
+            <div className="admin-fiche">
+              <div>
+                <p className="label label--nu">Identité et coordonnées</p>
+                <dl className="admin-dl">
+                  <dt>Personne 1</dt><dd>{demande.contact_nom}</dd>
+                  <dt>Personne 2</dt><dd>{ouPas(demande.contact_nom_2)}</dd>
+                  <dt>E-mail</dt>
+                  <dd>{emailReel
+                    ? <a className="lien" href={`mailto:${demande.contact_email}`}>{demande.contact_email}</a>
+                    : <span className="recap__note">adresse à renseigner</span>}</dd>
+                  <dt>Téléphone</dt>
+                  <dd>{demande.contact_telephone
+                    ? <a className="lien" href={`tel:${demande.contact_telephone.replace(/\s/g, "")}`}>{demande.contact_telephone}</a>
+                    : "Non renseigné"}</dd>
+                  <dt>Contact préféré</dt><dd>{ouPas(demande.contact_prefere)}</dd>
+                  <dt>Adresse</dt><dd>{ouPas(demande.contact_adresse)}</dd>
+                </dl>
+              </div>
+
+              <div>
+                <p className="label label--nu">Le mariage</p>
+                <dl className="admin-dl">
+                  <dt>Date</dt>
+                  <dd>{demande.date_incertaine && !demande.date_mariage
+                    ? "À définir" : formaterDateSql(demande.date_mariage)}</dd>
+                  <dt>Horaires</dt>
+                  <dd>{demande.heure_debut || demande.heure_fin
+                    ? `${String(demande.heure_debut ?? "?").slice(0, 5)} → ${String(demande.heure_fin ?? "?").slice(0, 5)}`
+                    : ouPas(demande.horaires)}</dd>
+                  <dt>Mairie</dt><dd>{ouPas(demande.lieu_mairie)}</dd>
+                  <dt>Cérémonie</dt><dd>{ouPas(demande.lieu_ceremonie)}</dd>
+                  <dt>Domaine / salle</dt><dd>{ouPas(demande.lieu_reception)}</dd>
+                  <dt>Lieu (texte libre)</dt><dd>{ouPas(demande.lieu)}</dd>
+                  <dt>Ville</dt><dd>{ouPas(demande.ville)}</dd>
+                  <dt>Département</dt><dd>{ouPas(demande.departement)}</dd>
+                  <dt>Invités</dt><dd>{ouPas(demande.invites_estimes)}</dd>
+                </dl>
+              </div>
+
+              <div>
+                <p className="label label--nu">Commercial</p>
+                <dl className="admin-dl">
+                  <dt>Formule</dt><dd>{formuleLisible}</dd>
+                  <dt>Tarif de la formule</dt>
+                  <dd>{demande.formule_prix_cents === null
+                    ? "Non renseigné" : `${formaterPrix(demande.formule_prix_cents)} TTC`}</dd>
+                  <dt>Montant retenu</dt>
+                  <dd>{demande.prix_total_cents === null
+                    ? "Non renseigné" : `${formaterPrix(demande.prix_total_cents)} TTC`}</dd>
+                  <dt>Échéancier</dt>
+                  <dd>{demande.nombre_echeances ? `${demande.nombre_echeances}×` : "Non renseigné"}</dd>
+                  <dt>Vidéaste</dt><dd>{demande.video_demandee ? "Demandé" : "Non"}</dd>
+                  <dt>Photobooth 360</dt>
+                  <dd>{demande.photobooth_360
+                    ? (demande.photobooth_prix_cents === null
+                        ? "Oui — sur devis"
+                        : `Oui — ${formaterPrix(demande.photobooth_prix_cents)} TTC`)
+                    : "Non"}</dd>
+                </dl>
+                {lignes.length === 0 ? (
+                  <p className="recap__note">Aucune formule ni supplément sélectionné.</p>
+                ) : (
+                  <ul className="admin-liste">
+                    {lignes.map((l) => (
+                      <li key={l.id}>
+                        <strong>{l.libelle}</strong>
+                        <span>
+                          {l.compatibilite === "inclus"
+                            ? "Incluse dans la formule — non facturée"
+                            : l.prix_cents === null
+                              ? "Sur devis"
+                              : `${formaterPrix(l.prix_cents)} TTC`}
+                        </span>
+                        {l.executant_partenaire ? <span className="admin-jeton">Partenaire</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {/* ⚠️ L'instantané fige ce que le client a vu : si un tarif
+                    change demain, cette fiche affiche toujours le prix du jour
+                    de la demande. */}
+                <p className="recap__note" style={{ marginTop: "0.6rem" }}>
+                  Tarifs figés au moment de la demande.
+                </p>
+              </div>
+
+              <div>
+                <p className="label label--nu">Administratif</p>
+                <dl className="admin-dl">
+                  <dt>Reçue le</dt>
+                  <dd>{new Date(demande.cree_le).toLocaleString("fr-FR")}</dd>
+                  <dt>Statut</dt>
+                  <dd><span className="admin-jeton">
+                    {LIBELLES_STATUT[demande.statut] ?? demande.statut}
+                  </span></dd>
+                  <dt>Provenance</dt>
+                  <dd>{demande.origine === "manuel" ? "Saisie manuelle" : "Formulaire du site"}</dd>
+                  <dt>Dossier associé</dt>
+                  <dd>{demande.mariage_id ? "Oui" : "Pas encore"}</dd>
+                  <dt>Devis</dt>
+                  <dd>{devisEmis ? "Émis" : devisDisponible ? "Brouillon" : "Aucun"}</dd>
+                  <dt>Contrat</dt>
+                  <dd>{documents.some((d) => d.type === "contrat" && d.statut !== "brouillon")
+                    ? "Émis"
+                    : documents.some((d) => d.type === "contrat") ? "Brouillon" : "Aucun"}</dd>
+                  <dt>Documents</dt><dd>{documents.length}</dd>
+                </dl>
+              </div>
+            </div>
+
+            {demande.complements ? (
+              <div style={{ marginTop: "1.2rem" }}>
+                <p className="label label--nu">Besoins particuliers / compléments</p>
+                <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{demande.complements}</p>
+              </div>
+            ) : null}
+
+            {autresInfos.length > 0 ? (
+              <div style={{ marginTop: "1.2rem" }}>
+                <p className="label label--nu">Autres informations transmises</p>
+                <dl className="admin-dl">
+                  {autresInfos.map(([cle, valeur]) => (
+                    <Fragment key={cle}><dt>{cle}</dt><dd>{valeur}</dd></Fragment>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
 
             {/* ⚠️ UNE OPTION VENDUE SANS PERSONNE POUR L'EXÉCUTER EST UN
                 OUBLI QUI SE VOIT LE JOUR DU MARIAGE. On le dit ici, pas le
@@ -667,38 +840,55 @@ export default async function FicheDemande({ params }) {
             ) : null}
           </section>
 
+          {/* ═══════════ LES ACTIONS, À PORTÉE IMMÉDIATE ═══════════ */}
+          {/* Rien de nouveau ici : le devis passe par la même action serveur
+              qu'avant, la réponse par la même messagerie. Seule leur place
+              change — elles étaient à huit cents lignes plus bas. */}
           <section className="admin-bloc">
-            <h2 className="display t-carte">Prestations demandées</h2>
-            {lignes.length === 0 ? (
-              <p className="recap__note">Aucune formule ni supplément sélectionné.</p>
-            ) : (
-              <ul className="admin-liste">
-                {lignes.map((l) => (
-                  <li key={l.id}>
-                    <strong>{l.libelle}</strong>
-                    <span>
-                      {l.compatibilite === "inclus"
-                        ? "Incluse dans la formule — non facturée"
-                        : l.prix_cents === null
-                          ? "Sur devis"
-                          : `${formaterPrix(l.prix_cents)} TTC`}
-                    </span>
-                    {l.executant_partenaire ? <span className="admin-jeton">Partenaire</span> : null}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {/* ⚠️ L'instantané fige ce que le client a vu : si un tarif change
-                demain, cette fiche continue d'afficher le prix du jour de la
-                demande. */}
-            <p className="recap__note" style={{ marginTop: "0.9rem" }}>
-              Tarifs figés au moment de la demande.
+            <div className="admin-ligne-actions">
+              {acces.permissions.has("document.rediger") && !devisDisponible ? (
+                <form action={genererDevis}>
+                  <button type="submit" className="btn">Générer un devis</button>
+                </form>
+              ) : null}
+              {devisDisponible ? (
+                <a className="btn" href={`/api/admin/documents/${devisDisponible.id}/pdf`}>
+                  Voir le devis ({devisEmis ? "émis" : "brouillon"})
+                </a>
+              ) : null}
+              {acces.permissions.has("message.envoyer") ? (
+                <Link href={`/admin/messagerie?demande=${id}`} className="btn btn--fantome">
+                  Répondre au client
+                </Link>
+              ) : null}
+              <CopierTexte texte={texteIA}
+                libelle="Copier la demande complète"
+                titre="Copier un récapitulatif structuré, à coller dans une IA" />
+              {demande.mariage_id ? (
+                <Link href="/admin/dossiers" className="btn btn--fantome">Dossiers</Link>
+              ) : null}
+            </div>
+            <p className="recap__note" style={{ marginTop: "0.8rem" }}>
+              Le récapitulatif copié ne contient ni lien d&apos;administration, ni
+              jeton, ni identifiant interne — seulement de quoi rédiger une réponse.
             </p>
           </section>
 
           <section className="admin-bloc">
-            <h2 className="display t-carte">Message du client</h2>
-            <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.65 }}>{demande.message}</p>
+            <div className="admin-ligne-actions"
+              style={{ justifyContent: "space-between", marginBottom: "0.8rem" }}>
+              <h2 className="display t-carte" style={{ margin: 0 }}>Message du client</h2>
+              {demande.message ? (
+                <CopierTexte texte={demande.message} libelle="Copier le message" />
+              ) : null}
+            </div>
+            <p className="recap__note">
+              Reçu le {new Date(demande.cree_le).toLocaleString("fr-FR")} ·{" "}
+              {demande.contact_nom}
+            </p>
+            <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.65, marginTop: "0.6rem" }}>
+              {demande.message || "Aucun message n'accompagnait cette demande."}
+            </p>
           </section>
 
           {peutEcrire ? (

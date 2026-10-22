@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { sansIdentite } from "@/lib/db/client";
 import { jetonDepuisDestinataires, adressesDUnePayload } from "@/lib/messagerie/adresses";
+import { envoyerPushReponseClient } from "@/lib/push/envoyer";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -117,6 +118,20 @@ export async function POST(requete, { params }) {
         bilan.quarantaine += 1;
       } else {
         bilan.rattaches += 1;
+
+        /* ⚠️ ICI, ET NULLE PART AILLEURS DANS CETTE BOUCLE.
+           Ce `else` est la seule branche atteinte par un message NEUF et
+           RATTACHÉ : « déjà reçu » part en doublon, un orphelin part en
+           quarantaine. Notifier plus haut aurait sonné à chaque rejeu du
+           webhook. Et nos propres messages ne passent pas par là : ils sont
+           sortants, et c'est le drain qui les traite. */
+        try {
+          await envoyerPushReponseClient(q, resultat.conversation_id);
+        } catch (erreur) {
+          /* Une notification perdue ne doit pas faire échouer la réception :
+             le message est déjà enregistré, et Brevo rejouerait l'appel. */
+          console.error("[entrant] push impossible :", erreur?.message ?? erreur);
+        }
 
         /* Les pièces jointes arrivent par jeton de téléchargement : on va
            les chercher, dans la limite de taille acceptée par la table. */

@@ -407,6 +407,46 @@ try {
     htmlFiche.includes("Formule 3") && htmlFiche.replace(/[  ]/g, " ").includes("1 600 €"));
   v("La fiche signale la séance engagement comme incluse et non facturée",
     htmlFiche.includes("Incluse dans la formule"));
+
+  /* ═══════════ LA FICHE SE LIT SANS DÉFILER ═══════════ */
+  /* ⚠️ CE QUI EST VÉRIFIÉ ICI N'EST PAS UNE QUESTION DE GOÛT : c'est l'ORDRE
+     du document. Le récapitulatif, les actions et le message du client
+     doivent précéder le formulaire de modification — c'est précisément
+     l'inverse qui obligeait à défiler pour retrouver ce que le client a
+     écrit. Un remaniement qui les remettrait plus bas casse ce banc. */
+  const rangRecap = htmlFiche.indexOf("Récapitulatif");
+  const rangActions = htmlFiche.indexOf("Copier la demande complète");
+  const rangMessage = htmlFiche.indexOf("Message du client");
+  const rangFormulaire = htmlFiche.indexOf("Modifier le dossier");
+  v("Le récapitulatif ouvre la page", rangRecap > 0 && rangRecap < rangActions,
+    `recap ${rangRecap}, actions ${rangActions}`);
+  v("Les actions suivent immédiatement, avant le message",
+    rangActions > 0 && rangActions < rangMessage, `actions ${rangActions}, message ${rangMessage}`);
+  v("Le message du client précède le formulaire de modification",
+    rangMessage > 0 && rangFormulaire > 0 && rangMessage < rangFormulaire,
+    `message ${rangMessage}, formulaire ${rangFormulaire}`);
+
+  /* ⚠️ UN CHAMP REMPLI PAR LE CLIENT NE DOIT PAS DISPARAÎTRE. `complements`
+     était stocké, modifiable, et invisible en lecture. */
+  v("Les compléments du client sont affichés",
+    !corpsEnvoi.complements || htmlFiche.includes("Besoins particuliers"));
+
+  /* ⚠️ LE TEXTE DESTINÉ À UNE IA EXTERNE NE DOIT PORTER AUCUN SECRET.
+     Il part dans le presse-papiers, donc potentiellement dans un service
+     tiers : ni jeton de suivi, ni lien d'administration, ni identifiant. */
+  /* ⚠️ LA FENÊTRE S'ARRÊTE AU MESSAGE DU CLIENT, et pas quelques milliers de
+     caractères plus loin : au-delà, on relit le HTML de la page, qui contient
+     légitimement des liens `/admin/`. Une première version de ce contrôle
+     échouait pour cette seule raison. L'en-tête structuré est la partie que
+     NOUS composons — c'est elle qui doit être exempte de secret ; ce qui suit
+     est le texte du client, qui ne peut pas contenir nos jetons. */
+  const debutIA = htmlFiche.indexOf("DEMANDE CLIENT");
+  const enTeteIA = debutIA < 0 ? "" : htmlFiche.slice(debutIA, htmlFiche.indexOf("MESSAGE DU CLIENT", debutIA));
+  v("Le récapitulatif copiable ne contient ni jeton ni lien d'administration",
+    debutIA > 0 && enTeteIA.length > 0
+      && !/\/admin\//.test(enTeteIA) && !/jeton|token|secret/i.test(enTeteIA),
+    `en-tête de ${enTeteIA.length} caractères`);
+
   /* ⚠️ RE-POINTÉ EN V6. Le libellé est passé en minuscules dans une pastille,
      et un bouton « Transmettre » existe désormais. L'invariant n'a pas changé
      — rien n'est parti — mais la formulation, si : on vérifie l'ÉTAT affiché

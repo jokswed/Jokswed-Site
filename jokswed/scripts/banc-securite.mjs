@@ -281,6 +281,15 @@ try {
     /* V5 — contrôle différé de complétude d'un document émis. En SECURITY
        INVOKER, une ligne cachée par la RLS ferait sauter le contrôle en
        silence. La fonction ne rend rien et n'écrit rien : elle lève, ou pas. */
+    /* V8 — push à l'arrivée d'une réponse client (palier 067). Toutes deux
+       prennent une CONVERSATION, jamais une entreprise : l'entreprise est
+       déduite de la ligne, donc on ne peut viser que là où une conversation
+       existe. `push_cible_conversation` exige du destinataire qu'il soit
+       membre actif, qu'il porte `message.lire` et qu'il n'ait pas coupé
+       `message.recu`. `push_sujet_conversation` ne rend que le nom de
+       l'expéditeur, la date du mariage et les identifiants de rattachement —
+       rien du contenu du message, qui s'afficherait sur un écran verrouillé. */
+    "push_cible_conversation","push_sujet_conversation",
     "documents_emis_complets",
     /* V8 — suivi public d'une demande et notifications push. Relues avant
        inscription ici, et non ajoutées pour faire taire le banc :

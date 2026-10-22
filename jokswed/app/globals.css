@@ -2399,3 +2399,18 @@ button:hover .photo img {
   .admin-bulle { max-width: 100%; }
   .admin-bulle--entrant, .admin-bulle--sortant { justify-self: stretch; }
 }
+
+/* ⚠️ `minmax(0, 1fr)` ET NON `1fr` — LA LEÇON A DÉJÀ COÛTÉ CHER.
+   Une colonne de grille implicite se dimensionne sur `max-content` : une
+   adresse longue ou un libellé de formule suffisait à pousser la page à 1 700
+   px de large sur un iPhone de 350. */
+.admin-fiche {
+  display: grid;
+  gap: 1.5rem 2.2rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 46rem) {
+  .admin-fiche { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.admin-fiche > div { min-width: 0; }
+.admin-fiche dd { overflow-wrap: anywhere; }
