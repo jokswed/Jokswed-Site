@@ -11,6 +11,16 @@ const nextConfig = {
        chose que voit un visiteur en 4G. Avec 640 dans la liste, c'est 640 qui
        est servi ; 320 couvre le carré de 150 px des petits écrans. */
     deviceSizes: [320, 480, 640, 768, 1080, 1440, 1920, 2400],
+
+    /* 31 jours. Sans ce réglage, Next retombe sur son défaut court : chaque
+       expiration refacture la transformation d'une image inchangée. Huit
+       largeurs × deux formats = seize variantes par photo, rebillées en
+       boucle — c'est ce qui avait fait dépasser le quota Hobby (~5238/5000),
+       la facture suivant le trafic et non le nombre d'images.
+
+       Sans danger : un média remplacé reçoit une nouvelle URL, jamais un
+       nouveau contenu sous l'ancienne. */
+    minimumCacheTTL: 2678400,
   },
   reactStrictMode: true,
 
