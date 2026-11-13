@@ -34,7 +34,8 @@
     "db:refaire": "tsx scripts/reinitialiser-dev.mjs",
     "verifier:paliers-prod": "tsx scripts/verifier-paliers-production.mjs",
     "db:migrer-prod": "tsx scripts/migrer-production.mjs",
-    "db:migrer-preview": "tsx scripts/migrer-production.mjs --preview"
+    "db:migrer-preview": "tsx scripts/migrer-production.mjs --preview",
+    "test:gmail": "tsx scripts/banc-gmail.mjs"
   },
   "dependencies": {
     "next": "^16.4.0",

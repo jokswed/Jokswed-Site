@@ -289,6 +289,23 @@ try {
        `message.recu`. `push_sujet_conversation` ne rend que le nom de
        l'expéditeur, la date du mariage et les identifiants de rattachement —
        rien du contenu du message, qui s'afficherait sur un écran verrouillé. */
+    /* Palier 068 — envoi depuis sa propre boîte Gmail. Toutes sont
+       `SECURITY DEFINER` parce que la table est sous politique de ligne et que
+       le drain, qui envoie, tourne SANS acteur.
+
+       · `gmail_enregistrer` et `gmail_deconnecter` exigent `message.envoyer` :
+         connecter une boîte, c'est se donner le moyen d'écrire aux clientes.
+       · `gmail_etat` ne rend AUCUN jeton — un banc le vérifie sur la signature
+         de la fonction, pas sur la bonne volonté de l'appelant.
+       · `gmail_pour_message` ne prend pas d'entreprise mais un MESSAGE : elle
+         en déduit l'auteur et l'entreprise, exactement comme
+         `message_pour_envoi`. Réclamer la boîte d'un autre demanderait de
+         posséder l'identifiant d'un message qu'il a écrit.
+       · `gmail_jeton_maj`, `gmail_panne` et `gmail_fil_message` sont appelées
+         par le drain, bornées à une ligne par son identifiant, et n'exposent
+         rien en retour. */
+    "gmail_enregistrer","gmail_etat","gmail_pour_message","gmail_jeton_maj",
+    "gmail_panne","gmail_deconnecter","gmail_fil_message",
     "push_cible_conversation","push_sujet_conversation",
     "documents_emis_complets",
     /* V8 — suivi public d'une demande et notifications push. Relues avant

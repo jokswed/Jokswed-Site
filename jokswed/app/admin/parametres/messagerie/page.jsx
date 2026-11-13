@@ -55,13 +55,12 @@ const METHODES = {
     disponible: true,
   },
   oauth_gmail: {
-    libelle: "Envoyer depuis mon Gmail (OAuth)",
-    note: "Pas encore disponible. `gmail.send` est un scope sensible : il "
-      + "demande un projet Google Cloud, un écran de consentement, une "
-      + "politique de confidentialité publique et une vérification Google "
-      + "(~10 jours ouvrés). Sans frais, mais non engagé. L'architecture est "
-      + "prête ; l'intégration ne l'est pas.",
-    disponible: false,
+    libelle: "Envoyer depuis mon Gmail",
+    note: "Disponible. Une réponse écrite ici part de votre boîte et apparaît "
+      + "dans vos messages envoyés. Seule la portée d'ENVOI est demandée : "
+      + "JoksWed ne peut pas lire votre courrier. Les réponses des clientes "
+      + "reviennent par la réception intégrée, pas par Gmail.",
+    disponible: true,
   },
   oauth_outlook: {
     libelle: "Envoyer depuis mon Outlook (OAuth)",
@@ -70,9 +69,31 @@ const METHODES = {
   },
 };
 
-export default async function ParametresMessagerie() {
+const RETOURS_GMAIL = {
+  connecte: ["status", "Boîte Gmail connectée. Vos réponses partiront d'elle."],
+  deconnecte: ["status", "Boîte Gmail déconnectée, et l'autorisation révoquée chez Google."],
+  refuse: ["alert", "Autorisation refusée : rien n'a été connecté."],
+  "non-configure": ["alert", "Google n'est pas configuré : GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET manquent."],
+  "etat-invalide": ["alert", "Retour inattendu de Google — rien n'a été enregistré. Recommencez depuis cette page."],
+  "sans-code": ["alert", "Google n'a renvoyé aucun code d'autorisation."],
+  "echange-refuse": ["alert", "Google a refusé l'échange. Vérifiez l'adresse de retour déclarée dans Google Cloud."],
+  "envoi-non-accorde": ["alert", "L'autorisation d'ENVOI n'a pas été accordée : la case a été décochée. Rien n'a été connecté."],
+  "sans-renouvellement": ["alert", "Connecté, mais Google n'a pas donné de jeton de renouvellement : l'accès cessera dans une heure. Déconnectez puis reconnectez."],
+  erreur: ["alert", "Google a signalé une erreur. Rien n'a été connecté."],
+};
+
+export default async function ParametresMessagerie({ searchParams }) {
+  const recherche = (await searchParams) ?? {};
   const { session, entreprise } = await contexteAdmin();
   const acces = await accesPage(entreprise.id, ["message.envoyer"]);
+
+  /* ⚠️ ON NE LIT JAMAIS LES JETONS ICI. `gmail_etat` ne rend que de quoi
+     afficher : l'adresse, l'état, et pourquoi ça ne marche plus le cas
+     échéant. */
+  const gmail = await acces.executer(async (q) => {
+    const { rows } = await q("SELECT * FROM app.gmail_etat($1)", [entreprise.id]);
+    return rows[0] ?? null;
+  });
 
   const identites = await acces.executer(async (q) => {
     const { rows } = await q(
@@ -143,6 +164,59 @@ export default async function ParametresMessagerie() {
         </div>
         <Retour vers="/admin/plus" />
       </header>
+
+      {RETOURS_GMAIL[recherche.gmail] ? (
+        <p role={RETOURS_GMAIL[recherche.gmail][0]}
+          className={RETOURS_GMAIL[recherche.gmail][0] === "alert"
+            ? "admin-alerte" : "admin-alerte admin-alerte--neutre"}>
+          {RETOURS_GMAIL[recherche.gmail][1]}
+        </p>
+      ) : null}
+
+      <section className="admin-bloc">
+        <h2 className="display t-carte">Envoyer depuis ma boîte Gmail</h2>
+        {gmail ? (
+          <>
+            <dl className="admin-dl">
+              <dt>Boîte connectée</dt><dd>{gmail.adresse || "—"}</dd>
+              <dt>État</dt>
+              <dd>
+                <span className={`admin-jeton${gmail.statut === "actif" ? " admin-jeton--vif" : ""}`}>
+                  {gmail.statut === "actif" ? "Active" : "À reconnecter"}
+                </span>
+              </dd>
+              <dt>Renouvellement automatique</dt>
+              <dd>{gmail.renouvelable ? "Oui" : "Non — à reconnecter"}</dd>
+            </dl>
+            {gmail.motif_panne ? (
+              /* ⚠️ UNE AUTORISATION PERDUE DOIT SE VOIR. Sur l'autre
+                 plateforme, un accès Gmail révoqué a cessé de fonctionner en
+                 silence pendant des jours. */
+              <p className="admin-alerte">{gmail.motif_panne}</p>
+            ) : null}
+            <form method="post" action="/api/admin/gmail/deconnexion"
+              className="admin-ligne-actions">
+              <button type="submit" className="btn btn--fantome">
+                Déconnecter cette boîte
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <p className="recap__note">
+              Une réponse écrite dans une conversation partira de votre boîte et
+              apparaîtra dans vos messages envoyés. JoksWed ne demande que la
+              permission d&apos;<strong>envoyer</strong> : il ne peut pas lire
+              votre courrier. Les réponses des clientes reviennent par la
+              réception intégrée, pas par Gmail.
+            </p>
+            <form method="post" action="/api/admin/gmail/connexion"
+              className="admin-ligne-actions">
+              <button type="submit" className="btn">Connecter ma boîte Gmail</button>
+            </form>
+          </>
+        )}
+      </section>
 
       <section className="admin-bloc">
         <h2 className="display t-carte">Réception des réponses</h2>

@@ -12,6 +12,8 @@ import { rendrePdf } from "@/lib/documents/generer";
 import { formaterDateSql } from "@/lib/dates";
 import { lienSuiviDemande } from "@/lib/suivi/demande";
 import { envoyerPushNouvelleDemande } from "@/lib/push/envoyer";
+import { compteGmailPourMessage } from "@/lib/gmail/compte";
+import { envoyerParGmail } from "@/lib/gmail/envoi";
 
 /* =============================================================================
    DRAIN DE LA FILE D'ÉVÉNEMENTS
@@ -331,8 +333,64 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               pieces.push({ nom: `${doc.numero ?? doc.type}.pdf`, contenu: pdf });
             }
 
+            /* ⚠️ UNE RÉPONSE ÉCRITE À LA MAIN PART DE SA PROPRE BOÎTE.
+               Brevo expédie depuis `contact@jokswed.com`, un expéditeur
+               vérifié qui n'est la boîte de personne : la cliente ne voit pas
+               qui lui écrit, et la réponse n'apparaît pas dans les messages
+               envoyés du professionnel. Quand une boîte Gmail est connectée,
+               c'est elle qui envoie.
+
+               Le repli sur Brevo est volontaire : une réponse qui part par
+               l'autre fournisseur vaut mieux qu'une réponse qui ne part pas.
+               `compteGmailPourMessage` rend `null` sur autorisation perdue, et
+               l'inscrit pour que l'écran de réglages le dise. */
+            const gmail = await compteGmailPourMessage(q, message_id);
+
             let dernier: ResultatEnvoi | null = null;
+            let filGmail: string | null = null;
             for (const destinataire of destinataires) {
+              if (gmail) {
+                const corpsTexte = msg.signature
+                  ? `${msg.corps_texte}\n\n${msg.signature}`
+                  : msg.corps_texte;
+                const issue = await envoyerParGmail(gmail.jetonAcces, {
+                  de: { email: gmail.adresse, nom: msg.auteur_nom ?? msg.entreprise_nom },
+                  pour: { email: destinataire.email, nom: destinataire.nom },
+                  /* ⚠️ LE `Reply-To` POINTE L'ADRESSE À JETON, JAMAIS LA BOÎTE
+                     GMAIL. La réception intégrée passe par le webhook entrant :
+                     diriger la réponse vers Gmail la ferait sortir de la
+                     plateforme sans jamais y revenir. */
+                  repondreA,
+                  sujet: msg.sujet,
+                  texte: corpsTexte,
+                  html: msg.corps_html ?? texteVersHtml(corpsTexte),
+                  pieces,
+                  threadId: msg.gmail_thread_id ?? null,
+                  inReplyTo: msg.in_reply_to ?? null,
+                  references: msg.references_rfc ?? null,
+                });
+                if (issue.statut === "envoye") {
+                  filGmail = issue.threadId ?? filGmail;
+                  dernier = {
+                    statut: "envoye", fournisseur: "gmail",
+                    messageId: issue.messageIdRfc ?? null,
+                  };
+                } else {
+                  if (issue.autorisationPerdue) {
+                    await q("SELECT app.gmail_panne($1,$2)",
+                      [gmail.compteId, issue.erreur ?? "autorisation refusée"]);
+                  }
+                  dernier = {
+                    statut: "echoue", fournisseur: "gmail", erreur: issue.erreur,
+                  };
+                }
+                await journaliser(q, evenement.id, null, msg.entreprise_id,
+                  "messagerie", destinataire.email, msg.sujet, dernier,
+                  `messagerie:${message_id}:${destinataire.email}`);
+                if (dernier.statut === "envoye") bilan.envoyes += 1;
+                continue;
+              }
+
               dernier = await envoyer({
                 destinataire: destinataire.email,
                 destinataireNom: destinataire.nom,
@@ -369,6 +427,12 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               await q("SELECT app.message_envoye($1,$2,$3,$4,$5,$6)",
                 [message_id, "envoye", dernier?.fournisseur ?? "aucun",
                  dernier?.messageId ?? null, dernier?.messageId ?? null, null]);
+              /* Le fil Gmail, pour que la réponse suivante reste dans la même
+                 conversation côté Google. */
+              if (filGmail) {
+                await q("SELECT app.gmail_fil_message($1,$2,$3)",
+                  [message_id, filGmail, dernier?.messageId ?? null]);
+              }
             }
           }
         }
