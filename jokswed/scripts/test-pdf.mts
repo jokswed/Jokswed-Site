@@ -1,6 +1,6 @@
 /* Banc du moteur documentaire : on génère, puis on RELIT le PDF produit. */
 import { createRequire } from "node:module";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 const r_ = createRequire(import.meta.url);
 const so = r_.resolve("server-only");
 r_.cache[so] = { id: so, filename: so, loaded: true, exports: {} } as never;
@@ -102,6 +102,10 @@ const instantane = {
 };
 
 const pdf = dessinerCommercial(instantane);
+/* ⚠️ LE DOSSIER N'EXISTE PAS DANS UNE COPIE NEUVE. `.pgdev` est ignoré par
+   Git : sur un clone frais ou un worktree, ce banc échouait sur un ENOENT qui
+   n'avait rien à voir avec le PDF. */
+await mkdir(new URL("../.pgdev/", import.meta.url), { recursive: true });
 await writeFile(new URL("../.pgdev/devis-essai.pdf", import.meta.url), pdf);
 
 v("Le PDF commence par l'en-tête de format", pdf.subarray(0, 5).toString() === "%PDF-");
