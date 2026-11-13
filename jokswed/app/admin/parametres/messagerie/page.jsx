@@ -1,3 +1,4 @@
+import Retour from "@/components/admin/Retour";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
@@ -140,7 +141,7 @@ export default async function ParametresMessagerie() {
           <p className="label label--nu">{entreprise.nom_commercial}</p>
           <h1 className="display t-section">Messagerie</h1>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       <section className="admin-bloc">

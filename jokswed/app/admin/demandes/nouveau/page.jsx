@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { formules, formaterPrix } from "@/content/offres";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Nouveau dossier" };
 export const dynamic = "force-dynamic";
@@ -102,7 +103,7 @@ export default async function NouveauDossier() {
             enregistrez, vous écrivez ensuite si vous le voulez.
           </p>
         </div>
-        <Link href="/admin/demandes" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/demandes" />
       </header>
 
       <form action={creer} className="formulaire">

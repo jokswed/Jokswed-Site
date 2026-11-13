@@ -6,6 +6,7 @@ import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { adresseReponse, domaineReponse } from "@/lib/messagerie/adresses";
 import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie/modeles";
 import { drainer } from "@/lib/demandes/drain";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Conversation" };
 export const dynamic = "force-dynamic";
@@ -172,6 +173,12 @@ export default async function Conversation({ params, searchParams }) {
                 : `${p.entreprise ?? "prestataire"}${p.est_moi ? " (vous)" : ""}`)
               .join(" · ")}
           </p>
+        </div>
+        {/* ⚠️ CETTE PAGE N'AVAIT AUCUN RETOUR. Le seul chemin vers la liste
+            était le petit lien « Messagerie » du suréveillant, au-dessus du
+            titre — invisible au pouce. */}
+        <div className="admin-actions">
+          <Retour vers="/admin/messagerie" />
         </div>
         <form action={archiver}>
           <input type="hidden" name="archiver" value={conv.statut === "ouverte" ? "1" : "0"} />

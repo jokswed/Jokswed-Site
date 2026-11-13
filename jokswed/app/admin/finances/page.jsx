@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { formaterDateSql } from "@/lib/dates";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Finances" };
 export const dynamic = "force-dynamic";
@@ -107,7 +108,7 @@ export default async function Finances({ searchParams }) {
             {vue === "annee" ? `Année ${annee}` : `${MOIS[moisChoisi - 1]} ${annee}`}
           </p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       {/* ── Période ── */}

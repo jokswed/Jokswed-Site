@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces, interdireAutoModification } from "@/lib/auth/acces";
 import { chiffrer, engendrerJeton, hacherJeton } from "@/lib/auth/secrets";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Collaborateurs" };
 export const dynamic = "force-dynamic";
@@ -223,7 +224,7 @@ export default async function Collaborateurs() {
           <p className="label label--nu">{entreprise.nom_commercial}</p>
           <h1 className="display t-section">Collaborateurs</h1>
         </div>
-        <a href="/admin" className="btn btn--fantome">Retour</a>
+        <Retour vers="/admin/plus" />
       </header>
 
       <section>

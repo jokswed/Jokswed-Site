@@ -13,6 +13,7 @@ import {
 } from "@/lib/documents/generer";
 import { createHash } from "node:crypto";
 import { LIBELLES_STATUT } from "../page";
+import Retour from "@/components/admin/Retour";
 
 export const dynamic = "force-dynamic";
 
@@ -674,7 +675,7 @@ export default async function FicheDemande({ params }) {
           </p>
         </div>
         <div className="admin-actions">
-          <Link href="/admin/demandes" className="btn btn--fantome">Retour</Link>
+          <Retour vers="/admin/demandes" />
         </div>
       </header>
 

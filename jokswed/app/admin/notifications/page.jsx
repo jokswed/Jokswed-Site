@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces } from "@/lib/auth/acces";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Notifications" };
 export const dynamic = "force-dynamic";
@@ -71,7 +72,7 @@ export default async function Notifications() {
           <h1 className="display t-section">Notifications</h1>
           <p className="recap__note">{nonLues} non lue(s)</p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       <section className="admin-bloc">

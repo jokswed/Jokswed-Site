@@ -1,3 +1,4 @@
+import Retour from "@/components/admin/Retour";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -147,7 +148,7 @@ export default async function MonCompte({ searchParams }) {
           <p className="label label--nu">{vue.moi.email}</p>
           <h1 className="display t-section">Mon compte</h1>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       {sp?.erreur ? (

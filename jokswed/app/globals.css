@@ -2414,3 +2414,87 @@ button:hover .photo img {
 }
 .admin-fiche > div { min-width: 0; }
 .admin-fiche dd { overflow-wrap: anywhere; }
+
+/* =============================================================================
+   BARRE DE NAVIGATION DE L'ADMINISTRATION
+   -----------------------------------------------------------------------------
+   ⚠️ `fixed` ET AUCUN ANCÊTRE TRANSFORMÉ.
+   Un parent portant `transform`, `filter` ou `perspective` devient le bloc
+   conteneur d'un `position: fixed` : la barre se met alors à défiler avec le
+   contenu et finit au milieu de l'écran. `.admin` n'en porte aucun, et ne doit
+   jamais en porter.
+
+   ⚠️ ET LE CONTENU RÉSERVE SA PLACE. Sans le `padding-bottom` ci-dessous, la
+   barre masque la dernière ligne de chaque page — le bouton d'envoi d'une
+   conversation, par exemple.
+   ============================================================================= */
+.admin {
+  min-height: 100svh;
+  padding-bottom: calc(4.6rem + env(safe-area-inset-bottom, 0px));
+}
+
+.barre-admin {
+  position: fixed;
+  inset: auto 0 0 0;
+  z-index: 40;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: color-mix(in srgb, var(--fond, #fff) 94%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--trait, rgba(0, 0, 0, 0.09));
+}
+
+.barre-admin__lien {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  /* 48 px : la cible tactile minimale, même sur un iPhone SE. */
+  min-height: 3.1rem;
+  padding: 0.5rem 0.2rem;
+  text-decoration: none;
+  color: var(--texte-doux, #6b6b6b);
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.barre-admin__lien svg { width: 1.25rem; height: 1.25rem; }
+.barre-admin__lien--actif { color: var(--accent, #b4654a); font-weight: 600; }
+
+.retour { display: inline-flex; align-items: center; gap: 0.3rem; }
+.retour svg { width: 1rem; height: 1rem; }
+
+/* Les destinations secondaires, groupées par usage plutôt qu'en grille. */
+.plus-liste { list-style: none; margin: 0; padding: 0; }
+.plus-liste li + li { border-top: 1px solid var(--trait, rgba(0, 0, 0, 0.07)); }
+.plus-liste a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.85rem 0.1rem;
+  min-height: 2.9rem;
+  text-decoration: none;
+  color: inherit;
+}
+.plus-liste strong { font-weight: 600; }
+.plus-liste span { font-size: 0.82rem; color: var(--texte-doux, #6b6b6b); }
+
+@media (min-width: 46rem) {
+  /* Sur grand écran le pouce n'est plus la contrainte : la barre se range en
+     haut, et le contenu n'a plus besoin de réserver le bas. */
+  .admin { padding-bottom: 2rem; }
+  .barre-admin {
+    position: sticky;
+    inset: 0 0 auto 0;
+    grid-template-columns: repeat(5, max-content);
+    justify-content: center;
+    gap: 0.4rem;
+    border-top: 0;
+    border-bottom: 1px solid var(--trait, rgba(0, 0, 0, 0.09));
+  }
+  .barre-admin__lien { flex-direction: row; gap: 0.45rem; padding: 0.7rem 1.1rem; font-size: 0.8rem; }
+}

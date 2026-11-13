@@ -214,43 +214,19 @@ export default async function TableauDeBord({ searchParams }) {
         ) : null}
       </section>
 
-      <nav className="admin-nav" aria-label="Sections de l'administration">
-        {/* ⚠️ MASQUER UN LIEN N'EST PAS UNE PROTECTION.
-            Chaque page cible rappelle `exigerAcces()` avec ses propres
-            permissions ; ce filtrage-ci ne sert qu'à ne pas proposer une
-            porte fermée. */}
+      {/* ⚠️ ONZE BOUTONS EN GRILLE, TOUS DE MÊME POIDS : les demandes, qu'on
+          ouvre dix fois par jour, et les réglages de messagerie, qu'on touche
+          une fois par mois. Les quatre destinations fréquentes sont désormais
+          dans la barre du bas, et tout le reste derrière « Plus ». Rien n'a
+          été retiré — seulement rangé. */}
+      <nav className="admin-nav" aria-label="Raccourcis">
         {peut("dossier.lire") ? (
           <Link href="/admin/demandes" className="btn">Demandes</Link>
         ) : null}
         {peut("dossier.ecrire") ? (
-          <Link href="/admin/demandes/nouveau" className="btn">+ Nouveau dossier</Link>
+          <Link href="/admin/demandes/nouveau" className="btn btn--fantome">+ Nouveau dossier</Link>
         ) : null}
-        {peut("dossier.lire") ? (
-          <Link href="/admin/saison" className="btn btn--fantome">Saison</Link>
-        ) : null}
-        {peut("finance.lire") ? (
-          <Link href="/admin/finances" className="btn btn--fantome">Finances</Link>
-        ) : null}
-        {peut("collaboration.repondre") ? (
-          <Link href="/admin/propositions" className="btn btn--fantome">Propositions</Link>
-        ) : null}
-        {peut("document.rediger") ? (
-          <Link href="/admin/dossiers" className="btn btn--fantome">Mes dossiers</Link>
-        ) : null}
-        {peut("entreprise.reglages") ? (
-          <Link href="/admin/entreprise" className="btn btn--fantome">Mon entreprise</Link>
-        ) : null}
-        {peut("message.lire") ? (
-          <Link href="/admin/messagerie" className="btn btn--fantome">Messagerie</Link>
-        ) : null}
-        <Link href="/admin/notifications" className="btn btn--fantome">Notifications</Link>
-        <Link href="/admin/parametres/compte" className="btn btn--fantome">Mon compte</Link>
-        {peut("message.envoyer") ? (
-          <Link href="/admin/parametres/messagerie" className="btn btn--fantome">Messagerie — réglages</Link>
-        ) : null}
-        {peut("membre.inviter") ? (
-          <Link href="/admin/collaborateurs" className="btn btn--fantome">Collaborateurs</Link>
-        ) : null}
+        <Link href="/admin/plus" className="btn btn--fantome">Plus…</Link>
       </nav>
 
       <p className="recap__note" style={{ marginTop: "2.5rem" }}>

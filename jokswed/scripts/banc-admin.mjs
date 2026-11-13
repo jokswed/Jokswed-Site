@@ -1030,6 +1030,53 @@ try {
     /Photobooth 360[\s\S]{0,600}Sur devis/.test(htmlAccueil));
 
   await verite2.end();
+  /* ═══════════ NAVIGATION : LA BARRE EST PARTOUT, SAUF OÙ IL FAUT ═══════════ */
+  /* ⚠️ IL N'Y AVAIT DE NAVIGATION QUE SUR LE TABLEAU DE BORD. Depuis une fiche
+     ou une conversation, le seul chemin était un lien « Retour » codé en dur,
+     différent sur chaque page — et la conversation n'en avait aucun. */
+  const AVEC_BARRE = [
+    "/admin", "/admin/demandes", "/admin/messagerie", "/admin/saison",
+    "/admin/plus", "/admin/finances", "/admin/dossiers", "/admin/entreprise",
+    "/admin/notifications", "/admin/propositions", "/admin/collaborateurs",
+    "/admin/parametres/compte", "/admin/parametres/messagerie",
+    "/admin/demandes/nouveau",
+  ];
+  const sansBarre = [];
+  const enErreur = [];
+  const durs = [];
+  for (const chemin of AVEC_BARRE) {
+    const r = await proprio.fetch(chemin);
+    const html = await r.text();
+    if (r.status !== 200) { enErreur.push(`${chemin} HTTP ${r.status}`); continue; }
+    if (!html.includes('class="barre-admin"')) sansBarre.push(chemin);
+    /* Le retour est un bouton qui décide à l'exécution : plus aucune page ne
+       doit porter de destination figée. */
+    if (html.includes('class="btn btn--fantome">Retour<')) durs.push(chemin);
+  }
+  v("Les quatorze écrans d'administration répondent", enErreur.length === 0,
+    enErreur.join(", "));
+  v("…et portent tous la barre de navigation", sansBarre.length === 0,
+    sansBarre.join(", "));
+  v("Plus aucun « Retour » vers une destination figée", durs.length === 0,
+    durs.join(", "));
+
+  /* ⚠️ PAS DE BARRE AVANT D'ÊTRE ENTRÉ. Proposer « Demandes » depuis l'écran
+     de connexion n'aurait mené qu'à un aller-retour. */
+  const htmlConnexion = await (await navigateur().fetch("/admin/connexion")).text();
+  v("L'écran de connexion n'a pas de barre de navigation",
+    !htmlConnexion.includes('class="barre-admin"'));
+
+  /* ⚠️ RIEN N'A ÉTÉ RETIRÉ, SEULEMENT RANGÉ. Les destinations secondaires ont
+     quitté la grille du tableau de bord pour « Plus ». */
+  const htmlPlus = await (await proprio.fetch("/admin/plus")).text();
+  const absentes = ["/admin/finances", "/admin/dossiers", "/admin/entreprise",
+    "/admin/collaborateurs", "/admin/propositions", "/admin/notifications",
+    "/admin/parametres/compte", "/admin/parametres/messagerie",
+    "/admin/demandes/nouveau"].filter((h) => !htmlPlus.includes(`href="${h}"`));
+  v("« Plus » mène aux neuf destinations secondaires", absentes.length === 0,
+    absentes.join(", "));
+  v("…et sait se déconnecter", htmlPlus.includes("/api/admin/deconnexion"));
+
 } catch (e) {
   console.error("\n✗ Le banc s'est interrompu :", e?.message ?? e);
   resultats.push({ nom: "Le banc va jusqu'au bout", ok: false, detail: String(e?.message ?? e) });

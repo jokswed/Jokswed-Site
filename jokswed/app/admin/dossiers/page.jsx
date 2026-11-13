@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Retour from "@/components/admin/Retour";
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { redirect } from "next/navigation";
@@ -191,7 +192,7 @@ export default async function MesDossiers({ searchParams }) {
           <h1 className="display t-section">Mes dossiers</h1>
           <p className="recap__note">{dossiers.length} dossier(s)</p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       {verdict.motifs.length > 0 ? (

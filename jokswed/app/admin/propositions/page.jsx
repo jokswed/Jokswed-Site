@@ -2,6 +2,7 @@ import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { formaterDateSql } from "@/lib/dates";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Propositions reçues" };
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export default async function Propositions() {
             {aRepondre.length} en attente de votre réponse
           </p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       <section className="admin-bloc">

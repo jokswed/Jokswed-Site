@@ -1,3 +1,4 @@
+import Retour from "@/components/admin/Retour";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -100,7 +101,7 @@ export default async function Messagerie({ searchParams }) {
             {totalNonLus > 0 ? ` · ${totalNonLus} message(s) non lu(s)` : null}
           </p>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin" />
       </header>
 
       {/* ⚠️ ON NE LAISSE PAS CROIRE QUE LA RÉCEPTION MARCHE.

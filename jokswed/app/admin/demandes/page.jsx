@@ -2,6 +2,7 @@ import Link from "next/link";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { formaterDateSql } from "@/lib/dates";
 import { formaterPrix } from "@/content/offres";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Demandes" };
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ export default async function Demandes({ searchParams }) {
         </div>
         <div className="admin-actions">
           <Link href="/admin/demandes/nouveau" className="btn">+ Nouveau dossier</Link>
-          <Link href="/admin" className="btn btn--fantome">Retour</Link>
+          <Retour vers="/admin" />
         </div>
       </header>
 

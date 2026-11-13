@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { engendrerJeton, hacherJeton, chiffrer, dechiffrer } from "@/lib/auth/secrets";
 import CopierLien from "@/components/CopierLien";
+import Retour from "@/components/admin/Retour";
 
 export const metadata = { title: "Mon entreprise" };
 export const dynamic = "force-dynamic";
@@ -140,7 +141,7 @@ export default async function MonEntreprise() {
           <p className="label label--nu">{e.nom_commercial}</p>
           <h1 className="display t-section">Mon entreprise</h1>
         </div>
-        <Link href="/admin" className="btn btn--fantome">Retour</Link>
+        <Retour vers="/admin/plus" />
       </header>
 
       {verdict.motifs.length > 0 ? (
