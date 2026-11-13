@@ -23,6 +23,7 @@ import { createHash } from "node:crypto";
 import { demarrer, urlMigrateur, urlApplication, urlAuth, baseVierge } from "./pg-dev.mjs";
 import { migrer } from "./migrer.mjs";
 import { semer } from "./semer.mjs";
+import { readFileSync } from "node:fs";
 const { rendrePdf } = await import("../lib/documents/generer.ts");
 
 /* Le texte affiché d'un PDF : les opérateurs `Tj`, recollés et normalisés.
@@ -1029,6 +1030,44 @@ try {
   v("⚠️ …et sans tarif inventé",
     /Photobooth 360[\s\S]{0,600}Sur devis/.test(htmlAccueil));
 
+
+  /* ═══════════ LE STATUT S'ENREGISTRE, ET ON LE RELIT EN BASE ═══════════ */
+  /* ⚠️ UN CONTRÔLE VISUEL NE PROUVE RIEN ICI. Le symptôme rapporté était
+     justement un écran qui affichait l'ancien état : il faut donc écrire, puis
+     relire dans une TRANSACTION SÉPARÉE — une relecture dans la même
+     transaction verrait l'écriture non validée et passerait toujours. */
+  const { rows: [pourStatut] } = await lireAvecIdentite(
+    "SELECT id, statut FROM demandes ORDER BY cree_le LIMIT 1");
+  if (pourStatut) {
+    for (const vise of ["devis_envoye", "attente_client", pourStatut.statut]) {
+      await lireAvecIdentite("SELECT app.definir_statut_demande($1,$2)",
+        [pourStatut.id, vise]);
+      const { rows: [relu] } = await lireAvecIdentite(
+        "SELECT statut FROM demandes WHERE id = $1", [pourStatut.id]);
+      v(`Le statut « ${vise} » survit à une relecture en base`,
+        relu?.statut === vise, `relu : ${relu?.statut}`);
+    }
+
+    /* ⚠️ ET IL N'Y A PLUS D'ERREUR MUETTE. L'action sortait par un `return`
+       nu sur une valeur hors liste : rien n'était écrit, rien n'était dit. */
+    const code = readFileSync("app/admin/demandes/[id]/page.jsx", "utf8");
+    v("L'action de statut ne sort plus en silence",
+      !/if \(!STATUTS\.includes\(nouveau\)\) return;/.test(code));
+    v("…elle redirige avec un motif lisible",
+      code.includes("?statut=refus") && code.includes("?statut=ok"));
+    /* `defaultValue` n'est lu qu'au montage : sans `key`, l'écran gardait la
+       valeur affichée après l'action. */
+    v("Le sélecteur se réaligne sur la donnée relue",
+      /<select id="statut" name="statut" key=\{demande\.statut\}/.test(code));
+
+    const confirme = await (await proprio.fetch(
+      `/admin/demandes/${pourStatut.id}?statut=ok`)).text();
+    v("La fiche confirme l'enregistrement", confirme.includes("Statut enregistré"));
+    const refuse = await (await proprio.fetch(
+      `/admin/demandes/${pourStatut.id}?statut=refus`)).text();
+    v("…et sait dire qu'elle n'a PAS enregistré",
+      refuse.includes("Statut NON enregistré"));
+  }
   await verite2.end();
   /* ═══════════ NAVIGATION : LA BARRE EST PARTOUT, SAUF OÙ IL FAUT ═══════════ */
   /* ⚠️ IL N'Y AVAIT DE NAVIGATION QUE SUR LE TABLEAU DE BORD. Depuis une fiche
@@ -1076,6 +1115,7 @@ try {
   v("« Plus » mène aux neuf destinations secondaires", absentes.length === 0,
     absentes.join(", "));
   v("…et sait se déconnecter", htmlPlus.includes("/api/admin/deconnexion"));
+
 
 } catch (e) {
   console.error("\n✗ Le banc s'est interrompu :", e?.message ?? e);

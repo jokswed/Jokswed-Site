@@ -53,8 +53,9 @@ function centimes(brut) {
   return Number.isFinite(cents) && cents >= 0 ? cents : null;
 }
 
-export default async function FicheDemande({ params }) {
+export default async function FicheDemande({ params, searchParams }) {
   const { id } = await params;
+  const recherche = (await searchParams) ?? {};
   const { session, entreprise } = await contexteAdmin();
   const acces = await accesPage(entreprise.id, ["dossier.lire"]);
 
@@ -201,11 +202,32 @@ export default async function FicheDemande({ params }) {
     const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["dossier.ecrire"]);
     const nouveau = String(formulaire.get("statut") ?? "");
-    if (!STATUTS.includes(nouveau)) return;
-    await a.executer((q) =>
-      q("SELECT app.definir_statut_demande($1,$2)", [id, nouveau]));
+
+    /* ⚠️ CE `return` ÉTAIT MUET, ET C'EST LÀ QUE LE BUG SE CACHAIT.
+       Une valeur hors liste sortait sans rien écrire et sans rien dire :
+       l'écran se rechargeait à l'identique, et on en concluait que « le statut
+       ne s'enregistre pas ». */
+    if (!STATUTS.includes(nouveau)) {
+      redirect(`/admin/demandes/${id}?statut=refus`);
+    }
+
+    try {
+      await a.executer((q) =>
+        q("SELECT app.definir_statut_demande($1,$2)", [id, nouveau]));
+    } catch (erreur) {
+      /* La fonction en base refuse une transition impossible — confirmer sans
+         date, par exemple. Son motif est destiné à être lu, pas avalé. */
+      const motif = erreur instanceof Error ? erreur.message : "inconnu";
+      redirect(`/admin/demandes/${id}?statut=refus&motif=${encodeURIComponent(motif.slice(0, 160))}`);
+    }
+
     revalidatePath(`/admin/demandes/${id}`);
     revalidatePath("/admin");
+    revalidatePath("/admin/demandes");
+    revalidatePath("/admin/saison");
+    /* La redirection porte la confirmation — même motif que le `?refus=` du
+       tableau de bord — et force une relecture en base. */
+    redirect(`/admin/demandes/${id}?statut=ok`);
   }
 
   /* ⚠️ UNE MODIFICATION SE RÉPERCUTE PARTOUT, OU ELLE N'A PAS LIEU.
@@ -678,6 +700,17 @@ export default async function FicheDemande({ params }) {
           <Retour vers="/admin/demandes" />
         </div>
       </header>
+
+      {recherche.statut === "ok" ? (
+        <p role="status" className="admin-alerte admin-alerte--neutre">
+          Statut enregistré.
+        </p>
+      ) : null}
+      {recherche.statut === "refus" ? (
+        <p role="alert" className="admin-alerte">
+          Statut NON enregistré{recherche.motif ? ` : ${recherche.motif}` : "."}
+        </p>
+      ) : null}
 
       <div className="admin-colonnes">
         <div className="admin-colonne">
@@ -1237,7 +1270,14 @@ export default async function FicheDemande({ params }) {
               <form action={changerStatut} className="formulaire">
                 <div className="champ">
                   <label htmlFor="statut">État du dossier</label>
-                  <select id="statut" name="statut" defaultValue={demande.statut}>
+                  {/* ⚠️ `key` SUR LA VALEUR COURANTE, ET CE N'EST PAS UN
+                      DÉTAIL. `defaultValue` n'est lu qu'au montage : après une
+                      action serveur, React réutilisait le même `<select>` et
+                      gardait la valeur affichée. L'écran pouvait donc montrer
+                      l'ancien état alors que la base portait le nouveau —
+                      exactement le symptôme rapporté. */}
+                  <select id="statut" name="statut" key={demande.statut}
+                    defaultValue={demande.statut}>
                     {STATUTS.map((s) => (
                       <option key={s} value={s}>{LIBELLES_STATUT[s] ?? s}</option>
                     ))}
