@@ -4,6 +4,15 @@ import BarreAdmin from "@/components/admin/BarreAdmin";
 export const metadata = {
   title: { default: "Administration", template: "%s — Administration JoksWed" },
   robots: { index: false, follow: false, nocache: true },
+  /* Sur iPhone, le manifest public démarre sur "/". Une installation
+     depuis /admin doit utiliser son propre manifest et ouvrir /admin.
+     Le site client conserve le manifest public existant. */
+  manifest: "/admin-manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "JoksWed Admin",
+    statusBarStyle: "black-translucent",
+  },
 };
 export const dynamic = "force-dynamic";
 
