@@ -7,6 +7,7 @@ import { adresseReponse, domaineReponse } from "@/lib/messagerie/adresses";
 import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie/modeles";
 import { drainer } from "@/lib/demandes/drain";
 import Retour from "@/components/admin/Retour";
+import ActualiserMessagerie from "@/components/admin/ActualiserMessagerie";
 
 export const metadata = { title: "Conversation" };
 export const dynamic = "force-dynamic";
@@ -46,6 +47,8 @@ export default async function Conversation({ params, searchParams }) {
         WHERE c.id = $1`, [id]);
     if (conv.length === 0) return null;
     const { rows: fil } = await q("SELECT * FROM app.fil_conversation($1)", [id]);
+    const { rows: discussions } = await q(
+      "SELECT * FROM app.mes_conversations($1,false,NULL)", [entreprise.id]);
     /* ⚠️ PAS DE JOINTURE DIRECTE SUR `entreprises`.
        Sa politique ne rend que les siennes : un co-participant s'affichait
        « null ». La fonction rend la raison commerciale, et rien d'autre. */
@@ -72,7 +75,7 @@ export default async function Conversation({ params, searchParams }) {
           AND (utilisateur_id IS NULL OR utilisateur_id = app.acteur())
         ORDER BY utilisateur_id NULLS LAST`, [entreprise.id]);
     await q("SELECT app.marquer_lue($1)", [id]);
-    return { conv: conv[0], fil, participants, invitables, modeles, documents,
+    return { conv: conv[0], fil, discussions, participants, invitables, modeles, documents,
              identites, variables: variables?.v ?? {} };
   });
 
@@ -140,7 +143,7 @@ export default async function Conversation({ params, searchParams }) {
     revalidatePath(`/admin/messagerie/${id}`);
   }
 
-  const { conv, fil, participants, invitables, modeles, documents, identites,
+  const { conv, fil, discussions, participants, invitables, modeles, documents, identites,
           variables } = vue;
   const estClient = conv.nature === "client";
   const peutEcrire = acces.permissions.has("message.envoyer");
@@ -158,7 +161,31 @@ export default async function Conversation({ params, searchParams }) {
   const manquantes = [...new Set([...(apercu?.manquantes ?? []), ...(apercuSujet?.manquantes ?? [])])];
 
   return (
-    <main className="admin-page">
+    <main className="admin-page admin-chat-page">
+      <div className="admin-chat-layout">
+        <aside className="admin-chat-sidebar" aria-label="Discussions">
+          <Link href="/admin/messagerie" className="admin-chat-sidebar__retour">Discussions</Link>
+          <ul className="admin-chat-contacts">
+            {discussions.map((c) => (
+              <li key={c.id}>
+                <Link href={`/admin/messagerie/${c.id}`}
+                  aria-current={c.id === id ? "page" : undefined}
+                  className={`admin-chat-contact${c.id === id ? " admin-chat-contact--active" : ""}`}>
+                  <span className="admin-conv__avatar" aria-hidden="true">
+                    {(c.client_nom ?? c.participants[0] ?? "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="admin-chat-contact__detail">
+                    <strong>{c.client_nom ?? c.participants.join(", ")}</strong>
+                    <small>{c.apercu ?? c.sujet}</small>
+                  </span>
+                  {c.non_lus > 0 ? <span className="admin-chat-contact__nonlus">{c.non_lus}</span> : null}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </aside>
+        <section className="admin-chat-main" aria-label="Conversation active">
+          <ActualiserMessagerie dernierMessage={fil.at(-1)?.id ?? null} />
       <header className="admin-entete">
         <div>
           <p className="label label--nu">
@@ -264,9 +291,11 @@ export default async function Conversation({ params, searchParams }) {
       ) : null}
 
       {peutEcrire && conv.statut === "ouverte" ? (
-        <section className="admin-bloc">
+        <section className="admin-bloc admin-chat-compose">
           <h2 className="display t-carte">Répondre</h2>
 
+          <details className="admin-chat-options" open={Boolean(modeleChoisi)}>
+          <summary>Modèles de réponse</summary>
           <nav className="admin-filtres" aria-label="Modèles de réponse">
             <Link className={`admin-puce${!modeleChoisi ? " admin-puce--active" : ""}`}
               href={`/admin/messagerie/${id}`}>Message libre</Link>
@@ -276,6 +305,7 @@ export default async function Conversation({ params, searchParams }) {
                 href={`/admin/messagerie/${id}?modele=${m.cle}`}>{m.libelle}</Link>
             ))}
           </nav>
+          </details>
 
           {/* ⚠️ UN MARQUEUR NON REMPLACÉ EST UN BLOCAGE, PAS UN AVERTISSEMENT. */}
           {manquantes.length > 0 ? (
@@ -309,7 +339,7 @@ export default async function Conversation({ params, searchParams }) {
 
             <div className="champ">
               <label htmlFor="corps">Message</label>
-              <textarea id="corps" name="corps" rows={10} required
+              <textarea id="corps" name="corps" rows={4} required
                 defaultValue={apercu?.texte ?? ""} />
             </div>
 
@@ -355,6 +385,8 @@ export default async function Conversation({ params, searchParams }) {
           </form>
         </section>
       ) : null}
+        </section>
+      </div>
     </main>
   );
 }
