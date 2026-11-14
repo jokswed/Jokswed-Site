@@ -103,6 +103,25 @@ try {
   });
   await en(app, PROPRIO, "SELECT app.confirmer_demande($1)", [depot.demandeId]);
 
+  /* Palier 069 : la demande arrive déjà dans un fil sans geste admin.
+     La note est entrante (jamais sortante ni interne), et idempotente. */
+  const filDemande = await verite.query(
+    `SELECT c.id, c.jeton_reponse, m.corps_texte, m.sens
+       FROM conversations c
+       JOIN messages m ON m.conversation_id = c.id
+      WHERE c.demande_id = $1 AND c.nature = 'client'
+        AND m.fournisseur = 'formulaire'
+      ORDER BY c.cree_le LIMIT 1`, [depot.demandeId]);
+  v("Demande publique automatiquement visible dans la messagerie",
+    filDemande.rows.length === 1);
+  v("Sa note initiale est un message entrant sécurisé",
+    filDemande.rows[0]?.corps_texte === "Banc V7."
+    && filDemande.rows[0]?.sens === "entrant");
+  v("L'accusé de réception retrouve un jeton de conversation",
+    (await verite.query(
+      "SELECT app.jeton_reponse_demande($1) AS jeton", [depot.demandeId]))
+      .rows[0]?.jeton === filDemande.rows[0]?.jeton_reponse);
+
   /* ═══════════ 1. CRÉATION D'UNE CONVERSATION ═══════════ */
   const jetonConv = engendrerJetonConversation();
   const conv = (await en(app, PROPRIO,
@@ -208,12 +227,14 @@ try {
 
   /* ⚠️ LE SECRET D'ABORD : un endpoint de réception ouvert est une boîte
      aux lettres publique branchée sur la base. */
+  const { rows: [entrantsAvant] } = await verite.query(
+    "SELECT count(*)::int n FROM messages WHERE sens='entrant'");
   const sansSecret = await poster(chargeBrevo(), "mauvais-secret");
   v("⚠️ Un secret erroné rend 404, pas 401", sansSecret.status === 404,
     `HTTP ${sansSecret.status}`);
   v("…et rien n'a été écrit",
     (await verite.query("SELECT count(*)::int n FROM messages WHERE sens='entrant'"))
-      .rows[0].n === 0);
+      .rows[0].n === entrantsAvant.n);
 
   const recue = await poster(chargeBrevo());
   const bilanRecue = await recue.json();

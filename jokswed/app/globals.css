@@ -2795,3 +2795,24 @@ button:hover .photo img {
 @media (prefers-reduced-motion: reduce) {
   .admin-chat-saisie__envoi { transition: none; }
 }
+
+
+/* ============================================================================
+   Les demandes avec note apparaissent immédiatement dans la liste de messages,
+   même si le palier SQL qui crée le fil n'a pas encore été exécuté.
+   ============================================================================ */
+.admin-chat-demande-form { margin: 0; }
+.admin-chat-index .admin-chat-demande {
+  width: 100%; font: inherit; text-align: left; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  grid-template-columns: 2.65rem minmax(0, 1fr);
+  align-items: center; color: var(--encre-douce);
+}
+.admin-chat-index .admin-chat-demande:focus-visible {
+  outline: 2px solid var(--encre); outline-offset: 3px;
+}
+.admin-chat-lien-demande {
+  display: inline-flex; color: var(--encre-douce);
+  text-decoration: underline; text-underline-offset: 3px;
+  font-size: 0.78rem; margin-top: 0.4rem;
+}

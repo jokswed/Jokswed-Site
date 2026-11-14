@@ -155,6 +155,20 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               formule: d.formule_nom,
               lienSuivi: lienSuiviDemande(demande_id),
             });
+            /* Le palier 069 permet au client de répondre à l'accusé
+               directement DANS le fil de sa demande. Sans la migration,
+               la boîte e-mail de repli reste valide. */
+            const { rows: [capaciteFil] } = await q(
+              "SELECT to_regprocedure('app.jeton_reponse_demande(uuid)') IS NOT NULL AS disponible");
+            let jetonDemande: string | null = null;
+            if (capaciteFil?.disponible) {
+              const { rows: [rFil] } = await q(
+                "SELECT app.jeton_reponse_demande($1) AS jeton", [demande_id]);
+              jetonDemande = rFil?.jeton ?? null;
+            }
+            const adresseAccuse = (jetonDemande && adresseReponse(jetonDemande))
+              || adresseDeReponse();
+
             const r1 = await envoyer({
               destinataire: d.contact_email,
               destinataireNom: d.contact_nom,
@@ -164,7 +178,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               /* ⚠️ UNE RÉPONSE À L'ACCUSÉ DOIT ARRIVER QUELQUE PART.
                  Sans Reply-To, elle partirait vers l'expéditeur — une
                  adresse vérifiée chez Brevo, sans boîte derrière. */
-              repondreA: adresseDeReponse(),
+              repondreA: adresseAccuse,
               etiquettes: ["jokswed", "accuse-reception"],
             });
             await journaliser(q, evenement.id, demande_id, entreprise_id,
@@ -363,7 +377,9 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                   repondreA,
                   sujet: msg.sujet,
                   texte: corpsTexte,
-                  html: msg.corps_html ?? texteVersHtml(corpsTexte),
+                  html: msg.signature
+                    ? texteVersHtml(corpsTexte)
+                    : (msg.corps_html ?? texteVersHtml(corpsTexte)),
                   pieces,
                   threadId: msg.gmail_thread_id ?? null,
                   inReplyTo: msg.in_reply_to ?? null,
@@ -398,14 +414,18 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 /* La signature dit QUI répond. L'expéditeur technique est
                    toujours `contact@jokswed.com` ; le professionnel, lui,
                    doit être identifiable par le client. */
-                html: msg.corps_html ?? texteVersHtml(
-                  msg.signature ? `${msg.corps_texte}\n\n${msg.signature}` : msg.corps_texte),
+                html: msg.signature
+                  ? texteVersHtml(`${msg.corps_texte}\n\n${msg.signature}`)
+                  : (msg.corps_html ?? texteVersHtml(msg.corps_texte)),
                 texte: msg.signature
                   ? `${msg.corps_texte}\n\n${msg.signature}`
                   : msg.corps_texte,
                 repondreA,
-                expediteurEmail: msg.auteur_email,
-                expediteurNom: msg.auteur_nom ?? msg.entreprise_nom,
+                /* Le fournisseur Brevo doit toujours utiliser une adresse
+                   d'envoi authentifiée, y compris après la déconnexion Gmail. */
+                expediteurEmail: expediteur().email,
+                expediteurNom: msg.auteur_nom
+                  ? `${msg.auteur_nom} — JoksWed` : (msg.entreprise_nom ?? "JoksWed"),
                 pieces,
                 etiquettes: ["jokswed", "messagerie"],
               });
