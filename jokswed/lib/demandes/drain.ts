@@ -380,6 +380,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               msg.signature ? texteVersHtml(corpsTexte)
                 : (msg.corps_html ?? texteVersHtml(corpsTexte))
             );
+            const texteLivrable = mailPersonnel?.texte ?? corpsTexte;
 
             let dernier: ResultatEnvoi | null = null;
             let filGmail: string | null = null;
@@ -394,7 +395,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                      plateforme sans jamais y revenir. */
                   repondreA,
                   sujet: msg.sujet,
-                  texte: corpsTexte,
+                  texte: texteLivrable,
                   html: corpsHtml,
                   pieces,
                   threadId: msg.gmail_thread_id ?? null,
@@ -431,7 +432,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                    toujours `contact@jokswed.com` ; le professionnel, lui,
                    doit être identifiable par le client. */
                 html: corpsHtml,
-                texte: corpsTexte,
+                texte: texteLivrable,
                 repondreA,
                 /* Le fournisseur Brevo doit toujours utiliser une adresse
                    d'envoi authentifiée, y compris après la déconnexion Gmail. */
