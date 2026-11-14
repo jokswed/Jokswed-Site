@@ -1,4 +1,5 @@
 import "server-only";
+import { markdownVersHtml, markdownVersTexte } from "@/lib/messagerie/markdown";
 
 /* =============================================================================
    GABARITS D'E-MAIL — IDENTITÉ JOKSWED
@@ -118,13 +119,11 @@ export function messagePersonnel(donnees: {
 }): Gabarit {
   const corps = String(donnees.corps ?? "");
   const signature = String(donnees.signature ?? "");
-  const texte = signature ? `${corps}\n\n${signature}` : corps;
-
-  const paragraphes = corps
-    .replace(/\r\n?/g, "\n")
-    .split(/\n[ \t]*\n/)
-    .map((bloc) => paragraphe(echapper(bloc).replaceAll("\n", "<br>")))
-    .join("");
+  // Convertir le Markdown en HTML autorisé ; le texte brut ne conserve pas
+  // les astérisques/underscores de gras et d'italique.
+  const corpsTexte = markdownVersTexte(corps);
+  const texte = signature ? `${corpsTexte}\n\n${signature}` : corpsTexte;
+  const paragraphes = markdownVersHtml(corps);
 
   const signatureHtml = signature
     ? `<div style="margin-top:24px;padding-top:18px;border-top:1px solid ${LIGNE}">
@@ -139,7 +138,7 @@ export function messagePersonnel(donnees: {
     sujet: donnees.sujet,
     texte,
     html: enveloppe({
-      preEntete: corps.replace(/\s+/g, " ").trim().slice(0, 120) || "Un message de JoksWed",
+      preEntete: corpsTexte.replace(/\s+/g, " ").trim().slice(0, 120) || "Un message de JoksWed",
       titre: "Votre échange avec JoksWed",
       corps: paragraphes + signatureHtml,
       pied:
