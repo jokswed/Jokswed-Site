@@ -2498,3 +2498,115 @@ button:hover .photo img {
   }
   .barre-admin__lien { flex-direction: row; gap: 0.45rem; padding: 0.7rem 1.1rem; font-size: 0.8rem; }
 }
+
+
+/* =============================================================================
+   V69 — MESSAGERIE COMME UN FIL DE DISCUSSION
+   -----------------------------------------------------------------------------
+   Conversations à gauche sur ordinateur, échanges à droite, plein écran
+   sur téléphone. Réutilise les variables du thème JoksWed.
+   ============================================================================= */
+.admin-chat-index .admin-conversations { gap: 0.55rem; }
+.admin-chat-index .admin-conv {
+  display: grid; grid-template-columns: 2.65rem minmax(0, 1fr);
+  gap: 0.85rem; align-items: center;
+  border-left-width: 1px; border-radius: 14px; padding: 0.9rem;
+}
+.admin-chat-index .admin-conv--neuve { border-left-width: 3px; }
+.admin-conv__avatar {
+  width: 2.65rem; height: 2.65rem; flex: 0 0 auto;
+  display: grid; place-items: center; border-radius: 999px;
+  background: var(--brume); border: 1px solid var(--ligne);
+  color: var(--encre); font-size: 1rem; font-weight: 700;
+  text-transform: uppercase;
+}
+.admin-conv__contenu { display: grid; min-width: 0; gap: 0.25rem; }
+.admin-chat-nouveau { margin-top: 1.5rem; border-radius: 14px; }
+.admin-chat-nouveau summary, .admin-chat-options summary {
+  cursor: pointer; font-weight: 650; color: var(--encre);
+}
+.admin-chat-nouveau form { margin-top: 1rem; }
+.admin-chat-layout {
+  display: grid; grid-template-columns: minmax(230px, 285px) minmax(0, 1fr);
+  gap: 1rem; align-items: start;
+}
+.admin-chat-sidebar {
+  min-width: 0; position: sticky; top: 1rem; max-height: calc(100vh - 2rem);
+  overflow-y: auto; border: 1px solid var(--ligne);
+  background: var(--blanc); border-radius: 16px; padding: 0.65rem;
+}
+.admin-chat-sidebar__retour {
+  display: block; padding: 0.8rem 0.65rem; text-decoration: none;
+  font-weight: 700; color: var(--encre);
+}
+.admin-chat-contacts { list-style: none; margin: 0; padding: 0; }
+.admin-chat-contact {
+  display: flex; align-items: center; gap: 0.65rem; padding: 0.8rem 0.6rem;
+  color: var(--encre-douce); border-radius: 12px; text-decoration: none;
+  min-width: 0;
+}
+.admin-chat-contact:hover,
+.admin-chat-contact--active { background: var(--brume); }
+.admin-chat-contact--active { outline: 1px solid var(--ligne); }
+.admin-chat-contact__detail { display: grid; gap: 0.2rem; min-width: 0; flex: 1; }
+.admin-chat-contact__detail strong {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--encre); font-size: 0.88rem;
+}
+.admin-chat-contact__detail small {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--gris); font-size: 0.77rem;
+}
+.admin-chat-contact__nonlus {
+  display: grid; place-items: center; flex: 0 0 auto;
+  min-width: 1.35rem; height: 1.35rem; padding: 0 0.2rem;
+  border-radius: 999px; color: var(--blanc);
+  background: var(--encre); font-size: 0.67rem; font-weight: 700;
+}
+.admin-chat-main { min-width: 0; }
+.admin-chat-main .admin-entete { gap: 0.8rem; }
+.admin-chat-main .admin-fil {
+  height: clamp(280px, 52vh, 670px); max-height: 67vh;
+  overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--ligne); background: var(--brume);
+  border-radius: 16px; padding: 1rem; margin: 1rem 0;
+  align-content: start;
+}
+.admin-chat-main .admin-bulle {
+  width: fit-content; max-width: 85%;
+  border-radius: 16px; border-left-width: 1px; padding: 0.75rem 0.95rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.035);
+}
+.admin-chat-main .admin-bulle--entrant {
+  justify-self: start; border-bottom-left-radius: 4px;
+  background: var(--blanc);
+}
+.admin-chat-main .admin-bulle--sortant {
+  justify-self: end; border-bottom-right-radius: 4px;
+  background: var(--blanc); border-color: var(--encre-douce);
+}
+.admin-chat-main .admin-bulle--interne {
+  justify-self: center; max-width: 95%; background: #fdf8f6;
+  border-style: dashed; border-color: #9a4b32;
+}
+.admin-chat-main .admin-chat-compose {
+  position: sticky; bottom: 0; z-index: 2;
+  background: var(--blanc); border: 1px solid var(--ligne);
+  border-radius: 16px; padding: 1rem;
+  box-shadow: 0 -6px 24px rgba(0,0,0,0.035);
+}
+.admin-chat-compose .admin-chat-options { margin: 0.6rem 0; }
+.admin-chat-compose .admin-chat-options nav { margin-top: 0.8rem; }
+.admin-chat-compose textarea { min-height: 7rem; resize: vertical; border-radius: 10px; }
+@media (max-width: 920px) {
+  .admin-chat-layout { grid-template-columns: minmax(0,1fr); }
+  .admin-chat-sidebar { display: none; }
+  .admin-chat-main .admin-fil { height: 55vh; max-height: 68vh; }
+}
+@media (max-width: 560px) {
+  .admin-chat-main .admin-fil { padding: 0.65rem; border-radius: 12px; }
+  .admin-chat-main .admin-bulle { max-width: 92%; }
+  .admin-chat-main .admin-bulle--entrant { justify-self: start; }
+  .admin-chat-main .admin-bulle--sortant { justify-self: end; }
+  .admin-chat-main .admin-chat-compose { padding: 0.75rem; }
+}
