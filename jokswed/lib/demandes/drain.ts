@@ -377,7 +377,9 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                   repondreA,
                   sujet: msg.sujet,
                   texte: corpsTexte,
-                  html: msg.corps_html ?? texteVersHtml(corpsTexte),
+                  html: msg.signature
+                    ? texteVersHtml(corpsTexte)
+                    : (msg.corps_html ?? texteVersHtml(corpsTexte)),
                   pieces,
                   threadId: msg.gmail_thread_id ?? null,
                   inReplyTo: msg.in_reply_to ?? null,
@@ -412,8 +414,9 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 /* La signature dit QUI répond. L'expéditeur technique est
                    toujours `contact@jokswed.com` ; le professionnel, lui,
                    doit être identifiable par le client. */
-                html: msg.corps_html ?? texteVersHtml(
-                  msg.signature ? `${msg.corps_texte}\n\n${msg.signature}` : msg.corps_texte),
+                html: msg.signature
+                  ? texteVersHtml(`${msg.corps_texte}\n\n${msg.signature}`)
+                  : (msg.corps_html ?? texteVersHtml(msg.corps_texte)),
                 texte: msg.signature
                   ? `${msg.corps_texte}\n\n${msg.signature}`
                   : msg.corps_texte,
