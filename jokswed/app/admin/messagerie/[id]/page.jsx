@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -8,6 +9,7 @@ import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie
 import { drainer } from "@/lib/demandes/drain";
 import Retour from "@/components/admin/Retour";
 import ActualiserMessagerie from "@/components/admin/ActualiserMessagerie";
+import SaisieMessagerie from "@/components/admin/SaisieMessagerie";
 
 export const metadata = { title: "Conversation" };
 export const dynamic = "force-dynamic";
@@ -27,6 +29,17 @@ export const dynamic = "force-dynamic";
    dans `composer_message`, puis filtre dans `message_pour_envoi`. Trois
    verrous, parce qu'une note interne partie au client ne se rattrape pas.
    ============================================================================= */
+function jourParis(instant) {
+  return new Date(instant).toLocaleDateString("fr-FR", {
+    timeZone: "Europe/Paris", weekday: "long", day: "numeric",
+    month: "long", year: "numeric",
+  });
+}
+function heureParis(instant) {
+  return new Date(instant).toLocaleTimeString("fr-FR", {
+    timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit",
+  });
+}
 function euros(cents) {
   if (cents === null || cents === undefined) return null;
   return `${(cents / 100).toLocaleString("fr-FR", {
@@ -121,6 +134,7 @@ export default async function Conversation({ params, searchParams }) {
       });
     }
     revalidatePath(`/admin/messagerie/${id}`);
+    revalidatePath("/admin/messagerie");
   }
 
   async function inviter(formulaire) {
@@ -186,7 +200,7 @@ export default async function Conversation({ params, searchParams }) {
         </aside>
         <section className="admin-chat-main" aria-label="Conversation active">
           <ActualiserMessagerie dernierMessage={fil.at(-1)?.id ?? null} />
-      <header className="admin-entete">
+      <header className="admin-entete admin-chat-topbar">
         <div>
           <p className="label label--nu">
             <Link href="/admin/messagerie">Messagerie</Link>
@@ -225,46 +239,51 @@ export default async function Conversation({ params, searchParams }) {
         </div>
       ) : null}
 
-      <ol className="admin-fil">
-        {fil.map((m) => (
-          <li key={m.id}
-            className={`admin-bulle admin-bulle--${m.sens}${m.lu ? "" : " admin-bulle--neuve"}`}>
-            <p className="admin-bulle__entete">
-              <strong>{m.auteur_nom ?? m.auteur_email ?? "—"}</strong>
-              {m.auteur_entreprise ? <span> · {m.auteur_entreprise}</span> : null}
-              <span className="admin-bulle__quand">
-                {new Date(m.cree_le).toLocaleString("fr-FR")}
-              </span>
-            </p>
-            <div className="admin-bulle__corps">
-              {m.corps_texte.split("\n").map((ligne, i) => (
-                <p key={i}>{ligne || " "}</p>
-              ))}
-            </div>
-            {m.pieces?.length > 0 ? (
-              <p className="admin-bulle__pieces">
-                {m.pieces.map((p) => (
-                  <a key={p.id} className="admin-pastille"
-                    href={p.origine === "document"
-                      ? `/api/admin/documents/${p.document_id}/pdf`
-                      : `/api/admin/pieces/${p.id}`}>
-                    {p.nom}
-                  </a>
-                ))}
-              </p>
+      <ol className="admin-fil admin-chat-thread" aria-label="Historique de la conversation">
+        {fil.map((m, i) => (
+          <Fragment key={m.id}>
+            {i === 0 || jourParis(fil[i - 1].cree_le) !== jourParis(m.cree_le) ? (
+              <li className="admin-chat-date" role="separator">{jourParis(m.cree_le)}</li>
             ) : null}
-            <p className="admin-bulle__pied">
-              <span className={`admin-pastille${m.statut === "envoye" ? " admin-pastille--emis" : ""}`}>
-                {m.sens === "entrant" ? "reçu"
-                  : m.sens === "interne" ? "note interne"
-                  : m.statut}
-              </span>
-              {m.erreur ? <span className="admin-bulle__erreur">{m.erreur}</span> : null}
-            </p>
-          </li>
+            <li className={`admin-chat-message admin-chat-message--${m.sens}${m.sens === "entrant" && !m.lu ? " admin-chat-message--neuf" : ""}`}>
+              <div className="admin-chat-bulle">
+                <div className="admin-chat-bulle__entete">
+                  {m.sens === "interne" ? "Note interne" : m.sens === "entrant"
+                    ? (m.auteur_nom ?? m.auteur_email ?? "Client")
+                    : "Vous"}
+                </div>
+                <div className="admin-chat-bulle__texte">
+                  {m.corps_texte.split("\n").map((ligne, ligneIndex) => (
+                    <p key={ligneIndex}>{ligne || " "}</p>
+                  ))}
+                </div>
+                {m.pieces?.length > 0 ? (
+                  <div className="admin-chat-bulle__pieces">
+                    {m.pieces.map((p) => (
+                      <a key={p.id} className="admin-chat-piece"
+                        href={p.origine === "document"
+                          ? `/api/admin/documents/${p.document_id}/pdf`
+                          : `/api/admin/pieces/${p.id}`}>
+                        <span aria-hidden="true">📎</span> {p.nom}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="admin-chat-bulle__pied">
+                  <time dateTime={new Date(m.cree_le).toISOString()}>{heureParis(m.cree_le)}</time>
+                  <span>{m.sens === "entrant" ? "Reçu"
+                    : m.sens === "interne" ? "Privé"
+                    : m.statut === "envoye" ? "Envoyé"
+                    : m.statut === "en_attente" ? "En attente"
+                    : m.statut === "echoue" ? "Échec d’envoi" : m.statut}</span>
+                </div>
+                {m.erreur ? <p className="admin-chat-bulle__erreur">{m.erreur}</p> : null}
+              </div>
+            </li>
+          </Fragment>
         ))}
         {fil.length === 0 ? (
-          <li className="recap__note">Aucun message pour l&apos;instant.</li>
+          <li className="admin-chat-vide">Commencez la conversation en envoyant un message.</li>
         ) : null}
       </ol>
 
