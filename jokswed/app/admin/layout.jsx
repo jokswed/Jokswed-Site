@@ -10,7 +10,7 @@ export const metadata = {
   manifest: "/admin-manifest.webmanifest",
   appleWebApp: {
     capable: true,
-    title: "JoksWed Admin",
+    title: "JoksWed",
     statusBarStyle: "black-translucent",
   },
 };

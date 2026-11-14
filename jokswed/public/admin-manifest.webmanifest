@@ -1,7 +1,7 @@
 {
-  "name": "JoksWed — Administration",
-  "short_name": "JoksWed Admin",
-  "description": "Espace privé de gestion des demandes et conversations JoksWed",
+  "name": "JoksWed",
+  "short_name": "JoksWed",
+  "description": "JoksWed — Messages, demandes et administration privée",
   "id": "/admin",
   "start_url": "/admin",
   "scope": "/admin",

@@ -55,4 +55,17 @@ assert.ok(mime.includes("Reply-To: rep+jetonvalide@reply.jokswed.com"),
 assert.ok(mime.includes(Buffer.from(mail.html, "utf8").toString("base64").slice(0, 60)),
   "La version HTML est bien incluse dans le message Gmail");
 
+const markdown = messagePersonnel({
+  sujet,
+  corps: "Bonjour **Camille**,\n\nVoici [le dossier](https://jokswed.com).",
+  signature: "John — JoksWed",
+});
+assert.match(markdown.html, /<strong>Camille<\/strong>/,
+  "Le gras du Markdown est rendu en HTML sécurisé");
+assert.match(markdown.html, /href="https:\/\/jokswed.com"/,
+  "Le lien Markdown est cliquable");
+assert.equal(markdown.texte,
+  "Bonjour Camille,\n\nVoici le dossier (https://jokswed.com).\n\nJohn — JoksWed",
+  "Le texte brut ne contient aucun marqueur Markdown");
+
 console.log("✓ Rendu JoksWed, échappement, signature, texte brut et MIME Gmail.");

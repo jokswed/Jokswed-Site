@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { contexteAdmin } from "@/lib/admin/garde";
 import { exigerAcces } from "@/lib/auth/acces";
 import Retour from "@/components/admin/Retour";
+import PushAdmin from "@/components/PushAdmin";
 
 export const metadata = { title: "Notifications" };
 export const dynamic = "force-dynamic";
@@ -74,6 +75,8 @@ export default async function Notifications() {
         </div>
         <Retour vers="/admin/plus" />
       </header>
+
+      <PushAdmin />
 
       <section className="admin-bloc">
         <div style={{ display: "flex", justifyContent: "space-between", gap: "1rem",

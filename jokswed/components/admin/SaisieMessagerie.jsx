@@ -98,6 +98,17 @@ export default function SaisieMessagerie({
           {bloquee ? "Complète les informations manquantes avant l’envoi." : "Entrée pour envoyer · Maj + Entrée pour revenir à la ligne"}
         </p>
       )}
+      {!interneSeulement && !pending ? (
+        <details className="admin-chat-format">
+          <summary>Mise en forme du message</summary>
+          <p>
+            Pour mettre du texte en gras, écris <code>**important**</code> ;
+            pour l’italique <code>*merci*</code> ; pour un lien
+            <code> [consulter](https://jokswed.com)</code>.
+            Le client verra la mise en forme, jamais ces marqueurs.
+          </p>
+        </details>
+      ) : null}
     </div>
   );
 }
