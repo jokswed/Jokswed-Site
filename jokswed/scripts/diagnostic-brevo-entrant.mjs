@@ -8,10 +8,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const source = [
+const sources = [
   join(process.cwd(), ".env.local"),
   join(homedir(), "Downloads", "photographe-portrait", ".env.local"),
-].find(existsSync);
+];
 
 function cleDepuisFichier(path) {
   if (!path) return null;
@@ -21,7 +21,8 @@ function cleDepuisFichier(path) {
   return ligne?.[1]?.trim().replace(/^["']|["']$/g, "") || null;
 }
 
-const cle = process.env.BREVO_API_KEY || cleDepuisFichier(source);
+const cle = process.env.BREVO_API_KEY || sources.filter(existsSync)
+  .map(cleDepuisFichier).find(Boolean);
 if (!cle?.startsWith("xkeysib-")) {
   console.error("Clé BREVO_API_KEY locale absente ou invalide.");
   process.exitCode = 1;
