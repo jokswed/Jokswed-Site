@@ -227,12 +227,14 @@ try {
 
   /* ⚠️ LE SECRET D'ABORD : un endpoint de réception ouvert est une boîte
      aux lettres publique branchée sur la base. */
+  const { rows: [entrantsAvant] } = await verite.query(
+    "SELECT count(*)::int n FROM messages WHERE sens='entrant'");
   const sansSecret = await poster(chargeBrevo(), "mauvais-secret");
   v("⚠️ Un secret erroné rend 404, pas 401", sansSecret.status === 404,
     `HTTP ${sansSecret.status}`);
   v("…et rien n'a été écrit",
     (await verite.query("SELECT count(*)::int n FROM messages WHERE sens='entrant'"))
-      .rows[0].n === 0);
+      .rows[0].n === entrantsAvant.n);
 
   const recue = await poster(chargeBrevo());
   const bilanRecue = await recue.json();
