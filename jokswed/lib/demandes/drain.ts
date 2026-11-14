@@ -3,7 +3,7 @@ import { sansIdentite, type Requete } from "@/lib/db/client";
 import { adresseDeReponse, envoyer, expediteur, type ResultatEnvoi } from "@/lib/email/fournisseur";
 import {
   accuseReception, alerteAdministrateur, invitationCollaborateur,
-  propositionCollaborateur,
+  propositionCollaborateur, messagePersonnel,
 } from "@/lib/email/gabarits";
 import { dechiffrer } from "@/lib/auth/secrets";
 import { adresseReponse } from "@/lib/messagerie/adresses";
@@ -360,13 +360,31 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                l'inscrit pour que l'écran de réglages le dise. */
             const gmail = await compteGmailPourMessage(q, message_id);
 
+            /* Même corps HTML pour Gmail et Brevo. Le rendu JoksWed réutilise
+               le gabarit de l'accusé de réception, sans changer le texte
+               brut, les pièces jointes, le Reply-To ou le fil Gmail.
+               Les entreprises partenaires gardent leur rendu existant. */
+            const corpsTexte = msg.signature
+              ? `${msg.corps_texte}\n\n${msg.signature}`
+              : msg.corps_texte;
+            const estJoksWed = String(msg.entreprise_nom ?? "")
+              .trim().toLowerCase() === "jokswed";
+            const mailPersonnel = estJoksWed
+              ? messagePersonnel({
+                  sujet: msg.sujet,
+                  corps: msg.corps_texte,
+                  signature: msg.signature,
+                })
+              : null;
+            const corpsHtml = mailPersonnel?.html ?? (
+              msg.signature ? texteVersHtml(corpsTexte)
+                : (msg.corps_html ?? texteVersHtml(corpsTexte))
+            );
+
             let dernier: ResultatEnvoi | null = null;
             let filGmail: string | null = null;
             for (const destinataire of destinataires) {
               if (gmail) {
-                const corpsTexte = msg.signature
-                  ? `${msg.corps_texte}\n\n${msg.signature}`
-                  : msg.corps_texte;
                 const issue = await envoyerParGmail(gmail.jetonAcces, {
                   de: { email: gmail.adresse, nom: msg.auteur_nom ?? msg.entreprise_nom },
                   pour: { email: destinataire.email, nom: destinataire.nom },
@@ -377,9 +395,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                   repondreA,
                   sujet: msg.sujet,
                   texte: corpsTexte,
-                  html: msg.signature
-                    ? texteVersHtml(corpsTexte)
-                    : (msg.corps_html ?? texteVersHtml(corpsTexte)),
+                  html: corpsHtml,
                   pieces,
                   threadId: msg.gmail_thread_id ?? null,
                   inReplyTo: msg.in_reply_to ?? null,
@@ -414,12 +430,8 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
                 /* La signature dit QUI répond. L'expéditeur technique est
                    toujours `contact@jokswed.com` ; le professionnel, lui,
                    doit être identifiable par le client. */
-                html: msg.signature
-                  ? texteVersHtml(`${msg.corps_texte}\n\n${msg.signature}`)
-                  : (msg.corps_html ?? texteVersHtml(msg.corps_texte)),
-                texte: msg.signature
-                  ? `${msg.corps_texte}\n\n${msg.signature}`
-                  : msg.corps_texte,
+                html: corpsHtml,
+                texte: corpsTexte,
                 repondreA,
                 /* Le fournisseur Brevo doit toujours utiliser une adresse
                    d'envoi authentifiée, y compris après la déconnexion Gmail. */
