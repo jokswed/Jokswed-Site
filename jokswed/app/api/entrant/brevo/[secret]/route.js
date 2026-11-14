@@ -126,7 +126,7 @@ export async function POST(requete, { params }) {
            webhook. Et nos propres messages ne passent pas par là : ils sont
            sortants, et c'est le drain qui les traite. */
         try {
-          await envoyerPushReponseClient(q, resultat.conversation_id);
+          await envoyerPushReponseClient(q, resultat.conversation_id, corps, resultat.message_id);
         } catch (erreur) {
           /* Une notification perdue ne doit pas faire échouer la réception :
              le message est déjà enregistré, et Brevo rejouerait l'appel. */
