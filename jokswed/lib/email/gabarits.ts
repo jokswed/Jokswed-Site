@@ -117,7 +117,7 @@ export function messagePersonnel(donnees: {
   signature?: string | null;
 }): Gabarit {
   const corps = String(donnees.corps ?? "");
-  const signature = String(donnees.signature ?? "").trim();
+  const signature = String(donnees.signature ?? "");
   const texte = signature ? `${corps}\n\n${signature}` : corps;
 
   const paragraphes = corps
