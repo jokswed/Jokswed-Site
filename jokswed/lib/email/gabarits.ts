@@ -102,6 +102,53 @@ export interface Gabarit {
   texte: string;
 }
 
+/* ────────────────────────── MESSAGES PERSONNELS ──────────────────────────
+   Le formulaire d'administration reste un simple champ texte, mais l'e-mail
+   reçu reprend exactement le même habillage que l'accusé de réception.
+   - Le contenu libre est ÉCHAPPÉ et ne devient jamais du HTML exécutable.
+   - La signature est distincte et n'apparaît qu'une seule fois.
+   - Le texte brut reste identique à celui des messages existants, essentiel
+     pour les lecteurs accessibles et la délivrabilité.
+   - Ni image distante, ni lien de suivi, ni pixel, ni CSS externe.
+   ------------------------------------------------------------------------- */
+export function messagePersonnel(donnees: {
+  sujet: string;
+  corps: string;
+  signature?: string | null;
+}): Gabarit {
+  const corps = String(donnees.corps ?? "");
+  const signature = String(donnees.signature ?? "");
+  const texte = signature ? `${corps}\n\n${signature}` : corps;
+
+  const paragraphes = corps
+    .replace(/\r\n?/g, "\n")
+    .split(/\n[ \t]*\n/)
+    .map((bloc) => paragraphe(echapper(bloc).replaceAll("\n", "<br>")))
+    .join("");
+
+  const signatureHtml = signature
+    ? `<div style="margin-top:24px;padding-top:18px;border-top:1px solid ${LIGNE}">
+         <p style="margin:0;font-family:Helvetica,Arial,sans-serif;
+                   font-size:13px;line-height:1.7;color:${GRIS}">
+           ${echapper(signature).replace(/\r\n?/g, "\n").replaceAll("\n", "<br>")}
+         </p>
+       </div>`
+    : "";
+
+  return {
+    sujet: donnees.sujet,
+    texte,
+    html: enveloppe({
+      preEntete: corps.replace(/\s+/g, " ").trim().slice(0, 120) || "Un message de JoksWed",
+      titre: "Votre échange avec JoksWed",
+      corps: paragraphes + signatureHtml,
+      pied:
+        "Un message personnel dans le cadre de votre échange avec JoksWed. " +
+        "Vous pouvez répondre directement à cet e-mail pour poursuivre la conversation.",
+    }),
+  };
+}
+
 /* ─────────────────────────── ACCUSÉ DE RÉCEPTION ───────────────────────────
    ⚠️ IL NE PROMET PAS UNE RÉSERVATION.
    Une demande n'est pas une date bloquée : la confondre créerait exactement
