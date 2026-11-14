@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { tracer } from "@/lib/auth/acces";
 import { formaterDateSql } from "@/lib/dates";
+import { ouvrirConversationDemande } from "@/lib/messagerie/ouvrir-demande";
 import { formaterPrix } from "@/content/offres";
 import {
   genererDevisDepuisDemande, genererContratDepuisDevis,
@@ -189,6 +190,15 @@ export default async function FicheDemande({ params, searchParams }) {
   const devisEmis = documents.find((d) => d.type === "devis" && d.statut !== "brouillon");
   const devisDisponible = devisEmis ?? documents.find((d) => d.type === "devis");
   const peutEcrire = acces.permissions.has("dossier.ecrire");
+
+  async function repondreDepuisDemande() {
+    "use server";
+    const { entreprise: e } = await contexteAdmin();
+    const a = await accesPage(e.id, ["message.envoyer"]);
+    const conversationId = await a.executer((q) =>
+      ouvrirConversationDemande(q, e.id, id));
+    if (conversationId) redirect(`/admin/messagerie/${conversationId}`);
+  }
 
   /* ⚠️ PAR LA FONCTION MÉTIER, PAS PAR UN `UPDATE` LIBRE.
      Un `UPDATE demandes SET statut = 'confirmee'` écrivait l'état sans créer
@@ -912,9 +922,18 @@ export default async function FicheDemande({ params, searchParams }) {
             <div className="admin-ligne-actions"
               style={{ justifyContent: "space-between", marginBottom: "0.8rem" }}>
               <h2 className="display t-carte" style={{ margin: 0 }}>Message du client</h2>
-              {demande.message ? (
-                <CopierTexte texte={demande.message} libelle="Copier le message" />
-              ) : null}
+              <div className="admin-actions">
+                {acces.permissions.has("message.envoyer") ? (
+                  <form action={repondreDepuisDemande}>
+                    <button type="submit" className="btn">
+                      Répondre dans Messages
+                    </button>
+                  </form>
+                ) : null}
+                {demande.message ? (
+                  <CopierTexte texte={demande.message} libelle="Copier le message" />
+                ) : null}
+              </div>
             </div>
             <p className="recap__note">
               Reçu le {new Date(demande.cree_le).toLocaleString("fr-FR")} ·{" "}
