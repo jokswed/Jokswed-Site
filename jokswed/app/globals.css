@@ -2816,3 +2816,19 @@ button:hover .photo img {
   text-decoration: underline; text-underline-offset: 3px;
   font-size: 0.78rem; margin-top: 0.4rem;
 }
+
+
+/* Aide Markdown : discrète sous le champ de réponse, sans agrandir la barre. */
+.admin-chat-format { margin: 0.15rem 0 0 0.6rem; }
+.admin-chat-format summary {
+  display: inline-block; font-size: 0.7rem; color: var(--gris);
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+.admin-chat-format p {
+  margin: 0.35rem 0; font-size: 0.72rem; line-height: 1.6;
+  color: var(--encre-douce);
+}
+.admin-chat-format code {
+  background: var(--brume); border-radius: 4px; padding: 0.05rem 0.2rem;
+  overflow-wrap: anywhere;
+}
