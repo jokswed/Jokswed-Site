@@ -1,5 +1,6 @@
 import "server-only";
 import webpush from "web-push";
+import { extraitNotification } from "@/lib/messagerie/markdown";
 
 let configure = false;
 
@@ -64,30 +65,32 @@ export async function envoyerPushNouvelleDemande(q, evenementId, demandeId, refe
    sur un webhook rejoué : l'appelant ne doit déclencher cet envoi que sur un
    message neuf et rattaché. Nos propres envois, eux, ne passent jamais par ce
    chemin — ils sont `sortant`, et c'est le drain qui les traite. */
-export async function envoyerPushReponseClient(q, conversationId) {
+export async function envoyerPushReponseClient(q, conversationId, texteRecu = "", messageId = null) {
   if (!configurer()) return { envoyes: 0, inhibe: true };
 
-  const { rows: sujet } = await q(
+  // Ces fonctions SQL ne rendent que les abonnements des membres autorisés
+  // à lire les messages de CETTE conversation. Aucune liste d'e-mails n'est
+  // renvoyée et aucun aperçu n'est écrit dans les journaux.
+  const { rows: sujets } = await q(
     "SELECT * FROM app.push_sujet_conversation($1)", [conversationId]);
-  const s = sujet[0];
+  const s = sujets[0];
   if (!s) return { envoyes: 0, inhibe: false };
 
-  const { rows } = await q(
+  const { rows: abonnements } = await q(
     "SELECT * FROM app.push_cible_conversation($1)", [conversationId]);
 
-  /* Le prénom suffit : le corps du message ne doit pas s'afficher sur un
-     écran verrouillé. */
-  const qui = String(s.expediteur ?? "Un client").split(/\s+/)[0];
-  const quand = s.date_mariage
-    ? ` concernant son mariage du ${new Date(`${s.date_mariage}T12:00:00Z`)
-        .toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}`
-    : "";
-  const url = s.demande_id
-    ? `/admin/demandes/${s.demande_id}`
-    : `/admin/messagerie/${conversationId}`;
+  const nom = String(s.expediteur ?? "Un client")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim().slice(0, 72) || "Un client";
+  const apercu = extraitNotification(texteRecu, 150);
+  // L'application iOS affiche aussi son nom natif : le corps précise
+  // "JoksWed" en première ligne, suivi de l'extrait du message.
+  const corps = `JoksWed\n${apercu}`;
+  const url = `/admin/messagerie/${conversationId}`;
 
   let envoyes = 0;
-  for (const abonnement of rows) {
+  for (const abonnement of abonnements) {
     try {
       await webpush.sendNotification(
         {
@@ -95,14 +98,16 @@ export async function envoyerPushReponseClient(q, conversationId) {
           keys: { p256dh: abonnement.p256dh, auth: abonnement.auth },
         },
         JSON.stringify({
-          title: "JoksWed — Nouvelle réponse client",
-          body: `${qui} vient de répondre à votre message${quand}.`,
+          title: nom,
+          body: corps,
+          icon: "/apple-icon.png",
+          badge: "/apple-icon.png",
           url,
-          /* Le `tag` est la conversation : deux réponses d'affilée remplacent
-             la notification au lieu de s'empiler. */
-          tag: `conversation-${conversationId}`,
+          // Un tag par message : chaque réponse peut produire sa propre alerte,
+          // sans rejouer un même message grâce à la déduplication du webhook.
+          tag: messageId ? `message-${messageId}` : `conversation-${conversationId}`,
         }),
-        { TTL: 600, urgency: "high" },
+        { TTL: 86400, urgency: "high" },
       );
       envoyes += 1;
     } catch (erreur) {
