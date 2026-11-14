@@ -137,7 +137,14 @@ export default function PushAdmin() {
     setMessage("");
     setTest(true);
     try {
-      const r = await fetch("/api/admin/push/test", { method: "POST" });
+      const reg = await navigator.serviceWorker.getRegistration("/");
+      const sub = reg ? await reg.pushManager.getSubscription() : null;
+      if (!sub) throw new Error("Aucun abonnement push sur cet appareil");
+      const r = await fetch("/api/admin/push/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) throw new Error(data.message || `HTTP ${r.status}`);
       setMessage("Notification de test transmise au service Push. Vérifie sa réception sur ton iPhone.");
