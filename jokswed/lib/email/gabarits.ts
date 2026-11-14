@@ -121,7 +121,7 @@ export function accuseReception(donnees: {
   const quandTexte = donnees.dateMariage ? ` du ${donnees.dateMariage}` : "";
 
   return {
-    sujet: `Votre demande a bien été reçue — JoksWed`,
+    sujet: `Votre demande de mariage ${donnees.reference} — JoksWed`,
     html: enveloppe({
       preEntete: `Demande ${donnees.reference} bien reçue. Je reviens vers vous sous 48 heures.`,
       titre: "Merci pour votre confiance",
