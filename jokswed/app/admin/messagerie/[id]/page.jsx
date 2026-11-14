@@ -55,11 +55,21 @@ export default async function Conversation({ params, searchParams }) {
 
   const vue = await acces.executer(async (q) => {
     const { rows: conv } = await q(
-      `SELECT c.*, d.reference, d.contact_nom
+      `SELECT c.*, d.reference, d.contact_nom,
+                d.message AS demande_message, d.cree_le AS demande_cree_le
          FROM conversations c LEFT JOIN demandes d ON d.id = c.demande_id
         WHERE c.id = $1`, [id]);
     if (conv.length === 0) return null;
     const { rows: fil } = await q("SELECT * FROM app.fil_conversation($1)", [id]);
+    /* Avant l'application du palier 069, les demandes anciennes n'ont pas
+       forcément encore leur première bulle persistée : on l'affiche sans
+       la réécrire, pour conserver la chronologie et éviter les doublons. */
+    const { rows: [noteDejaImportee] } = await q(
+      `SELECT EXISTS (
+         SELECT 1 FROM messages
+          WHERE conversation_id = $1 AND sens = 'entrant'
+            AND fournisseur = 'formulaire'
+       ) AS presente`, [id]);
     const { rows: discussions } = await q(
       "SELECT * FROM app.mes_conversations($1,false,NULL)", [entreprise.id]);
     /* ⚠️ PAS DE JOINTURE DIRECTE SUR `entreprises`.
@@ -88,7 +98,8 @@ export default async function Conversation({ params, searchParams }) {
           AND (utilisateur_id IS NULL OR utilisateur_id = app.acteur())
         ORDER BY utilisateur_id NULLS LAST`, [entreprise.id]);
     await q("SELECT app.marquer_lue($1)", [id]);
-    return { conv: conv[0], fil, discussions, participants, invitables, modeles, documents,
+    return { conv: conv[0], fil, noteDejaImportee: noteDejaImportee?.presente === true,
+             discussions, participants, invitables, modeles, documents,
              identites, variables: variables?.v ?? {} };
   });
 
@@ -157,8 +168,22 @@ export default async function Conversation({ params, searchParams }) {
     revalidatePath(`/admin/messagerie/${id}`);
   }
 
-  const { conv, fil, discussions, participants, invitables, modeles, documents, identites,
-          variables } = vue;
+  const { conv, fil, noteDejaImportee, discussions, participants, invitables,
+          modeles, documents, identites, variables } = vue;
+  const messageInitial = conv.demande_message?.trim() && !noteDejaImportee
+    ? {
+        id: `demande-${conv.demande_id}`,
+        sens: "entrant",
+        auteur_nom: conv.contact_nom,
+        auteur_email: null,
+        corps_texte: conv.demande_message,
+        cree_le: conv.demande_cree_le,
+        statut: "recu",
+        pieces: [],
+        lu: true,
+      }
+    : null;
+  const filAffiche = messageInitial ? [messageInitial, ...fil] : fil;
   const estClient = conv.nature === "client";
   const peutEcrire = acces.permissions.has("message.envoyer");
   const repondreA = adresseReponse(conv.jeton_reponse);
@@ -207,6 +232,12 @@ export default async function Conversation({ params, searchParams }) {
             {conv.reference ? ` · ${conv.reference}` : null}
           </p>
           <h1 className="display t-section">{conv.sujet}</h1>
+          {conv.demande_id ? (
+            <Link className="admin-chat-lien-demande"
+              href={`/admin/demandes/${conv.demande_id}`}>
+              Voir la demande {conv.reference ?? ""}
+            </Link>
+          ) : null}
           <p className="recap__note">
             {participants.map((p) =>
               p.role === "client"
@@ -240,9 +271,9 @@ export default async function Conversation({ params, searchParams }) {
       ) : null}
 
       <ol className="admin-fil admin-chat-thread" aria-label="Historique de la conversation">
-        {fil.map((m, i) => (
+        {filAffiche.map((m, i) => (
           <Fragment key={m.id}>
-            {i === 0 || jourParis(fil[i - 1].cree_le) !== jourParis(m.cree_le) ? (
+            {i === 0 || jourParis(filAffiche[i - 1].cree_le) !== jourParis(m.cree_le) ? (
               <li className="admin-chat-date" role="separator">{jourParis(m.cree_le)}</li>
             ) : null}
             <li className={`admin-chat-message admin-chat-message--${m.sens}${m.sens === "entrant" && !m.lu ? " admin-chat-message--neuf" : ""}`}>
@@ -282,7 +313,7 @@ export default async function Conversation({ params, searchParams }) {
             </li>
           </Fragment>
         ))}
-        {fil.length === 0 ? (
+        {filAffiche.length === 0 ? (
           <li className="admin-chat-vide">Commencez la conversation en envoyant un message.</li>
         ) : null}
       </ol>
@@ -369,7 +400,11 @@ export default async function Conversation({ params, searchParams }) {
                   <div className="champ">
                     <label htmlFor="sujet">Sujet de l'e-mail</label>
                     <input id="sujet" name="sujet" type="text"
-                      defaultValue={apercuSujet?.texte ?? conv.sujet} />
+                      defaultValue={apercuSujet?.texte ?? (
+                        conv.reference
+                          ? `Re: Votre demande de mariage ${conv.reference} — JoksWed`
+                          : conv.sujet
+                      )} />
                   </div>
                   {estClient && documents.length > 0 ? (
                     <fieldset className="champ">
