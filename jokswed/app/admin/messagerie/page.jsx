@@ -48,12 +48,17 @@ export default async function Messagerie({ searchParams }) {
       "SELECT * FROM app.mes_conversations($1,$2,$3)",
       [entreprise.id, archivees, recherche || null]);
     const { rows: demandes } = await q(
-      `SELECT id, reference, contact_nom, contact_email FROM demandes
-        WHERE entreprise_destinataire_id = $1 ORDER BY cree_le DESC LIMIT 50`,
+      `SELECT id, reference, contact_nom, contact_email, message, cree_le
+          FROM demandes WHERE entreprise_destinataire_id = $1
+          ORDER BY cree_le DESC LIMIT 100`,
+      [entreprise.id]);
+    const { rows: conversationsExistantes } = await q(
+      `SELECT DISTINCT demande_id FROM conversations
+        WHERE entreprise_id = $1 AND nature = 'client' AND demande_id IS NOT NULL`,
       [entreprise.id]);
     const { rows: [orphelins] } = await q(
       "SELECT count(*)::int n FROM messages_orphelins WHERE traite_le IS NULL");
-    return { conversations, demandes, orphelins: orphelins?.n ?? 0 };
+    return { conversations, demandes, conversationsExistantes, orphelins: orphelins?.n ?? 0 };
   });
 
   async function ouvrir(formulaire) {
@@ -81,8 +86,8 @@ export default async function Messagerie({ searchParams }) {
       // Un dossier = un seul fil client. Le verrou transactionnel empêche deux
       // clics simultanés de créer deux conversations pour la même demande.
       if (nature === "client" && demande) {
-        await q("SELECT pg_advisory_xact_lock(hashtext($1::text), hashtext($2::text))",
-          [e.id, demande]);
+        await q("SELECT pg_advisory_xact_lock(hashtext('demande-fil-jokswed'), hashtext($1::text))",
+          [demande]);
         const { rows: existantes } = await q(
           `SELECT c.id FROM conversations c
              JOIN conversation_participants p ON p.conversation_id = c.id
@@ -107,7 +112,13 @@ export default async function Messagerie({ searchParams }) {
     revalidatePath("/admin/messagerie");
   }
 
-  const { conversations, demandes, orphelins } = donnees;
+  const { conversations, demandes, conversationsExistantes, orphelins } = donnees;
+  const dejaLiees = new Set(conversationsExistantes.map((c) => c.demande_id));
+  const demandesSansFil = archivees ? [] : demandes.filter((d) =>
+    d.message?.trim() && !dejaLiees.has(d.id) &&
+    (!recherche || [d.reference, d.contact_nom, d.contact_email, d.message]
+      .some((valeur) => String(valeur ?? "").toLowerCase().includes(recherche.toLowerCase())))
+  );
   const demandeInitiale = demandes.find((d) => d.id === demandePreferee) ?? null;
   const totalNonLus = conversations.reduce((t, c) => t + c.non_lus, 0);
   const receptionPrete = Boolean(domaineReponse());
@@ -120,7 +131,7 @@ export default async function Messagerie({ searchParams }) {
           <p className="label label--nu">{entreprise.nom_commercial}</p>
           <h1 className="display t-section">Messagerie</h1>
           <p className="recap__note">
-            {conversations.length} conversation(s)
+            {conversations.length + demandesSansFil.length} discussion(s)
             {totalNonLus > 0 ? ` · ${totalNonLus} message(s) non lu(s)` : null}
           </p>
         </div>
@@ -168,12 +179,39 @@ export default async function Messagerie({ searchParams }) {
         </Link>
       </nav>
 
-      {conversations.length === 0 ? (
+      {conversations.length === 0 && demandesSansFil.length === 0 ? (
         <p className="recap__note" style={{ marginTop: "1.5rem" }}>
           {recherche ? "Aucune conversation ne correspond." : "Aucune conversation."}
         </p>
       ) : (
         <ul className="admin-conversations">
+          {demandesSansFil.map((d) => (
+            <li key={d.id}>
+              <form action={ouvrir} className="admin-chat-demande-form">
+                <input type="hidden" name="nature" value="client" />
+                <input type="hidden" name="demande" value={d.id} />
+                <input type="hidden" name="sujet"
+                  value={`Votre demande de mariage ${d.reference} — JoksWed`} />
+                <button type="submit" className="admin-conv admin-conv--neuve admin-chat-demande"
+                  aria-label={`Ouvrir la demande de ${d.contact_nom}`}>
+                  <span className="admin-conv__avatar" aria-hidden="true">
+                    {d.contact_nom.trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="admin-conv__contenu">
+                    <span className="admin-conv__haut">
+                      <strong className="admin-conv__nom">{d.contact_nom}</strong>
+                      <span className="admin-conv__quand">{quand(d.cree_le)}</span>
+                    </span>
+                    <span className="admin-conv__sujet">{d.reference} · Nouvelle demande</span>
+                    <span className="admin-conv__apercu">{d.message}</span>
+                    <span className="admin-conv__bas">
+                      <span className="admin-pastille admin-pastille--non_lue">À répondre</span>
+                    </span>
+                  </span>
+                </button>
+              </form>
+            </li>
+          ))}
           {conversations.map((c) => (
             <li key={c.id}>
               <Link href={`/admin/messagerie/${c.id}`}
@@ -235,7 +273,7 @@ export default async function Messagerie({ searchParams }) {
               <div className="champ pleine">
                 <label htmlFor="sujet">Sujet</label>
                 <input id="sujet" name="sujet" type="text" required
-                  defaultValue={demandeInitiale ? `Votre demande ${demandeInitiale.reference}` : ""}
+                  defaultValue={demandeInitiale ? `Votre demande de mariage ${demandeInitiale.reference} — JoksWed` : ""}
                   placeholder="Votre mariage du 13 juin" />
               </div>
             </div>
