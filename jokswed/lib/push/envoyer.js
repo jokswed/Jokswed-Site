@@ -117,3 +117,45 @@ export async function envoyerPushReponseClient(q, conversationId, texteRecu = ""
   }
   return { envoyes, inhibe: false };
 }
+
+
+/** Test réel, exclusivement pour l'abonnement courant du membre connecté.
+ * Le endpoint est croisé avec app.acteur() (RLS) : personne ne peut utiliser
+ * ce contrôle pour envoyer un push à un autre collaborateur ou à un client. */
+export async function envoyerPushTestPersonnel(q, endpoint) {
+  if (!configurer()) return { envoyes: 0, inhibe: true };
+  if (!endpoint || !endpoint.startsWith("https://")) {
+    return { envoyes: 0, inhibe: false };
+  }
+
+  const { rows } = await q(
+    `SELECT endpoint, p256dh, auth FROM push_abonnements
+      WHERE utilisateur_id = app.acteur() AND endpoint = $1 LIMIT 1`,
+    [endpoint],
+  );
+  if (!rows.length) return { envoyes: 0, inhibe: false };
+
+  const ab = rows[0];
+  try {
+    await webpush.sendNotification(
+      {
+        endpoint: ab.endpoint,
+        keys: { p256dh: ab.p256dh, auth: ab.auth },
+      },
+      JSON.stringify({
+        title: "Notification de test",
+        body: "JoksWed\nLes alertes de messages sont activées sur cet appareil.",
+        icon: "/apple-icon.png",
+        badge: "/apple-icon.png",
+        url: "/admin/notifications",
+        tag: `test-jokswed-${Date.now()}`,
+      }),
+      { TTL: 600, urgency: "high" },
+    );
+    return { envoyes: 1, inhibe: false };
+  } catch (erreur) {
+    const code = erreur?.statusCode ?? erreur?.status ?? "inconnu";
+    console.error(`[push/test] échec (HTTP ${code})`);
+    return { envoyes: 0, inhibe: false };
+  }
+}
