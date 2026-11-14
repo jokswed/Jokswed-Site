@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { engendrerJetonConversation, domaineReponse } from "@/lib/messagerie/adresses";
+import { ouvrirConversationDemande } from "@/lib/messagerie/ouvrir-demande";
 
 export const metadata = { title: "Messagerie" };
 export const dynamic = "force-dynamic";
@@ -71,41 +72,12 @@ export default async function Messagerie({ searchParams }) {
     const demande = String(formulaire.get("demande") ?? "") || null;
 
     const id = await a.executer(async (q) => {
-      /* Le client vient du dossier, pas d'une saisie libre : on n'écrit pas
-         à une adresse que personne n'a vérifiée. */
-      let email = null;
-      let nom = null;
-      if (nature === "client" && demande) {
-        const { rows } = await q(
-          "SELECT contact_email, contact_nom FROM demandes WHERE id = $1 AND entreprise_destinataire_id = $2", [demande, e.id]);
-        email = rows[0]?.contact_email ?? null;
-        nom = rows[0]?.contact_nom ?? null;
+      if (nature === "client") {
+        return ouvrirConversationDemande(q, e.id, demande);
       }
-      if (nature === "client" && !email) return null;
-
-      // Un dossier = un seul fil client. Le verrou transactionnel empêche deux
-      // clics simultanés de créer deux conversations pour la même demande.
-      if (nature === "client" && demande) {
-        await q("SELECT pg_advisory_xact_lock(hashtext('demande-fil-jokswed'), hashtext($1::text))",
-          [demande]);
-        const { rows: existantes } = await q(
-          `SELECT c.id FROM conversations c
-             JOIN conversation_participants p ON p.conversation_id = c.id
-              AND p.role = 'client' AND p.retire_le IS NULL
-              AND p.contact_email = $3::citext
-            WHERE c.entreprise_id = $1 AND c.demande_id = $2
-              AND c.nature = 'client'
-            ORDER BY c.derniere_activite_le DESC LIMIT 1`,
-          [e.id, demande, email]);
-        if (existantes.length > 0) {
-          await q("SELECT app.archiver_conversation($1,false)", [existantes[0].id]);
-          return existantes[0].id;
-        }
-      }
-
       const { rows } = await q(
-        "SELECT app.ouvrir_conversation($1,$2,$3,$4,$5,NULL,$6::citext,$7) AS id",
-        [e.id, nature, sujet, engendrerJetonConversation(), demande, email, nom]);
+        "SELECT app.ouvrir_conversation($1,$2,$3,$4,$5,NULL,NULL::citext,NULL) AS id",
+        [e.id, nature, sujet, engendrerJetonConversation(), demande]);
       return rows[0]?.id ?? null;
     });
     if (id) redirect(`/admin/messagerie/${id}`);
