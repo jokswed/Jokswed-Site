@@ -158,5 +158,14 @@ export async function POST(requete, { params }) {
     }
   });
 
+  // Indicateurs techniques sans adresse, sujet, corps, jeton ni identifiant :
+  // on peut diagnostiquer la réception dans Vercel sans exposer les clients.
+  console.info("[jokswed:entrant] reception", {
+    recus: bilan.recus,
+    rattaches: bilan.rattaches,
+    quarantaine: bilan.quarantaine,
+    doublons: bilan.doublons,
+  });
+
   return NextResponse.json(bilan, { status: 200 });
 }

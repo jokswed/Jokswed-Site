@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { notFound } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
@@ -7,6 +8,8 @@ import { adresseReponse, domaineReponse } from "@/lib/messagerie/adresses";
 import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie/modeles";
 import { drainer } from "@/lib/demandes/drain";
 import Retour from "@/components/admin/Retour";
+import ActualiserMessagerie from "@/components/admin/ActualiserMessagerie";
+import SaisieMessagerie from "@/components/admin/SaisieMessagerie";
 
 export const metadata = { title: "Conversation" };
 export const dynamic = "force-dynamic";
@@ -26,6 +29,17 @@ export const dynamic = "force-dynamic";
    dans `composer_message`, puis filtre dans `message_pour_envoi`. Trois
    verrous, parce qu'une note interne partie au client ne se rattrape pas.
    ============================================================================= */
+function jourParis(instant) {
+  return new Date(instant).toLocaleDateString("fr-FR", {
+    timeZone: "Europe/Paris", weekday: "long", day: "numeric",
+    month: "long", year: "numeric",
+  });
+}
+function heureParis(instant) {
+  return new Date(instant).toLocaleTimeString("fr-FR", {
+    timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit",
+  });
+}
 function euros(cents) {
   if (cents === null || cents === undefined) return null;
   return `${(cents / 100).toLocaleString("fr-FR", {
@@ -46,6 +60,8 @@ export default async function Conversation({ params, searchParams }) {
         WHERE c.id = $1`, [id]);
     if (conv.length === 0) return null;
     const { rows: fil } = await q("SELECT * FROM app.fil_conversation($1)", [id]);
+    const { rows: discussions } = await q(
+      "SELECT * FROM app.mes_conversations($1,false,NULL)", [entreprise.id]);
     /* ⚠️ PAS DE JOINTURE DIRECTE SUR `entreprises`.
        Sa politique ne rend que les siennes : un co-participant s'affichait
        « null ». La fonction rend la raison commerciale, et rien d'autre. */
@@ -72,7 +88,7 @@ export default async function Conversation({ params, searchParams }) {
           AND (utilisateur_id IS NULL OR utilisateur_id = app.acteur())
         ORDER BY utilisateur_id NULLS LAST`, [entreprise.id]);
     await q("SELECT app.marquer_lue($1)", [id]);
-    return { conv: conv[0], fil, participants, invitables, modeles, documents,
+    return { conv: conv[0], fil, discussions, participants, invitables, modeles, documents,
              identites, variables: variables?.v ?? {} };
   });
 
@@ -118,6 +134,7 @@ export default async function Conversation({ params, searchParams }) {
       });
     }
     revalidatePath(`/admin/messagerie/${id}`);
+    revalidatePath("/admin/messagerie");
   }
 
   async function inviter(formulaire) {
@@ -140,7 +157,7 @@ export default async function Conversation({ params, searchParams }) {
     revalidatePath(`/admin/messagerie/${id}`);
   }
 
-  const { conv, fil, participants, invitables, modeles, documents, identites,
+  const { conv, fil, discussions, participants, invitables, modeles, documents, identites,
           variables } = vue;
   const estClient = conv.nature === "client";
   const peutEcrire = acces.permissions.has("message.envoyer");
@@ -158,8 +175,32 @@ export default async function Conversation({ params, searchParams }) {
   const manquantes = [...new Set([...(apercu?.manquantes ?? []), ...(apercuSujet?.manquantes ?? [])])];
 
   return (
-    <main className="admin-page">
-      <header className="admin-entete">
+    <main className="admin-page admin-chat-page">
+      <div className="admin-chat-layout">
+        <aside className="admin-chat-sidebar" aria-label="Discussions">
+          <Link href="/admin/messagerie" className="admin-chat-sidebar__retour">Discussions</Link>
+          <ul className="admin-chat-contacts">
+            {discussions.map((c) => (
+              <li key={c.id}>
+                <Link href={`/admin/messagerie/${c.id}`}
+                  aria-current={c.id === id ? "page" : undefined}
+                  className={`admin-chat-contact${c.id === id ? " admin-chat-contact--active" : ""}`}>
+                  <span className="admin-conv__avatar" aria-hidden="true">
+                    {(c.client_nom ?? c.participants[0] ?? "?").trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="admin-chat-contact__detail">
+                    <strong>{c.client_nom ?? c.participants.join(", ")}</strong>
+                    <small>{c.apercu ?? c.sujet}</small>
+                  </span>
+                  {c.non_lus > 0 ? <span className="admin-chat-contact__nonlus">{c.non_lus}</span> : null}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </aside>
+        <section className="admin-chat-main" aria-label="Conversation active">
+          <ActualiserMessagerie dernierMessage={fil.at(-1)?.id ?? null} />
+      <header className="admin-entete admin-chat-topbar">
         <div>
           <p className="label label--nu">
             <Link href="/admin/messagerie">Messagerie</Link>
@@ -198,46 +239,51 @@ export default async function Conversation({ params, searchParams }) {
         </div>
       ) : null}
 
-      <ol className="admin-fil">
-        {fil.map((m) => (
-          <li key={m.id}
-            className={`admin-bulle admin-bulle--${m.sens}${m.lu ? "" : " admin-bulle--neuve"}`}>
-            <p className="admin-bulle__entete">
-              <strong>{m.auteur_nom ?? m.auteur_email ?? "—"}</strong>
-              {m.auteur_entreprise ? <span> · {m.auteur_entreprise}</span> : null}
-              <span className="admin-bulle__quand">
-                {new Date(m.cree_le).toLocaleString("fr-FR")}
-              </span>
-            </p>
-            <div className="admin-bulle__corps">
-              {m.corps_texte.split("\n").map((ligne, i) => (
-                <p key={i}>{ligne || " "}</p>
-              ))}
-            </div>
-            {m.pieces?.length > 0 ? (
-              <p className="admin-bulle__pieces">
-                {m.pieces.map((p) => (
-                  <a key={p.id} className="admin-pastille"
-                    href={p.origine === "document"
-                      ? `/api/admin/documents/${p.document_id}/pdf`
-                      : `/api/admin/pieces/${p.id}`}>
-                    {p.nom}
-                  </a>
-                ))}
-              </p>
+      <ol className="admin-fil admin-chat-thread" aria-label="Historique de la conversation">
+        {fil.map((m, i) => (
+          <Fragment key={m.id}>
+            {i === 0 || jourParis(fil[i - 1].cree_le) !== jourParis(m.cree_le) ? (
+              <li className="admin-chat-date" role="separator">{jourParis(m.cree_le)}</li>
             ) : null}
-            <p className="admin-bulle__pied">
-              <span className={`admin-pastille${m.statut === "envoye" ? " admin-pastille--emis" : ""}`}>
-                {m.sens === "entrant" ? "reçu"
-                  : m.sens === "interne" ? "note interne"
-                  : m.statut}
-              </span>
-              {m.erreur ? <span className="admin-bulle__erreur">{m.erreur}</span> : null}
-            </p>
-          </li>
+            <li className={`admin-chat-message admin-chat-message--${m.sens}${m.sens === "entrant" && !m.lu ? " admin-chat-message--neuf" : ""}`}>
+              <div className="admin-chat-bulle">
+                <div className="admin-chat-bulle__entete">
+                  {m.sens === "interne" ? "Note interne" : m.sens === "entrant"
+                    ? (m.auteur_nom ?? m.auteur_email ?? "Client")
+                    : "Vous"}
+                </div>
+                <div className="admin-chat-bulle__texte">
+                  {m.corps_texte.split("\n").map((ligne, ligneIndex) => (
+                    <p key={ligneIndex}>{ligne || " "}</p>
+                  ))}
+                </div>
+                {m.pieces?.length > 0 ? (
+                  <div className="admin-chat-bulle__pieces">
+                    {m.pieces.map((p) => (
+                      <a key={p.id} className="admin-chat-piece"
+                        href={p.origine === "document"
+                          ? `/api/admin/documents/${p.document_id}/pdf`
+                          : `/api/admin/pieces/${p.id}`}>
+                        <span aria-hidden="true">📎</span> {p.nom}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="admin-chat-bulle__pied">
+                  <time dateTime={new Date(m.cree_le).toISOString()}>{heureParis(m.cree_le)}</time>
+                  <span>{m.sens === "entrant" ? "Reçu"
+                    : m.sens === "interne" ? "Privé"
+                    : m.statut === "envoye" ? "Envoyé"
+                    : m.statut === "en_attente" ? "En attente"
+                    : m.statut === "echoue" ? "Échec d’envoi" : m.statut}</span>
+                </div>
+                {m.erreur ? <p className="admin-chat-bulle__erreur">{m.erreur}</p> : null}
+              </div>
+            </li>
+          </Fragment>
         ))}
         {fil.length === 0 ? (
-          <li className="recap__note">Aucun message pour l&apos;instant.</li>
+          <li className="admin-chat-vide">Commencez la conversation en envoyant un message.</li>
         ) : null}
       </ol>
 
@@ -264,97 +310,95 @@ export default async function Conversation({ params, searchParams }) {
       ) : null}
 
       {peutEcrire && conv.statut === "ouverte" ? (
-        <section className="admin-bloc">
-          <h2 className="display t-carte">Répondre</h2>
+        <section className="admin-chat-composer" aria-label="Répondre à la conversation">
+          <div className="admin-chat-composer__haut">
+            <span className="admin-chat-composer__titre">Message</span>
+            <details className="admin-chat-options" open={Boolean(modeleChoisi)}>
+              <summary>Modèles de réponse</summary>
+              <nav className="admin-filtres" aria-label="Modèles de réponse">
+                <Link className={`admin-puce${!modeleChoisi ? " admin-puce--active" : ""}`}
+                  href={`/admin/messagerie/${id}`}>Message libre</Link>
+                {modeles.map((m) => (
+                  <Link key={m.id}
+                    className={`admin-puce${modeleChoisi?.cle === m.cle ? " admin-puce--active" : ""}`}
+                    href={`/admin/messagerie/${id}?modele=${encodeURIComponent(m.cle)}`}>{m.libelle}</Link>
+                ))}
+              </nav>
+            </details>
+          </div>
 
-          <nav className="admin-filtres" aria-label="Modèles de réponse">
-            <Link className={`admin-puce${!modeleChoisi ? " admin-puce--active" : ""}`}
-              href={`/admin/messagerie/${id}`}>Message libre</Link>
-            {modeles.map((m) => (
-              <Link key={m.id}
-                className={`admin-puce${modeleChoisi?.cle === m.cle ? " admin-puce--active" : ""}`}
-                href={`/admin/messagerie/${id}?modele=${m.cle}`}>{m.libelle}</Link>
-            ))}
-          </nav>
-
-          {/* ⚠️ UN MARQUEUR NON REMPLACÉ EST UN BLOCAGE, PAS UN AVERTISSEMENT. */}
           {manquantes.length > 0 ? (
-            <div className="admin-alerte">
+            <div className="admin-alerte" role="alert">
               <strong>Informations manquantes :</strong>{" "}
               {manquantes.map((c) => `{{${c}}}`).join(", ")}.
-              Complétez le dossier avant d&apos;envoyer — ces marqueurs
-              partiraient tels quels.
+              Complétez le dossier avant d'envoyer ce modèle.
             </div>
           ) : null}
 
-          <form action={envoyer} className="formulaire">
-            {identites.length > 0 && estClient ? (
-              <div className="champ">
-                <label htmlFor="identite">Expéditeur</label>
-                <select id="identite" name="identite" defaultValue={identites[0].adresse}>
-                  {identites.map((i) => (
-                    <option key={i.adresse} value={i.adresse}>
-                      {i.nom_affiche} &lt;{i.adresse}&gt;
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+          <form action={envoyer} className="admin-chat-form">
+            <SaisieMessagerie
+              key={modeleChoisi?.cle ?? "message-libre"}
+              initial={apercu?.texte ?? ""}
+              bloquee={manquantes.length > 0}
+              interneSeulement={!estClient}
+            />
 
-            <div className="champ">
-              <label htmlFor="sujet">Sujet</label>
-              <input id="sujet" name="sujet" type="text"
-                defaultValue={apercuSujet?.texte ?? conv.sujet} />
-            </div>
-
-            <div className="champ">
-              <label htmlFor="corps">Message</label>
-              <textarea id="corps" name="corps" rows={10} required
-                defaultValue={apercu?.texte ?? ""} />
-            </div>
-
-            {estClient && documents.length > 0 ? (
-              <fieldset className="champ">
-                <legend>Joindre un document</legend>
-                {documents.map((d) => (
-                  <label key={d.id} className="admin-case">
-                    <input type="checkbox" name="document" value={d.id}
-                      disabled={d.statut === "brouillon"} />
-                    {d.type}{d.role_facture ? ` ${d.role_facture}` : ""}
-                    {d.numero ? ` ${d.numero}` : ""}
-                    {d.statut === "brouillon" ? (
-                      /* ⚠️ UN BROUILLON NE S'ENVOIE PAS. Il n'a pas de numéro,
-                         porte « SANS VALEUR », et n'engage personne. */
-                      <span className="recap__note"> — brouillon, à émettre d&apos;abord</span>
-                    ) : null}
-                  </label>
-                ))}
-              </fieldset>
-            ) : null}
-
-            <div className="admin-paiement__actions">
+            <div className="admin-chat-composer__actions">
               {estClient ? (
-                <button type="submit" className="btn" disabled={manquantes.length > 0}>
-                  Envoyer au client
+                <button type="submit" name="interne" value="1"
+                  className="admin-chat-note"
+                  disabled={manquantes.length > 0}>
+                  + Note interne
                 </button>
               ) : null}
-              <button type="submit" name="interne" value="1" className="btn btn--fantome">
-                {estClient ? "Ajouter une note interne" : "Publier"}
-              </button>
+              <details className="admin-chat-avance">
+                <summary>Options d'envoi</summary>
+                <div className="admin-chat-avance__champs">
+                  {identites.length > 0 && estClient ? (
+                    <div className="champ">
+                      <label htmlFor="identite">Expéditeur</label>
+                      <select id="identite" name="identite" defaultValue={identites[0].adresse}>
+                        {identites.map((i) => (
+                          <option key={i.adresse} value={i.adresse}>
+                            {i.nom_affiche} &lt;{i.adresse}&gt;
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  <div className="champ">
+                    <label htmlFor="sujet">Sujet de l'e-mail</label>
+                    <input id="sujet" name="sujet" type="text"
+                      defaultValue={apercuSujet?.texte ?? conv.sujet} />
+                  </div>
+                  {estClient && documents.length > 0 ? (
+                    <fieldset className="champ">
+                      <legend>Joindre un document</legend>
+                      {documents.map((d) => (
+                        <label key={d.id} className="admin-case">
+                          <input type="checkbox" name="document" value={d.id}
+                            disabled={d.statut === "brouillon"} />
+                          {d.type}{d.role_facture ? ` ${d.role_facture}` : ""}
+                          {d.numero ? ` ${d.numero}` : ""}
+                          {d.statut === "brouillon" ? " — brouillon indisponible" : ""}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : null}
+                </div>
+              </details>
             </div>
-
-            {estClient ? (
-              <p className="recap__note">
-                {repondreA
-                  ? <>Les réponses reviendront ici, via <code>{repondreA}</code>.</>
-                  : <><strong>Réception non configurée :</strong> la réponse du
-                      client arrivera dans votre boîte habituelle, pas dans
-                      JoksWed.</>}
-              </p>
-            ) : null}
           </form>
+          {estClient ? (
+            <p className="admin-chat-reception">
+              {repondreA ? "Les réponses des clients apparaîtront automatiquement ici."
+                : "Réception intégrée non configurée : les réponses arriveront dans votre boîte e-mail."}
+            </p>
+          ) : null}
         </section>
       ) : null}
+        </section>
+      </div>
     </main>
   );
 }

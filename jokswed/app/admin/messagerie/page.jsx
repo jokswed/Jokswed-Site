@@ -1,4 +1,5 @@
 import Retour from "@/components/admin/Retour";
+import ActualiserMessagerie from "@/components/admin/ActualiserMessagerie";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -71,11 +72,32 @@ export default async function Messagerie({ searchParams }) {
       let nom = null;
       if (nature === "client" && demande) {
         const { rows } = await q(
-          "SELECT contact_email, contact_nom FROM demandes WHERE id = $1", [demande]);
+          "SELECT contact_email, contact_nom FROM demandes WHERE id = $1 AND entreprise_destinataire_id = $2", [demande, e.id]);
         email = rows[0]?.contact_email ?? null;
         nom = rows[0]?.contact_nom ?? null;
       }
       if (nature === "client" && !email) return null;
+
+      // Un dossier = un seul fil client. Le verrou transactionnel empêche deux
+      // clics simultanés de créer deux conversations pour la même demande.
+      if (nature === "client" && demande) {
+        await q("SELECT pg_advisory_xact_lock(hashtext($1::text), hashtext($2::text))",
+          [e.id, demande]);
+        const { rows: existantes } = await q(
+          `SELECT c.id FROM conversations c
+             JOIN conversation_participants p ON p.conversation_id = c.id
+              AND p.role = 'client' AND p.retire_le IS NULL
+              AND p.contact_email = $3::citext
+            WHERE c.entreprise_id = $1 AND c.demande_id = $2
+              AND c.nature = 'client'
+            ORDER BY c.derniere_activite_le DESC LIMIT 1`,
+          [e.id, demande, email]);
+        if (existantes.length > 0) {
+          await q("SELECT app.archiver_conversation($1,false)", [existantes[0].id]);
+          return existantes[0].id;
+        }
+      }
+
       const { rows } = await q(
         "SELECT app.ouvrir_conversation($1,$2,$3,$4,$5,NULL,$6::citext,$7) AS id",
         [e.id, nature, sujet, engendrerJetonConversation(), demande, email, nom]);
@@ -91,7 +113,8 @@ export default async function Messagerie({ searchParams }) {
   const receptionPrete = Boolean(domaineReponse());
 
   return (
-    <main className="admin-page">
+    <main className="admin-page admin-chat-index">
+      <ActualiserMessagerie />
       <header className="admin-entete">
         <div>
           <p className="label label--nu">{entreprise.nom_commercial}</p>
@@ -155,6 +178,10 @@ export default async function Messagerie({ searchParams }) {
             <li key={c.id}>
               <Link href={`/admin/messagerie/${c.id}`}
                 className={`admin-conv${c.non_lus > 0 ? " admin-conv--neuve" : ""}`}>
+                <span className="admin-conv__avatar" aria-hidden="true">
+                  {(c.client_nom ?? c.participants[0] ?? "?").trim().charAt(0).toUpperCase()}
+                </span>
+                <span className="admin-conv__contenu">
                 <span className="admin-conv__haut">
                   <strong className="admin-conv__nom">
                     {c.client_nom ?? c.participants.join(", ")}
@@ -174,6 +201,7 @@ export default async function Messagerie({ searchParams }) {
                     </span>
                   ) : null}
                 </span>
+                </span>
               </Link>
             </li>
           ))}
@@ -181,8 +209,8 @@ export default async function Messagerie({ searchParams }) {
       )}
 
       {acces.permissions.has("message.envoyer") ? (
-        <section className="admin-bloc" style={{ marginTop: "2rem" }}>
-          <h2 className="display t-carte">Nouvelle conversation</h2>
+        <details className="admin-bloc admin-chat-nouveau" open={Boolean(demandeInitiale)}>
+          <summary>+ Nouvelle discussion</summary>
           <form action={ouvrir} className="formulaire">
             <div className="admin-grille-champs">
               <div className="champ">
@@ -217,7 +245,7 @@ export default async function Messagerie({ searchParams }) {
             </p>
             <button type="submit" className="btn btn--bloc">Ouvrir</button>
           </form>
-        </section>
+        </details>
       ) : null}
     </main>
   );
