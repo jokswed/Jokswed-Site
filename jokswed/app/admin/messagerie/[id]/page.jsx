@@ -310,98 +310,91 @@ export default async function Conversation({ params, searchParams }) {
       ) : null}
 
       {peutEcrire && conv.statut === "ouverte" ? (
-        <section className="admin-bloc admin-chat-compose">
-          <h2 className="display t-carte">Répondre</h2>
+        <section className="admin-chat-composer" aria-label="Répondre à la conversation">
+          <div className="admin-chat-composer__haut">
+            <span className="admin-chat-composer__titre">Message</span>
+            <details className="admin-chat-options" open={Boolean(modeleChoisi)}>
+              <summary>Modèles de réponse</summary>
+              <nav className="admin-filtres" aria-label="Modèles de réponse">
+                <Link className={`admin-puce${!modeleChoisi ? " admin-puce--active" : ""}`}
+                  href={`/admin/messagerie/${id}`}>Message libre</Link>
+                {modeles.map((m) => (
+                  <Link key={m.id}
+                    className={`admin-puce${modeleChoisi?.cle === m.cle ? " admin-puce--active" : ""}`}
+                    href={`/admin/messagerie/${id}?modele=${encodeURIComponent(m.cle)}`}>{m.libelle}</Link>
+                ))}
+              </nav>
+            </details>
+          </div>
 
-          <details className="admin-chat-options" open={Boolean(modeleChoisi)}>
-          <summary>Modèles de réponse</summary>
-          <nav className="admin-filtres" aria-label="Modèles de réponse">
-            <Link className={`admin-puce${!modeleChoisi ? " admin-puce--active" : ""}`}
-              href={`/admin/messagerie/${id}`}>Message libre</Link>
-            {modeles.map((m) => (
-              <Link key={m.id}
-                className={`admin-puce${modeleChoisi?.cle === m.cle ? " admin-puce--active" : ""}`}
-                href={`/admin/messagerie/${id}?modele=${m.cle}`}>{m.libelle}</Link>
-            ))}
-          </nav>
-          </details>
-
-          {/* ⚠️ UN MARQUEUR NON REMPLACÉ EST UN BLOCAGE, PAS UN AVERTISSEMENT. */}
           {manquantes.length > 0 ? (
-            <div className="admin-alerte">
+            <div className="admin-alerte" role="alert">
               <strong>Informations manquantes :</strong>{" "}
               {manquantes.map((c) => `{{${c}}}`).join(", ")}.
-              Complétez le dossier avant d&apos;envoyer — ces marqueurs
-              partiraient tels quels.
+              Complétez le dossier avant d'envoyer ce modèle.
             </div>
           ) : null}
 
-          <form action={envoyer} className="formulaire">
-            {identites.length > 0 && estClient ? (
-              <div className="champ">
-                <label htmlFor="identite">Expéditeur</label>
-                <select id="identite" name="identite" defaultValue={identites[0].adresse}>
-                  {identites.map((i) => (
-                    <option key={i.adresse} value={i.adresse}>
-                      {i.nom_affiche} &lt;{i.adresse}&gt;
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ) : null}
+          <form action={envoyer} className="admin-chat-form">
+            <SaisieMessagerie
+              key={modeleChoisi?.cle ?? "message-libre"}
+              initial={apercu?.texte ?? ""}
+              bloquee={manquantes.length > 0}
+              interneSeulement={!estClient}
+            />
 
-            <div className="champ">
-              <label htmlFor="sujet">Sujet</label>
-              <input id="sujet" name="sujet" type="text"
-                defaultValue={apercuSujet?.texte ?? conv.sujet} />
-            </div>
-
-            <div className="champ">
-              <label htmlFor="corps">Message</label>
-              <textarea id="corps" name="corps" rows={4} required
-                defaultValue={apercu?.texte ?? ""} />
-            </div>
-
-            {estClient && documents.length > 0 ? (
-              <fieldset className="champ">
-                <legend>Joindre un document</legend>
-                {documents.map((d) => (
-                  <label key={d.id} className="admin-case">
-                    <input type="checkbox" name="document" value={d.id}
-                      disabled={d.statut === "brouillon"} />
-                    {d.type}{d.role_facture ? ` ${d.role_facture}` : ""}
-                    {d.numero ? ` ${d.numero}` : ""}
-                    {d.statut === "brouillon" ? (
-                      /* ⚠️ UN BROUILLON NE S'ENVOIE PAS. Il n'a pas de numéro,
-                         porte « SANS VALEUR », et n'engage personne. */
-                      <span className="recap__note"> — brouillon, à émettre d&apos;abord</span>
-                    ) : null}
-                  </label>
-                ))}
-              </fieldset>
-            ) : null}
-
-            <div className="admin-paiement__actions">
+            <div className="admin-chat-composer__actions">
               {estClient ? (
-                <button type="submit" className="btn" disabled={manquantes.length > 0}>
-                  Envoyer au client
+                <button type="submit" name="interne" value="1"
+                  className="admin-chat-note"
+                  disabled={manquantes.length > 0}>
+                  + Note interne
                 </button>
               ) : null}
-              <button type="submit" name="interne" value="1" className="btn btn--fantome">
-                {estClient ? "Ajouter une note interne" : "Publier"}
-              </button>
+              <details className="admin-chat-avance">
+                <summary>Options d'envoi</summary>
+                <div className="admin-chat-avance__champs">
+                  {identites.length > 0 && estClient ? (
+                    <div className="champ">
+                      <label htmlFor="identite">Expéditeur</label>
+                      <select id="identite" name="identite" defaultValue={identites[0].adresse}>
+                        {identites.map((i) => (
+                          <option key={i.adresse} value={i.adresse}>
+                            {i.nom_affiche} &lt;{i.adresse}&gt;
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  <div className="champ">
+                    <label htmlFor="sujet">Sujet de l'e-mail</label>
+                    <input id="sujet" name="sujet" type="text"
+                      defaultValue={apercuSujet?.texte ?? conv.sujet} />
+                  </div>
+                  {estClient && documents.length > 0 ? (
+                    <fieldset className="champ">
+                      <legend>Joindre un document</legend>
+                      {documents.map((d) => (
+                        <label key={d.id} className="admin-case">
+                          <input type="checkbox" name="document" value={d.id}
+                            disabled={d.statut === "brouillon"} />
+                          {d.type}{d.role_facture ? ` ${d.role_facture}` : ""}
+                          {d.numero ? ` ${d.numero}` : ""}
+                          {d.statut === "brouillon" ? " — brouillon indisponible" : ""}
+                        </label>
+                      ))}
+                    </fieldset>
+                  ) : null}
+                </div>
+              </details>
             </div>
-
-            {estClient ? (
-              <p className="recap__note">
-                {repondreA
-                  ? <>Les réponses reviendront ici, via <code>{repondreA}</code>.</>
-                  : <><strong>Réception non configurée :</strong> la réponse du
-                      client arrivera dans votre boîte habituelle, pas dans
-                      JoksWed.</>}
-              </p>
-            ) : null}
           </form>
+          {estClient ? (
+            <p className="admin-chat-reception">
+              {repondreA ? "Les réponses des clients apparaîtront automatiquement ici."
+                : "Réception intégrée non configurée : les réponses arriveront dans votre boîte e-mail."}
+            </p>
+          ) : null}
         </section>
       ) : null}
         </section>
