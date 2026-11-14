@@ -91,6 +91,7 @@ export function markdownVersHtml(texte: string): string {
 export function markdownVersTexte(texte: string): string {
   return String(texte ?? "")
     .replace(/\r\n?/g, "\n")
+    .replace(/^\s*\*\s+/gm, "- ")
     .replace(/\[([^\]\n]+)\]\(([^\s)]+)\)/g, (_tout, libelle: string, url: string) =>
       urlAutorisee(url) ? (libelle === url ? url : `${libelle} (${url})`) : libelle)
     .replace(/`([^`\n]+)`/g, "$1")
