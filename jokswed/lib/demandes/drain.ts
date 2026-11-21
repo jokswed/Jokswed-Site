@@ -12,6 +12,7 @@ import { rendrePdf } from "@/lib/documents/generer";
 import { formaterDateSql } from "@/lib/dates";
 import { lienSuiviDemande } from "@/lib/suivi/demande";
 import { envoyerPushNouvelleDemande } from "@/lib/push/envoyer";
+import { nomsCouplePush } from "@/lib/push/demande";
 import { compteGmailPourMessage } from "@/lib/gmail/compte";
 import { envoyerParGmail } from "@/lib/gmail/envoi";
 
@@ -50,7 +51,7 @@ async function notifierEquipe(
   q: Requete,
   entrepriseId: string,
   demandeId: string,
-  reference: string,
+  nomDuCouple: string,
   videoDemandee: boolean,
 ): Promise<void> {
   const { rows } = await q("SELECT * FROM app.membres_avec($1,'dossier.lire')", [entrepriseId]);
@@ -59,10 +60,12 @@ async function notifierEquipe(
       d.utilisateur_id,
       entrepriseId,
       "demande.recue",
-      `Nouvelle demande ${reference}`,
-      /* ⚠️ NI NOM, NI DATE, NI MONTANT : une notification s'affiche sur un
-         écran verrouillé. Le détail se consulte dans l'espace authentifié. */
-      videoDemandee ? "Prestation vidéo demandée." : null,
+      "Nouvelle demande",
+      /* Nom du couple explicitement demandé par le propriétaire.
+         Pas d'e-mail, numéro de téléphone, montant ni message privé. */
+      videoDemandee
+        ? `${nomsCouplePush(nomDuCouple)} · Prestation vidéo demandée.`
+        : nomsCouplePush(nomDuCouple),
       `/admin/demandes/${demandeId}`,
       `demande.recue:${demandeId}`,
     ]);
@@ -132,28 +135,32 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
           const { demande_id, reference, entreprise_id, video_demandee } =
             evenement.charge_utile;
 
-          await notifierEquipe(q, entreprise_id, demande_id, reference, video_demandee);
-          try {
-            await envoyerPushNouvelleDemande(
-              q, evenement.id, demande_id, reference,
-            );
-          } catch (erreur) {
-            console.error(
-              `[push] notification différée : ${erreur instanceof Error ? erreur.name : "erreur"}`,
-            );
-          }
-
-          /* ⚠️ PAR UNE FONCTION, PAS PAR UN SELECT ORDINAIRE.
-             Le drain n'a pas d'acteur : la politique de `demandes` lui rendait
-             zéro ligne, le bloc d'envoi était sauté en silence et l'événement
-             marqué « traité ». Aucun e-mail n'était jamais composé, sans la
-             moindre erreur. `app.demande_pour_envoi` ne rend que les cinq
-             champs nécessaires — ni le message du client, ni l'instantané. */
+          /* L'identité des mariés provient du dossier réellement enregistré,
+             jamais de la référence commerciale DEM-... de l'événement.
+             La fonction dédiée ne fournit au drain que les champs autorisés. */
           const { rows: demande } = await q(
             "SELECT * FROM app.demande_pour_envoi($1)", [demande_id]);
-
-          const site = process.env.SITE_URL ?? "https://jokswed.com";
           const d = demande[0];
+
+          /* ⚠️ Une relance d'e-mail ne doit jamais relancer le push.
+             Lors d'un HTTP 400 Brevo, le même événement peut être rejoué
+             indéfiniment. "tentatives" est incrémenté avant le SAVEPOINT
+             avant_evenement, donc le compteur reste avancé même si l'e-mail
+             échoue et que le traitement est replanifié. */
+          if (d && evenement.tentatives === 1) {
+            try {
+              await envoyerPushNouvelleDemande(
+                q, evenement.id, demande_id, d.contact_nom, evenement.tentatives,
+              );
+            } catch (erreur) {
+              console.error(
+                `[push] notification non délivrée : ${erreur instanceof Error ? erreur.name : "erreur"}`,
+              );
+            }
+          }
+
+          await notifierEquipe(q, entreprise_id, demande_id, d?.contact_nom, video_demandee);
+          const site = process.env.SITE_URL ?? "https://jokswed.com";
 
           if (d) {
             /* 1. Accusé de réception au couple. */

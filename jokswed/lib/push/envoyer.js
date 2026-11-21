@@ -1,6 +1,7 @@
 import "server-only";
 import webpush from "web-push";
 import { extraitNotification } from "@/lib/messagerie/markdown";
+import { premiereTentativePush, notificationNouvelleDemande } from "@/lib/push/demande";
 
 let configure = false;
 
@@ -22,13 +23,22 @@ function configurer() {
    La fonction en base déduit l'entreprise de l'événement qu'elle reçoit, et
    n'accepte qu'un événement réclamé et non traité. Le drain ne peut donc plus
    désigner les abonnements push d'une entreprise quelconque. */
-export async function envoyerPushNouvelleDemande(q, evenementId, demandeId, reference) {
+export async function envoyerPushNouvelleDemande(
+  q, evenementId, demandeId, nomsDuCouple, tentatives,
+) {
+  // Le drain peut rejouer une même demande pendant des heures si Brevo
+  // refuse son accusé (HTTP 400 par exemple). Une reprise d'e-mail NE DOIT
+  // JAMAIS déclencher une nouvelle alerte pour la même demande.
+  if (!premiereTentativePush(tentatives)) {
+    return { envoyes: 0, inhibe: false, dejaAlerte: true };
+  }
   if (!configurer()) return { envoyes: 0, inhibe: true };
 
   const { rows } = await q(
     "SELECT * FROM app.push_abonnements_evenement($1)",
     [evenementId],
   );
+  const charge = JSON.stringify(notificationNouvelleDemande(demandeId, nomsDuCouple));
 
   let envoyes = 0;
   for (const abonnement of rows) {
@@ -38,12 +48,7 @@ export async function envoyerPushNouvelleDemande(q, evenementId, demandeId, refe
           endpoint: abonnement.endpoint,
           keys: { p256dh: abonnement.p256dh, auth: abonnement.auth },
         },
-        JSON.stringify({
-          title: "Nouvelle demande JoksWed",
-          body: `Une nouvelle demande (${reference}) vient d’arriver.`,
-          url: `/admin/demandes/${demandeId}`,
-          tag: `demande-${demandeId}`,
-        }),
+        charge,
         { TTL: 600, urgency: "high" },
       );
       envoyes += 1;
