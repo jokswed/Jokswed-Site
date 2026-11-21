@@ -105,6 +105,10 @@ BEGIN
       USING ERRCODE = 'check_violation';
   END IF;
 
+  -- Sérialise les dépôts du même utilisateur pour garder les limites de
+  -- nombre et d'octets cohérentes, même avec plusieurs onglets ouverts.
+  PERFORM pg_advisory_xact_lock(hashtext('pieces-message-jokswed'), hashtext(v_acteur::text));
+
   -- Le ménage est limité aux dépôts temporaires expirés. Jamais un fichier
   -- déjà rattaché à un message ni une pièce reçue d'un client.
   DELETE FROM pieces_messages_temp WHERE expire_le < now();
@@ -259,3 +263,19 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
 $$;
 REVOKE ALL ON FUNCTION app.fichiers_pour_envoi(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.fichiers_pour_envoi(uuid) TO jokswed_app;
+
+
+-- Les fichiers de préparation abandonnés expirent au bout de deux heures.
+-- Le cron existant de la file d'e-mails appelle ce nettoyage toutes les
+-- quinze minutes ; aucune donnée déjà rattachée n'est concernée.
+CREATE OR REPLACE FUNCTION app.purger_fichiers_temporaires()
+RETURNS integer
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = public, pg_temp AS $$
+DECLARE v_n integer;
+BEGIN
+  DELETE FROM pieces_messages_temp WHERE expire_le < now();
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION app.purger_fichiers_temporaires() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.purger_fichiers_temporaires() TO jokswed_app;
