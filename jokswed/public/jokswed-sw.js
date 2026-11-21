@@ -14,17 +14,31 @@ self.addEventListener("push", (event) => {
   const url = chemin.startsWith("/admin/") || chemin === "/admin"
     ? chemin : "/admin";
 
-  event.waitUntil(
-    self.registration.showNotification(data.title || "JoksWed", {
+  const tag = typeof data.tag === "string" ? data.tag : "jokswed";
+  const estNouvelleDemande = /^demande-[a-f0-9-]{36}$/i.test(tag);
+  event.waitUntil((async () => {
+    /* Le serveur empêche les relances dues aux erreurs d'e-mail.
+       Le Service Worker supprime également le réaffichage d'une demande
+       encore visible ; renotify=false évite de la faire sonner à nouveau. */
+    if (estNouvelleDemande && self.registration.getNotifications) {
+      try {
+        const dejaVisibles = await self.registration.getNotifications({ tag });
+        if (dejaVisibles.length > 0) return;
+      } catch {
+        // Certains navigateurs n'exposent pas getNotifications : le même tag
+        // et renotify:false restent utilisables sans casser l'alerte.
+      }
+    }
+    await self.registration.showNotification(data.title || "JoksWed", {
       body: data.body || "Vous avez reçu un nouveau message.",
       icon: data.icon || "/apple-icon.png",
       badge: data.badge || "/apple-icon.png",
       lang: "fr",
-      tag: data.tag || "jokswed",
-      renotify: true,
+      tag,
+      renotify: estNouvelleDemande ? false : data.renotify === true,
       data: { url },
-    }),
-  );
+    });
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {
