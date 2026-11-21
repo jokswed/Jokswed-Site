@@ -7,6 +7,7 @@ import { accesPage, contexteAdmin } from "@/lib/admin/garde";
 import { adresseReponse, domaineReponse } from "@/lib/messagerie/adresses";
 import { substituer, tableDeSubstitution, texteVersHtml } from "@/lib/messagerie/modeles";
 import { drainer } from "@/lib/demandes/drain";
+import { idValide } from "@/lib/messagerie/pieces";
 import Retour from "@/components/admin/Retour";
 import ActualiserMessagerie from "@/components/admin/ActualiserMessagerie";
 import SaisieMessagerie from "@/components/admin/SaisieMessagerie";
@@ -97,10 +98,13 @@ export default async function Conversation({ params, searchParams }) {
         WHERE entreprise_id = $1 AND statut = 'active'
           AND (utilisateur_id IS NULL OR utilisateur_id = app.acteur())
         ORDER BY utilisateur_id NULLS LAST`, [entreprise.id]);
+    const { rows: [capacitePieces] } = await q(
+      "SELECT to_regprocedure('app.preparer_fichier_message(uuid,text,text,integer)') IS NOT NULL AS disponible");
     await q("SELECT app.marquer_lue($1)", [id]);
     return { conv: conv[0], fil, noteDejaImportee: noteDejaImportee?.presente === true,
              discussions, participants, invitables, modeles, documents,
-             identites, variables: variables?.v ?? {} };
+             identites, variables: variables?.v ?? {},
+             fichiersDisponibles: capacitePieces?.disponible === true };
   });
 
   if (!vue) notFound();
@@ -109,28 +113,56 @@ export default async function Conversation({ params, searchParams }) {
     "use server";
     const { entreprise: e } = await contexteAdmin();
     const a = await accesPage(e.id, ["message.envoyer"]);
-    const corps = String(formulaire.get("corps") ?? "").trim();
-    if (!corps) return;
+    const corpsSaisi = String(formulaire.get("corps") ?? "").trim();
     const interne = formulaire.get("interne") === "1";
+    const documents = [...new Set(formulaire.getAll("document").map(String).filter(Boolean))];
+    const fichiers = [...new Set(formulaire.getAll("fichier").map(String).filter(Boolean))];
+    if (documents.length + fichiers.length > 4 ||
+        [...documents, ...fichiers].some((valeur) => !idValide(valeur))) {
+      throw new Error("Sélection de pièces jointes invalide (4 maximum).");
+    }
+    if (interne && (documents.length || fichiers.length)) {
+      throw new Error("Une note interne ne peut pas contenir de pièces pour le client.");
+    }
+    if (!corpsSaisi && !documents.length && !fichiers.length) return;
+
+    /* Les e-mails contenant uniquement des documents ont un texte lisible. */
+    const corps = corpsSaisi ||
+      "Bonjour,\\n\\nVeuillez trouver les documents en pièce jointe.\\n\\nBien cordialement.";
     const sujet = String(formulaire.get("sujet") ?? "").trim() || null;
     const identite = String(formulaire.get("identite") ?? "") || null;
-    const documents = formulaire.getAll("document").map(String).filter(Boolean);
+    const cle = String(formulaire.get("envoi_id") ?? "");
+    if (!idValide(cle)) throw new Error("Identifiant d'envoi manquant.");
 
     await a.executer(async (q) => {
+      /* Un double clic ou une reprise réseau ne peut pas créer deux e-mails
+         avec les mêmes fichiers. Même verrou pour ce composeur unique. */
+      await q("SELECT pg_advisory_xact_lock(hashtext('messagerie-compose'),hashtext($1))",
+        [cle]);
+      const idem = `compose:${cle}`;
+      const { rows: deja } = await q(
+        "SELECT id FROM messages WHERE conversation_id = $1 AND cle_idempotence = $2",
+        [id, idem]);
+      if (deja.length) return;
+
       const { rows } = await q(
         "SELECT app.composer_message($1,$2,$3,$4,$5,$6,$7::citext,$8) AS id",
         [id, interne ? "interne" : "sortant", corps,
-         interne ? null : texteVersHtml(corps), sujet,
-         /* Clé d'idempotence : un double envoi du formulaire ne crée qu'un
-            message. Le corps en fait partie — deux messages identiques à la
-            seconde près sont, en pratique, un double clic. */
-         `compose:${Math.floor(Date.now() / 10000)}:${corps.length}`,
-         identite, null]);
+         interne ? null : texteVersHtml(corps), sujet, idem, identite, null]);
       const messageId = rows[0]?.id;
-      if (!messageId) return;
+      if (!messageId) throw new Error("Message non créé.");
       for (const doc of documents) {
-        await q("SELECT app.joindre_document($1,$2)", [messageId, doc]);
+        const { rows: ajout } = await q("SELECT app.joindre_document($1,$2) AS id",
+          [messageId, doc]);
+        if (!ajout[0]?.id) throw new Error("Document introuvable.");
       }
+      for (const piece of fichiers) {
+        const { rows: ajout } = await q("SELECT app.joindre_fichier_message($1,$2) AS id",
+          [messageId, piece]);
+        if (!ajout[0]?.id) throw new Error("Fichier introuvable ou incomplet.");
+      }
+      /* Sans exception, la transaction enregistre message ET pièces avant que
+         le drain ne tente une expédition via Gmail ou Brevo. */
     });
 
     if (!interne) {
@@ -169,7 +201,7 @@ export default async function Conversation({ params, searchParams }) {
   }
 
   const { conv, fil, noteDejaImportee, discussions, participants, invitables,
-          modeles, documents, identites, variables } = vue;
+          modeles, documents, identites, variables, fichiersDisponibles } = vue;
   const messageInitial = conv.demande_message?.trim() && !noteDejaImportee
     ? {
         id: `demande-${conv.demande_id}`,
@@ -290,14 +322,29 @@ export default async function Conversation({ params, searchParams }) {
                 </div>
                 {m.pieces?.length > 0 ? (
                   <div className="admin-chat-bulle__pieces">
-                    {m.pieces.map((p) => (
-                      <a key={p.id} className="admin-chat-piece"
-                        href={p.origine === "document"
-                          ? `/api/admin/documents/${p.document_id}/pdf`
-                          : `/api/admin/pieces/${p.id}`}>
-                        <span aria-hidden="true">📎</span> {p.nom}
-                      </a>
-                    ))}
+                    {m.pieces.map((p) => {
+                      const document = p.origine === "document";
+                      const lien = document
+                        ? `/api/admin/documents/${p.document_id}/pdf`
+                        : `/api/admin/pieces/${p.id}`;
+                      const apercu = document || ["application/pdf", "image/jpeg",
+                        "image/png", "image/gif"].includes(p.type);
+                      return (
+                        <span key={p.id} className="admin-chat-piece-wrap">
+                          <a className="admin-chat-piece" href={lien}
+                            title={`Télécharger ${p.nom}`}>
+                            <span aria-hidden="true">📎</span> {p.nom}
+                          </a>
+                          {apercu ? (
+                            <a className="admin-chat-piece-apercu"
+                              href={document ? lien : `${lien}?apercu=1`}
+                              target="_blank" rel="noopener noreferrer">
+                              Aperçu
+                            </a>
+                          ) : null}
+                        </span>
+                      );
+                    })}
                   </div>
                 ) : null}
                 <div className="admin-chat-bulle__pied">
@@ -372,16 +419,12 @@ export default async function Conversation({ params, searchParams }) {
               initial={apercu?.texte ?? ""}
               bloquee={manquantes.length > 0}
               interneSeulement={!estClient}
+              conversationId={id}
+              documents={estClient ? documents : []}
+              fichiersDisponibles={fichiersDisponibles}
             />
 
             <div className="admin-chat-composer__actions">
-              {estClient ? (
-                <button type="submit" name="interne" value="1"
-                  className="admin-chat-note"
-                  disabled={manquantes.length > 0}>
-                  + Note interne
-                </button>
-              ) : null}
               <details className="admin-chat-avance">
                 <summary>Options d'envoi</summary>
                 <div className="admin-chat-avance__champs">
@@ -406,20 +449,6 @@ export default async function Conversation({ params, searchParams }) {
                           : conv.sujet
                       )} />
                   </div>
-                  {estClient && documents.length > 0 ? (
-                    <fieldset className="champ">
-                      <legend>Joindre un document</legend>
-                      {documents.map((d) => (
-                        <label key={d.id} className="admin-case">
-                          <input type="checkbox" name="document" value={d.id}
-                            disabled={d.statut === "brouillon"} />
-                          {d.type}{d.role_facture ? ` ${d.role_facture}` : ""}
-                          {d.numero ? ` ${d.numero}` : ""}
-                          {d.statut === "brouillon" ? " — brouillon indisponible" : ""}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ) : null}
                 </div>
               </details>
             </div>
