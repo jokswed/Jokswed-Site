@@ -128,7 +128,7 @@ export default async function Conversation({ params, searchParams }) {
 
     /* Les e-mails contenant uniquement des documents ont un texte lisible. */
     const corps = corpsSaisi ||
-      "Bonjour,\\n\\nVeuillez trouver les documents en pièce jointe.\\n\\nBien cordialement.";
+      "Bonjour,\n\nVeuillez trouver les documents en pièce jointe.\n\nBien cordialement.";
     const sujet = String(formulaire.get("sujet") ?? "").trim() || null;
     const identite = String(formulaire.get("identite") ?? "") || null;
     const cle = String(formulaire.get("envoi_id") ?? "");
