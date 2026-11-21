@@ -58,7 +58,7 @@ async function pousser(data) {
     data: { json: () => data },
     waitUntil: (promise) => { attente = promise; },
   });
-  assert.ok(attente instanceof Promise);
+  assert.equal(typeof attente?.then, "function");
   await attente;
 }
 
