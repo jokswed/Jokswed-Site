@@ -1,27 +1,26 @@
 import { NextResponse } from "next/server";
 import { exigerSession } from "@/lib/auth/acces";
 import { avecActeur } from "@/lib/db/client";
+import { idValide } from "@/lib/messagerie/pieces";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/* =============================================================================
-   TÉLÉCHARGEMENT D'UNE PIÈCE JOINTE REÇUE
-   -----------------------------------------------------------------------------
-   ⚠️ AUCUN CONTRÔLE ÉCRIT ICI, ET C'EST VOULU.
+const APERCUS_AUTORISES = new Set([
+  "application/pdf", "image/jpeg", "image/png", "image/gif",
+]);
 
-   La politique `piece_visible` ne rend une pièce que si son message
-   appartient à une conversation dont l'acteur est participant ET s'il porte
-   `message.lire`. Une requête avec l'identifiant d'une pièce d'autrui ne
-   rend donc aucune ligne — pas une erreur d'autorisation, rien du tout.
-   Réécrire ce contrôle en JavaScript ajouterait un endroit où se tromper.
-
-   ⚠️ `Content-Disposition: attachment` ET `X-Content-Type-Options: nosniff`.
-   Une pièce reçue vient d'un tiers : la servir en ligne reviendrait à
-   exécuter son HTML sur notre domaine.
-   ============================================================================= */
+/**
+ * Téléchargement des fichiers reçus OU envoyés depuis une discussion.
+ *
+ * AUCUN lien public n'est créé. La politique RLS piece_visible n'affiche
+ * que les pièces des conversations que l'utilisateur a le droit de consulter.
+ * Seules les images et les PDF peuvent être affichés inline ; tout autre
+ * format sera téléchargé, même si un navigateur prétend pouvoir l'afficher.
+ */
 export async function GET(requete, { params }) {
   const { id } = await params;
+  if (!idValide(id)) return new NextResponse("Introuvable", { status: 404 });
   const session = await exigerSession().catch(() => null);
   if (!session) return new NextResponse("Non authentifié", { status: 401 });
 
@@ -29,21 +28,38 @@ export async function GET(requete, { params }) {
     { utilisateurId: session.utilisateurId, jetonHache: session.jetonHache },
     async (q) => {
       const { rows } = await q(
-        "SELECT nom, type_mime, contenu FROM pieces_jointes WHERE id = $1 AND origine = 'entrant'",
-        [id]);
+        `SELECT nom, type_mime, taille_octets, contenu FROM pieces_jointes
+          WHERE id = $1 AND origine IN ('entrant','fichier')`, [id]);
       return rows[0] ?? null;
-    });
-
+    },
+  );
   if (!piece?.contenu) return new NextResponse("Introuvable", { status: 404 });
 
-  const nomSur = String(piece.nom ?? "piece").replace(/[^\w.\- ]+/g, "_").slice(0, 120);
-  return new NextResponse(Buffer.from(piece.contenu), {
+  const octets = Buffer.from(piece.contenu);
+  const nom = String(piece.nom || "piece-jointe");
+  const nomAscii = nom.replace(/[^a-zA-Z0-9 ._()-]+/g, "_").replaceAll('"', "_").slice(0, 120);
+  const apercu = requete.nextUrl.searchParams.get("apercu") === "1"
+    && APERCUS_AUTORISES.has(piece.type_mime);
+
+  // La réponse est diffusée par blocs, y compris pour les fichiers >4,5 Mo.
+  // Elle n'est jamais stockée dans un cache CDN/intermédiaire.
+  const flux = new ReadableStream({
+    start(controller) {
+      for (let i = 0; i < octets.length; i += 256 * 1024) {
+        controller.enqueue(octets.subarray(i, i + 256 * 1024));
+      }
+      controller.close();
+    },
+  });
+  return new NextResponse(flux, {
     status: 200,
     headers: {
       "content-type": piece.type_mime || "application/octet-stream",
-      "content-disposition": `attachment; filename="${nomSur}"`,
+      "content-disposition": `${apercu ? "inline" : "attachment"}; filename="${nomAscii}"; filename*=UTF-8''${encodeURIComponent(nom)}`,
+      "content-length": String(octets.length),
       "x-content-type-options": "nosniff",
-      "cache-control": "private, no-store",
+      "cache-control": "private, no-store, max-age=0",
+      "content-security-policy": "default-src 'none'; sandbox",
     },
   });
 }

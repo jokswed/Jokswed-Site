@@ -117,6 +117,31 @@ export function viderBoiteDeTest(): void {
 }
 
 /**
+ * Représentation exacte envoyée à l'API Brevo, également testable sans
+ * déclencher un e-mail. La propriété attachment contient les octets en
+ * Base64 et le nom réel du fichier ; pas un lien temporaire.
+ */
+export function chargeBrevo(
+  message: MessageSortant,
+  de: { email: string; nom: string },
+) {
+  return {
+    sender: { email: de.email, name: de.nom },
+    to: [{ email: message.destinataire, name: message.destinataireNom ?? undefined }],
+    replyTo: message.repondreA ? { email: message.repondreA } : undefined,
+    subject: message.sujet,
+    htmlContent: message.html,
+    textContent: message.texte,
+    attachment: message.pieces?.length
+      ? message.pieces.map((p) => ({
+          name: p.nom, content: p.contenu.toString("base64"),
+        }))
+      : undefined,
+    tags: message.etiquettes ?? ["jokswed"],
+  };
+}
+
+/**
  * Envoie un message.
  *
  * Trois chemins : simulateur (bancs), inhibé (développement), Brevo (production).
@@ -158,20 +183,7 @@ export async function envoyer(message: MessageSortant): Promise<ResultatEnvoi> {
         "content-type": "application/json",
         accept: "application/json",
       },
-      body: JSON.stringify({
-        sender: { email: de.email, name: de.nom },
-        to: [{ email: message.destinataire, name: message.destinataireNom ?? undefined }],
-        replyTo: message.repondreA ? { email: message.repondreA } : undefined,
-        subject: message.sujet,
-        htmlContent: message.html,
-        textContent: message.texte,
-        attachment: message.pieces?.length
-          ? message.pieces.map((p) => ({
-              name: p.nom, content: p.contenu.toString("base64"),
-            }))
-          : undefined,
-        tags: message.etiquettes ?? ["jokswed"],
-      }),
+      body: JSON.stringify(chargeBrevo(message, de)),
       signal: AbortSignal.timeout(10_000),
     });
 

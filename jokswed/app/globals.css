@@ -2832,3 +2832,108 @@ button:hover .photo img {
   background: var(--brume); border-radius: 4px; padding: 0.05rem 0.2rem;
   overflow-wrap: anywhere;
 }
+
+
+/* ==========================================================================
+   MESSAGERIE PJ — bouton + et bulles de fichiers (2026)
+   ========================================================================== */
+.admin-chat-ajouter {
+  width: 38px; height: 38px; min-width: 38px; flex: 0 0 auto;
+  display: grid; place-items: center;
+  border: 0; border-radius: 50%; color: var(--encre);
+  background: #e8e5e0; cursor: pointer;
+  margin: 1px 2px 1px -0.4rem;
+  transition: transform .15s ease, background .15s ease;
+}
+.admin-chat-ajouter:hover:not(:disabled),
+.admin-chat-ajouter[aria-expanded="true"] {
+  background: #d8d3cd; transform: rotate(45deg);
+}
+.admin-chat-ajouter:focus-visible { outline: 2px solid var(--encre); outline-offset: 2px; }
+.admin-chat-ajouter:disabled { opacity: .5; cursor: not-allowed; }
+.admin-chat-ajout-menu {
+  margin: 0.5rem 0 0.2rem; padding: 0.75rem;
+  background: #faf9f7; border: 1px solid var(--ligne);
+  border-radius: 14px; display: grid; gap: 0.55rem;
+  max-height: 230px; overflow-y: auto;
+}
+.admin-chat-ajout-menu__choix {
+  display: inline-flex; gap: 0.5rem; align-items: center;
+  width: fit-content; border: 1px solid #d6d0c9; border-radius: 11px;
+  padding: .55rem .75rem; background: white; color: var(--encre);
+  font: inherit; font-size: .85rem; cursor: pointer;
+}
+.admin-chat-ajout-menu__choix:disabled { opacity: .55; cursor: not-allowed; }
+.admin-chat-ajout-menu__documents {
+  display: grid; gap: .4rem; padding: .5rem 0 0;
+  border: 0; border-top: 1px solid var(--ligne); min-width: 0;
+}
+.admin-chat-ajout-menu__documents legend {
+  color: var(--encre); font-size: .79rem; font-weight: 650;
+  padding: .3rem 0;
+}
+.admin-chat-ajout-menu__documents label {
+  display: flex; align-items: center; gap: .45rem; font-size: .82rem;
+  cursor: pointer; overflow-wrap: anywhere;
+}
+.admin-chat-ajout-menu__documents label:has(input:disabled) {
+  opacity: .55; cursor: not-allowed;
+}
+.admin-chat-ajout-menu small { font-size: .72rem; color: var(--gris); line-height: 1.45; }
+.admin-chat-fichiers {
+  display: flex; align-items: center; gap: .4rem;
+  flex-wrap: wrap; margin-bottom: .5rem;
+}
+.admin-chat-fichier {
+  display: inline-flex; align-items: center; gap: .35rem;
+  min-width: 0; max-width: min(100%, 330px);
+  border: 1px solid #ded8d1; border-radius: 13px;
+  background: #f8f6f2; padding: .32rem .42rem .32rem .55rem;
+  font-size: .8rem; line-height: 1.4;
+}
+.admin-chat-fichier__nom {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  min-width: 0; max-width: 190px;
+}
+.admin-chat-fichier small {
+  font-size: .68rem; color: var(--gris); white-space: nowrap;
+}
+.admin-chat-fichier a {
+  font-size: .72rem; color: var(--encre);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.admin-chat-fichier button {
+  background: transparent; border: 0; color: #59534e;
+  font-size: 1.1rem; cursor: pointer; line-height: 1.2;
+  padding: 0 .15rem;
+}
+.admin-chat-fichier--erreur {
+  border-color: #bb654e; background: #fff0ec;
+}
+.admin-chat-saisie__erreur {
+  margin: .4rem 0; font-size: .77rem; color: #9b3f33;
+}
+.admin-chat-saisie__bas {
+  display: flex; gap: .4rem 1rem; align-items: center;
+  margin: .4rem 0 .05rem; flex-wrap: wrap;
+}
+.admin-chat-saisie__bas .admin-chat-format { margin: 0; }
+.admin-chat-saisie__bas .admin-chat-note {
+  padding: .32rem .65rem;
+}
+.admin-chat-piece-wrap {
+  display: inline-flex; align-items: center; gap: .4rem;
+  max-width: 100%; flex-wrap: wrap;
+}
+.admin-chat-piece-apercu {
+  color: var(--gris); font-size: .73rem;
+  text-decoration: underline; text-underline-offset: 2px;
+}
+@media (max-width: 560px) {
+  .admin-chat-ajout-menu { max-height: 34vh; }
+  .admin-chat-ajouter { width: 34px; height: 34px; min-width: 34px; }
+  .admin-chat-fichier__nom { max-width: 135px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-chat-ajouter { transition: none; }
+}
