@@ -30,13 +30,14 @@ export default function SaisieMessagerie({
   initial = "",
   bloquee = false,
   interneSeulement = false,
+  fichiersDisponibles = false,
 }) {
   const textarea = useRef(null);
   const bouton = useRef(null);
   const selection = useRef(null);
   const apresSoumission = useRef(false);
   const urls = useRef(new Set());
-  const cleEnvoi = useRef(null);
+  const [cleEnvoi, setCleEnvoi] = useState("");
   const { pending } = useFormStatus();
   const [valeur, setValeur] = useState(initial);
   const [fichiers, setFichiers] = useState([]);
@@ -44,7 +45,9 @@ export default function SaisieMessagerie({
   const [panneauOuvert, setPanneauOuvert] = useState(false);
   const [erreur, setErreur] = useState("");
 
-  if (!cleEnvoi.current) cleEnvoi.current = crypto.randomUUID();
+  useEffect(() => {
+    setCleEnvoi(crypto.randomUUID());
+  }, []);
 
   useEffect(() => {
     if (textarea.current) {
@@ -57,7 +60,7 @@ export default function SaisieMessagerie({
     if (pending) apresSoumission.current = true;
     else if (apresSoumission.current) {
       apresSoumission.current = false;
-      cleEnvoi.current = crypto.randomUUID();
+      setCleEnvoi(crypto.randomUUID());
       setValeur("");
       setFichiers([]);
       setDocumentsChoisis([]);
@@ -80,9 +83,10 @@ export default function SaisieMessagerie({
   const aDesPieces = fichiersPrets.length > 0 || documentsChoisis.length > 0;
 
   const pret = (valeur.trim().length > 0 || aDesPieces)
-    && !pending && !bloquee && !transfertsEnCours && !transfertsEchoues;
+    && Boolean(cleEnvoi) && !pending && !bloquee
+    && !transfertsEnCours && !transfertsEchoues;
   const noteInternePossible = valeur.trim().length > 0 && !pending
-    && !bloquee && !transfertsEnCours && !aDesPieces;
+    && Boolean(cleEnvoi) && !bloquee && !transfertsEnCours && !aDesPieces;
 
   function auClavier(e) {
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
@@ -203,7 +207,7 @@ export default function SaisieMessagerie({
   return (
     <div className="admin-chat-saisie">
       <label className="admin-chat-saisie__etiquette" htmlFor="corps">Votre message</label>
-      <input type="hidden" name="envoi_id" value={cleEnvoi.current} />
+      <input type="hidden" name="envoi_id" value={cleEnvoi} />
       {fichiersPrets.map((f) => (
         <input type="hidden" name="fichier" value={f.id} key={f.cle} />
       ))}
@@ -245,12 +249,14 @@ export default function SaisieMessagerie({
       ) : null}
 
       <div className="admin-chat-saisie__ligne">
-        {!interneSeulement ? (
+        {!interneSeulement && (fichiersDisponibles || documents.length > 0) ? (
           <>
-            <input ref={selection} type="file" multiple hidden
+            {fichiersDisponibles ? (
+              <input ref={selection} type="file" multiple hidden
               aria-label="Choisir des fichiers à joindre"
               accept=".pdf,.jpg,.jpeg,.png,.gif,.txt,.csv,.docx,.xlsx,.pptx"
-              onChange={fichiersChoisis} />
+                onChange={fichiersChoisis} />
+            ) : null}
             <button type="button" className="admin-chat-ajouter"
               aria-label="Joindre un fichier ou un devis"
               title="Joindre un fichier ou un devis"
@@ -295,10 +301,12 @@ export default function SaisieMessagerie({
 
       {!interneSeulement && panneauOuvert ? (
         <div className="admin-chat-ajout-menu">
-          <button type="button" className="admin-chat-ajout-menu__choix"
-            onClick={() => selection.current?.click()} disabled={transfertsEnCours}>
-            <span aria-hidden="true">📎</span> Depuis mon appareil
-          </button>
+          {fichiersDisponibles ? (
+            <button type="button" className="admin-chat-ajout-menu__choix"
+              onClick={() => selection.current?.click()} disabled={transfertsEnCours}>
+              <span aria-hidden="true">📎</span> Depuis mon appareil
+            </button>
+          ) : null}
           {documents.length > 0 ? (
             <fieldset className="admin-chat-ajout-menu__documents">
               <legend>Devis et documents du dossier</legend>
@@ -313,8 +321,14 @@ export default function SaisieMessagerie({
               ))}
             </fieldset>
           ) : null}
-          <small>PDF, JPG, PNG, GIF, DOCX, XLSX, PPTX, TXT, CSV · 8 Mo/fichier · 10 Mo total · 4 pièces max.</small>
-          <small>Les pièces sont ajoutées au même e-mail, pas envoyées via un lien public.</small>
+          {fichiersDisponibles ? (
+            <>
+              <small>PDF, JPG, PNG, GIF, DOCX, XLSX, PPTX, TXT, CSV · 8 Mo/fichier · 10 Mo total · 4 pièces max.</small>
+              <small>Les pièces sont ajoutées au même e-mail, pas envoyées via un lien public.</small>
+            </>
+          ) : (
+            <small>Les devis générés peuvent déjà être joints. L'envoi de fichiers locaux sera activé après validation de la base de données.</small>
+          )}
         </div>
       ) : null}
 
