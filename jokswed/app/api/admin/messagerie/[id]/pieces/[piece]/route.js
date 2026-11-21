@@ -21,6 +21,31 @@ async function acteur(request, params) {
   return { id, piece, session };
 }
 
+/** Lire en streaming, pour refuser un client qui envoie une charge excessive
+ * sans en-tête Content-Length. Un simple arrayBuffer allouerait tout en
+ * mémoire avant de vérifier la limite, ce qui est évitable. */
+async function lireBloc(request) {
+  const reader = request.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const morceaux = [];
+  let taille = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      taille += value.byteLength;
+      if (taille > TAILLE_BLOC_MAX) {
+        await reader.cancel().catch(() => {});
+        throw new Error("Bloc trop volumineux");
+      }
+      morceaux.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(morceaux, taille);
+}
+
 /** Chaque bloc est au plus 2 MiB, sans exposer le PDF au frontend public.
  * La première tranche est vérifiée sur sa signature, tandis que PostgreSQL
  * vérifie en permanence l'auteur, la taille, l'ordre et la conversation.
@@ -42,7 +67,7 @@ export async function POST(request, { params }) {
   }
 
   try {
-    const contenu = Buffer.from(await request.arrayBuffer());
+    const contenu = await lireBloc(request);
     if (contenu.length === 0 || contenu.length > TAILLE_BLOC_MAX) {
       return NextResponse.json({ erreur: "Bloc vide ou trop grand" }, { status: 413 });
     }
