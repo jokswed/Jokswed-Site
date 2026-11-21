@@ -38,7 +38,8 @@
     "test:gmail": "tsx scripts/banc-gmail.mjs",
     "test:email": "tsx scripts/test-email-personnel.mjs",
     "test:markdown": "tsx scripts/test-markdown.mjs",
-    "test:pieces": "tsx scripts/test-pieces-messagerie.mjs"
+    "test:pieces": "tsx scripts/test-pieces-messagerie.mjs",
+    "prebuild": "npm run test:pieces"
   },
   "dependencies": {
     "next": "^16.4.6",
