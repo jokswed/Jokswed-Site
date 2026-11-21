@@ -113,6 +113,15 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
       return;
     }
 
+    /* Supprime les uploads temporaires abandonnés depuis plus de 2 h.
+       Cette fonction n'existe qu'à partir du palier SQL 070 : tant qu'il
+       n'est pas appliqué, le drain continue normalement. */
+    const { rows: [nettoyagePieces] } = await q(
+      "SELECT to_regprocedure('app.purger_fichiers_temporaires()') IS NOT NULL AS disponible");
+    if (nettoyagePieces?.disponible) {
+      await q("SELECT app.purger_fichiers_temporaires()");
+    }
+
     const { rows } = await q("SELECT * FROM app.evenements_a_traiter($1)", [max]);
     bilan.pris = rows.length;
 
