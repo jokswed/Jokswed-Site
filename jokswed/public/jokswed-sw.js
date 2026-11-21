@@ -35,7 +35,7 @@ self.addEventListener("push", (event) => {
       badge: data.badge || "/apple-icon.png",
       lang: "fr",
       tag,
-      renotify: estNouvelleDemande ? false : data.renotify === true,
+      renotify: estNouvelleDemande ? false : data.renotify !== false,
       data: { url },
     });
   })());
