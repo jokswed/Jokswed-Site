@@ -332,19 +332,47 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
               ?? msg.reponse_vers
               ?? adresseDeReponse();
 
-            /* ⚠️ LES PIÈCES SE RÉGÉNÈRENT, ELLES NE SE STOCKENT PAS.
-               Le PDF est rendu depuis l'instantané du document au moment de
-               l'envoi : impossible de joindre une version périmée, et le
-               brouillon a déjà été refusé au moment de l'attacher. */
-            const pieces: { nom: string; contenu: Buffer }[] = [];
+            /* Les PDF internes sont régénérés depuis leur instantané.
+               Les nouveaux fichiers locaux sont, eux, déjà figés dans la
+               pièce jointe du message AVANT la création de l'événement.
+               Aucun fichier manquant n'est ignoré silencieusement. */
+            const pieces: { nom: string; contenu: Buffer; type?: string }[] = [];
             for (const documentId of (msg.documents as string[]) ?? []) {
               const { rows: docs } = await q(
                 "SELECT numero, type, statut, instantane FROM documents WHERE id = $1",
                 [documentId]);
               const doc = docs[0];
-              if (!doc || doc.statut === "brouillon") continue;
+              if (!doc || doc.statut === "brouillon") {
+                throw new Error("Document joint introuvable ou non émis.");
+              }
               const { pdf } = rendrePdf(doc.instantane, false);
-              pieces.push({ nom: `${doc.numero ?? doc.type}.pdf`, contenu: pdf });
+              pieces.push({ nom: `${doc.numero ?? doc.type}.pdf`,
+                contenu: pdf, type: "application/pdf" });
+            }
+            /* Compatibilité : jusqu'à la migration 070, la plateforme peut
+               continuer d'envoyer ses messages habituels sans fichiers locaux. */
+            const { rows: [capacitePieces] } = await q(
+              "SELECT to_regprocedure('app.fichiers_pour_envoi(uuid)') IS NOT NULL AS disponible");
+            if (capacitePieces?.disponible) {
+              const { rows: fichiers } = await q(
+                "SELECT * FROM app.fichiers_pour_envoi($1)", [message_id]);
+              for (const fichier of fichiers) {
+                if (!fichier.contenu || !fichier.nom) {
+                  throw new Error("Une pièce jointe préparée est indisponible.");
+                }
+                pieces.push({
+                  nom: fichier.nom,
+                  contenu: Buffer.from(fichier.contenu),
+                  type: fichier.type_mime,
+                });
+              }
+            }
+            /* Brevo : 20 Mo pour l'e-mail complet encodé. 12 Mio bruts
+               donnent environ 16 Mio en base64, avec une marge pour le texte,
+               le HTML et les en-têtes. Gmail utilise les mêmes octets MIME. */
+            const totalPieces = pieces.reduce((n, f) => n + f.contenu.length, 0);
+            if (pieces.length > 8 || totalPieces > 12 * 1024 * 1024) {
+              throw new Error("Limite des pièces jointes : 12 Mo de fichiers par e-mail.");
             }
 
             /* ⚠️ UNE RÉPONSE ÉCRITE À LA MAIN PART DE SA PROPRE BOÎTE.
