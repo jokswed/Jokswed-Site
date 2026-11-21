@@ -12,6 +12,7 @@ import { rendrePdf } from "@/lib/documents/generer";
 import { formaterDateSql } from "@/lib/dates";
 import { lienSuiviDemande } from "@/lib/suivi/demande";
 import { envoyerPushNouvelleDemande } from "@/lib/push/envoyer";
+import { nomsCouplePush } from "@/lib/push/demande";
 import { compteGmailPourMessage } from "@/lib/gmail/compte";
 import { envoyerParGmail } from "@/lib/gmail/envoi";
 
@@ -50,7 +51,7 @@ async function notifierEquipe(
   q: Requete,
   entrepriseId: string,
   demandeId: string,
-  reference: string,
+  nomDuCouple: string,
   videoDemandee: boolean,
 ): Promise<void> {
   const { rows } = await q("SELECT * FROM app.membres_avec($1,'dossier.lire')", [entrepriseId]);
@@ -59,10 +60,12 @@ async function notifierEquipe(
       d.utilisateur_id,
       entrepriseId,
       "demande.recue",
-      `Nouvelle demande ${reference}`,
-      /* ⚠️ NI NOM, NI DATE, NI MONTANT : une notification s'affiche sur un
-         écran verrouillé. Le détail se consulte dans l'espace authentifié. */
-      videoDemandee ? "Prestation vidéo demandée." : null,
+      "Nouvelle demande",
+      /* Nom du couple explicitement demandé par le propriétaire.
+         Pas d'e-mail, numéro de téléphone, montant ni message privé. */
+      videoDemandee
+        ? `${nomsCouplePush(nomDuCouple)} · Prestation vidéo demandée.`
+        : nomsCouplePush(nomDuCouple),
       `/admin/demandes/${demandeId}`,
       `demande.recue:${demandeId}`,
     ]);
@@ -156,7 +159,7 @@ export async function drainer(max = 20): Promise<ResultatDrain> {
             }
           }
 
-          await notifierEquipe(q, entreprise_id, demande_id, reference, video_demandee);
+          await notifierEquipe(q, entreprise_id, demande_id, d?.contact_nom, video_demandee);
           const site = process.env.SITE_URL ?? "https://jokswed.com";
 
           if (d) {
