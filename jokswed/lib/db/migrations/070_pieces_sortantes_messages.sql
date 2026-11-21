@@ -134,11 +134,11 @@ GRANT EXECUTE ON FUNCTION app.preparer_fichier_message(uuid,text,text,integer)
 CREATE OR REPLACE FUNCTION app.fichier_message_a_soi(
   p_conversation uuid, p_fichier uuid)
 RETURNS TABLE (nom text)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
   SELECT f.nom FROM pieces_messages_temp f
     WHERE f.id=p_fichier AND f.conversation_id=p_conversation
       AND f.utilisateur_id=app.acteur() AND f.expire_le>now()
-$;
+$$;
 REVOKE ALL ON FUNCTION app.fichier_message_a_soi(uuid,uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.fichier_message_a_soi(uuid,uuid) TO jokswed_app;
 
