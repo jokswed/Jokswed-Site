@@ -34,7 +34,12 @@ export async function POST(request, { params }) {
   if (!session) return NextResponse.json({ erreur: "Connexion requise" }, { status: 401 });
 
   try {
-    const body = await request.json();
+    /* Plafond réellement imposé, même si le client omet Content-Length. */
+    const brut = await request.text();
+    if (brut.length > 4096) {
+      return NextResponse.json({ erreur: "Requête trop volumineuse" }, { status: 413 });
+    }
+    const body = JSON.parse(brut);
     const nom = nomFichierSecurise(body?.nom);
     const mime = mimeFichier(nom);
     const taille = Number(body?.taille);
